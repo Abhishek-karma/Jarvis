@@ -8,6 +8,7 @@ import com.jarvis.core.network.ChatRequest
 import com.jarvis.core.network.ChatStreamEvent
 import com.jarvis.core.network.LlmProvider
 import com.jarvis.core.network.ProviderCapabilities
+import com.jarvis.core.network.apiRoot
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
@@ -34,8 +35,7 @@ import kotlin.coroutines.resumeWithException
 import kotlin.random.Random
 
 /**
- * Anthropic Messages API adapter (05-LLM-PROVIDERS.md §2).
- * Uses /v1/messages endpoint with SSE streaming.
+ * Anthropic Messages API adapter. Uses the /v1/messages endpoint with SSE streaming.
  * Supports tool calling and vision.
  */
 class AnthropicProvider(
@@ -65,7 +65,7 @@ class AnthropicProvider(
         .writeTimeout(10, TimeUnit.SECONDS)
         .build()
 
-    private fun buildUrl(path: String): String = baseUrl.trimEnd('/') + path
+    private fun buildUrl(path: String): String = apiRoot(baseUrl) + path
 
     override suspend fun listModels(): Result<List<ModelInfo>> = withRetries {
         val request = Request.Builder()

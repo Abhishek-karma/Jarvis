@@ -5,10 +5,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 
 /**
- * Root theme — ported from `design/chatgpt/DESIGN-android.md` (light + dark switch on
- * the system setting; charcoal #212121 dark, never true black) with Claude's warm
- * accent scheme from `design/claude/DESIGN-android.md`. Dynamic color is deliberately
- * NOT enabled — the identity is fixed regardless of wallpaper.
+ * Root theme — light/dark follows the system setting (charcoal #212121 dark, never
+ * true black) with the fixed warm accent scheme. Dynamic color is deliberately NOT
+ * enabled — the identity is fixed regardless of wallpaper.
  */
 @Composable
 fun JarvisTheme(

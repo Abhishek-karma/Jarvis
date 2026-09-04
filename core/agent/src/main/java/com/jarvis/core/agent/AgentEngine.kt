@@ -21,12 +21,12 @@ data class AgentRunRequest(
 )
 
 /**
- * Answers a user request through a step-capped ReAct loop (Thought → Action → Observation,
- * 06-AGENT.md §1). The caller — later, the Agent Canvas integration — supplies the
+ * Answers a user request through a step-capped ReAct loop (Thought → Action → Observation).
+ * The caller — later, the Agent Canvas integration — supplies the
  * [ConfirmationGate]; the engine itself only ever asks, it never auto-allows a Sensitive
  * tool, and every executed or cancelled call is written to the [AuditLogger].
  *
- * Cancellation contract (06-AGENT.md §5): a tool call already in flight is allowed to finish
+ * Cancellation contract: a tool call already in flight is allowed to finish
  * before the loop halts, so nothing is killed mid-write. Cancelling the run aborts the
  * provider stream (each adapter closes its socket in awaitClose).
  */
@@ -204,7 +204,7 @@ class AgentEngine(
 
     private companion object {
         const val DEFAULT_STEP_CAP = 15
-        const val MAX_STEP_CAP = 40 // hard ceiling against runaway loops (06-AGENT.md §1)
+        const val MAX_STEP_CAP = 40 // hard ceiling against runaway loops
         const val SYSTEM_PROMPT = "You are Jarvis's agent. Use the provided tools when they help " +
             "fulfill the user's request: request exactly one tool call per turn, wait for the " +
             "Observation, and keep going until the task is done, then answer the user directly. " +
@@ -212,12 +212,12 @@ class AgentEngine(
     }
 }
 
-/** Answers whether a pending Sensitive-tier call may proceed (06-AGENT.md §4). */
+/** Answers whether a pending Sensitive-tier call may proceed. */
 fun interface ConfirmationGate {
     suspend fun confirm(toolName: String, argsJson: String): Boolean
 }
 
-/** Streamed progress of an agent run — the surface the Agent Canvas (04-DESIGN.md Screen 5) will render. */
+/** Streamed progress of an agent run — the surface the Agent Canvas will render. */
 sealed class AgentEvent {
     data object RunStarted : AgentEvent()
     data class IterationStarted(val step: Int) : AgentEvent()

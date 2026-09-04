@@ -5,7 +5,7 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-/** Mirrors 09-DATA-MODELS.md §1 — conversations table. */
+/** Conversations table. */
 @Entity(tableName = "conversations")
 data class ConversationEntity(
     @PrimaryKey val id: String,
@@ -21,7 +21,7 @@ data class ConversationEntity(
     val branchedFromMessageId: String? = null,
 )
 
-/** Mirrors 09-DATA-MODELS.md §1 — messages table with cascade delete on conversation. */
+/** Messages table with cascade delete on conversation. */
 @Entity(
     tableName = "messages",
     foreignKeys = [
@@ -49,25 +49,26 @@ data class MessageEntity(
     val completionTokens: Int? = null,
 )
 
-/** User-configured provider rows; API keys NEVER live here (14-SECURITY.md §2). */
+/** User-configured provider rows; API keys NEVER live here. */
 @Entity(tableName = "providers")
 data class ProviderEntity(
     @PrimaryKey val id: String,
     val name: String,
     val baseUrl: String,
+    val model: String? = null,
     val type: String, // "openai_compatible"
     val isDefault: Boolean = false,
     val addedAt: Long = System.currentTimeMillis(),
 )
 
-/** Append-only audit row for agent tool executions (09-DATA-MODELS.md §2, 14-SECURITY.md §7). */
+/** Append-only audit row for agent tool executions. */
 @Entity(tableName = "audit_log")
 data class AuditLogEntity(
     @PrimaryKey val id: String,
     val agentRunId: String?, // nullable — some tool calls happen outside a full agent run
     val toolName: String,
     val tier: String, // "read_only" | "reversible_write" | "sensitive"
-    val paramsRedactedJson: String, // sensitive values redacted per 14-SECURITY.md
+    val paramsRedactedJson: String, // sensitive values redacted before storage
     val resultStatus: String, // "success" | "failure" | "cancelled"
     val userConfirmed: Boolean,
     val timestamp: Long,

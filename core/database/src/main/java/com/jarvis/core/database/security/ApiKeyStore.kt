@@ -9,7 +9,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * API key storage per 14-SECURITY.md §2: AES-256-GCM, Android Keystore-wrapped master key.
+ * API key storage: AES-256-GCM, Android Keystore-wrapped master key.
  * Keys are never logged, never written to Room, never synced — only read by :core:network
  * when building the Authorization header for the key's own provider endpoint.
  */

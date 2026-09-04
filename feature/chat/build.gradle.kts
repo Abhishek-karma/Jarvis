@@ -38,6 +38,7 @@ dependencies {
     implementation(project(":core:network"))
     implementation(project(":core:voice"))
     implementation(project(":core:agent"))
+    implementation(project(":core:ml"))
 
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.core.ktx)

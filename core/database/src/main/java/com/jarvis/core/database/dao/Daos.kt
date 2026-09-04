@@ -77,8 +77,8 @@ interface ProviderDao {
 }
 
 /**
- * Append-only audit log (09-DATA-MODELS.md §2): only inserts exist — no @Update or @Delete
- * methods, keeping the log tamper-evident within the app.
+ * Append-only audit log: only inserts exist — no @Update or @Delete methods, keeping the
+ * log tamper-evident within the app.
  */
 @Dao
 interface AuditLogDao {

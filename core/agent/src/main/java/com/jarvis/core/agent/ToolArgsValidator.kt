@@ -8,7 +8,7 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * Validates a tool-call's `argsJson` against the tool's declared JSON-Schema before dispatch
- * (jarvis-agent-tool §6 — untrusted callers must not reach a tool with malformed input).
+ * (untrusted callers must not reach a tool with malformed input).
  *
  * Guard semantics, not a full JSON-Schema validator: it enforces that the args parse as a
  * JSON object, that every required key is present, and that present values match the

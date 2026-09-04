@@ -55,10 +55,9 @@ private object JarvisFont {
 /**
  * Renders a markdown string as a column of styled text blocks, using [parseMarkdown].
  *
- * Styling per the source design packs: assistant prose in the serif family with a
- * 1.55 line rhythm (Claude signature), headings in the serif semibold ramp, code
- * blocks on the tinted surface with a language-label header strip, hairline border
- * and a copy button (ChatGPT spec).
+ * Styling: assistant prose in the serif family with a 1.55 line rhythm, headings in
+ * the serif semibold ramp, code blocks on the tinted surface with a language-label
+ * header strip, hairline border and a copy button.
  */
 @Composable
 fun MarkdownText(
@@ -108,7 +107,7 @@ private fun StyledText(
                 fontStyle = if (span.italic) FontStyle.Italic else style.fontStyle,
                 fontFamily = if (span.code) JarvisFont.mono else style.fontFamily,
                 fontSize = if (span.code) JarvisText.Code.fontSize else style.fontSize,
-                // Warm inline-code chip (claude spec — warm surface, never blue).
+                // Warm inline-code chip — warm surface, never blue.
                 background = if (span.code) {
                     if (isSystemInDarkTheme()) JarvisColors.Dark.codeInlineBg else JarvisColors.Light.codeInlineBg
                 } else {
@@ -117,7 +116,7 @@ private fun StyledText(
             )
             if (span.url != null) {
                 pushStringAnnotation(tag = "URL", annotation = span.url)
-                // Links take the single accent — Claude Orange (claude/DESIGN.md §2).
+                // Links use the single accent color.
                 pushStyle(spanStyle.copy(color = JarvisColors.Accent.orange))
                 append(span.text)
                 pop()

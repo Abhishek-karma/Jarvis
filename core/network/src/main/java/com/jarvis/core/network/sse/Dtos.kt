@@ -11,7 +11,7 @@ data class ChatMessageDto(
     val tool_calls: List<ChatCompletionRequestToolCallDto>? = null,
 )
 
-/** An assistant turn that requests tools (09-DATA-MODELS.md §6) — echoed back verbatim. */
+/** An assistant turn that requests tools — echoed back verbatim. */
 @JsonClass(generateAdapter = true)
 data class ChatCompletionRequestToolCallDto(
     val id: String,

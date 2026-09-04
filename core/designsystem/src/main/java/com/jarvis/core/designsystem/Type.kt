@@ -7,26 +7,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 /**
- * Named type ramp.
- *
- * ChatGPT uses Söhne (Klim) — substituted here by the system sans stack; Claude's
- * Tiempos serif for assistant prose is substituted by the platform serif family
- * (closest free pairing per `design/claude/DESIGN-android.md §2`). Code stays
- * monospace (Menlo / SF Mono equivalent). Weights 400/500/600/700, no display type
- * beyond the 32sp ceiling.
+ * Named type ramp: the platform sans for UI chrome and user messages, a serif for
+ * assistant prose, monospace for code. Weights 400/500/600/700, display capped at 32sp.
  */
 object JarvisFont {
-    /** UI chrome, user messages — Söhne / Styrene substitute. */
+    /** UI chrome and user messages. */
     val sans: FontFamily = FontFamily.Default
 
-    /** Assistant message body & headings — Tiempos substitute (Claude signature). */
+    /** Assistant message body and headings. */
     val serif: FontFamily = FontFamily.Serif
 
-    /** Code — Menlo / JetBrains Mono substitute. */
+    /** Code. */
     val mono: FontFamily = FontFamily.Monospace
 }
 
-/** Named ramp — mirrors the DESIGN.md §3 ramps of both source specs (pt → sp 1:1). */
+/** Named ramp — pt → sp 1:1. */
 object JarvisText {
     // Display (about / empty state)
     val Display = TextStyle(
@@ -112,13 +107,12 @@ object JarvisText {
         lineHeight = 14.sp,
     )
 
-    // Sidebar section headers — uppercase, letterspaced
+    // Sidebar section headers — sentence case, no tracking
     val SectionHeader = TextStyle(
         fontFamily = JarvisFont.sans,
         fontWeight = FontWeight.SemiBold,
         fontSize = 13.sp,
         lineHeight = 16.sp,
-        letterSpacing = 0.4.sp,
     )
 
     // Chip / button

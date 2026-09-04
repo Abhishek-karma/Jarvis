@@ -1,4 +1,4 @@
-# Nightly build per 12-BUILD-DEPLOY.md §2: full test suite + assembleRelease (unsigned) + size report
+# Nightly build: full test suite + assembleRelease (unsigned) + size report
 name: Nightly
 
 on:

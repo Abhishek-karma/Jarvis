@@ -7,8 +7,6 @@ import org.junit.jupiter.api.Test
 
 class MarkdownParserTest {
 
-    // ── Block parsing ──────────────────────────────────────────────────
-
     @Test
     fun `plain paragraph produces a single paragraph block`() {
         val blocks = parseMarkdown("Hello world")
@@ -90,8 +88,6 @@ class MarkdownParserTest {
         assertEquals(MdBlock.Paragraph(listOf(MdSpan("para one"))), blocks[0])
         assertEquals(MdBlock.Paragraph(listOf(MdSpan("para two"))), blocks[1])
     }
-
-    // ── Inline parsing ─────────────────────────────────────────────────
 
     @Test
     fun `bold span is parsed`() {

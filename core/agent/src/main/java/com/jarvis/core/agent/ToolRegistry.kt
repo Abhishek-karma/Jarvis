@@ -4,7 +4,7 @@ import com.jarvis.core.network.ToolDefinition
 
 /**
  * Single registration point for every tool — built-in, MCP-derived, or OpenAPI-imported
- * alike (06-AGENT.md §2). The ReAct loop never special-cases a tool's origin.
+ * alike. The ReAct loop never special-cases a tool's origin.
  */
 class ToolRegistry {
     private val tools = mutableMapOf<String, Tool>()
@@ -18,7 +18,7 @@ class ToolRegistry {
 
     fun all(): List<Tool> = tools.values.toList()
 
-    /** Wire definitions sent to the LLM as available functions (10-API-REFERENCE.md §1). */
+    /** Wire definitions sent to the LLM as available functions. */
     fun definitions(): List<ToolDefinition> = tools.values.map { tool ->
         ToolDefinition(
             name = tool.name,

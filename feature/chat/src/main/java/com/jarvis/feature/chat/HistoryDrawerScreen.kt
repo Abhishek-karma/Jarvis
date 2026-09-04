@@ -52,6 +52,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import com.jarvis.core.common.Conversation
 import com.jarvis.core.designsystem.JarvisColors
 import com.jarvis.core.designsystem.JarvisText
+import com.jarvis.core.designsystem.Spacing
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -131,7 +132,7 @@ fun HistoryDrawerContent(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(padding),
-                    contentPadding = PaddingValues(bottom = 80.dp),
+                    contentPadding = PaddingValues(top = Spacing.sm, bottom = 80.dp),
                 ) {
                     uiState.sections.forEach { section ->
                         stickyHeader {
@@ -154,8 +155,6 @@ fun HistoryDrawerContent(
             }
         }
     }
-
-    // ── Rename Dialog ──────────────────────────────────────────────────────────
 
     editingConversation?.let { conversation ->
         AlertDialog(
@@ -186,8 +185,6 @@ fun HistoryDrawerContent(
         )
     }
 
-    // ── Delete Confirmation Dialog ─────────────────────────────────────────────
-
     deletingConversation?.let { conversation ->
         AlertDialog(
             onDismissRequest = { deletingConversation = null },
@@ -210,16 +207,13 @@ fun HistoryDrawerContent(
     }
 }
 
-// ── Internal Composables ─────────────────────────────────────────────────────
-
 @Composable
 private fun SectionHeader(label: String) {
-    // Uppercase letterspaced group header — "Today / Yesterday / Previous 7 Days".
     Text(
-        text = label.uppercase(),
+        text = label,
         style = JarvisText.SectionHeader,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+        modifier = Modifier.padding(start = Spacing.lg, end = Spacing.lg, top = Spacing.sm, bottom = Spacing.sm),
     )
 }
 
@@ -241,7 +235,7 @@ private fun ConversationRow(
                 onClick = onClick,
                 onLongClick = { showActions = !showActions },
             )
-            .padding(horizontal = 16.dp, vertical = 14.dp), // ~72dp row (spec §8)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {

@@ -17,7 +17,7 @@ data class TranscriptionResult(
     val duration: Double? = null,
 )
 
-/** Speech-to-text provider interface (08-VOICE.md §1 STT). */
+/** Speech-to-text provider interface. */
 interface SttProvider {
     /** Transcribe an audio file. [audioData] is the raw audio bytes, [format] indicates the encoding. */
     suspend fun transcribe(audioData: ByteArray, format: AudioFormat): Result<TranscriptionResult>

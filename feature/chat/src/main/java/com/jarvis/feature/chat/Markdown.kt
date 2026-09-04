@@ -1,7 +1,7 @@
 package com.jarvis.feature.chat
 
 /**
- * Lightweight markdown model + parser for chat bubbles (15-ROADMAP.md v0.1 "markdown rendering").
+ * Lightweight markdown model + parser for chat bubbles.
  *
  * A deliberately small subset of CommonMark, covering what LLM responses actually produce:
  * headings, fenced code blocks, inline code, bold, italic, bullet/numbered lists, blockquotes,

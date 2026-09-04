@@ -8,6 +8,7 @@ import com.jarvis.core.network.ChatRequest
 import com.jarvis.core.network.ChatStreamEvent
 import com.jarvis.core.network.LlmProvider
 import com.jarvis.core.network.ProviderCapabilities
+import com.jarvis.core.network.apiRoot
 import com.squareup.moshi.Moshi
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
@@ -32,11 +33,11 @@ import kotlin.coroutines.resumeWithException
 import kotlin.random.Random
 
 /**
- * OpenAI-compatible adapter (05-LLM-PROVIDERS.md) — works for OpenAI, Mistral, Groq, xAI,
+ * OpenAI-compatible adapter — works for OpenAI, Mistral, Groq, xAI,
  * LM Studio, Ollama's OpenAI endpoint, and any custom/self-hosted server speaking the
  * /v1/chat/completions + /v1/models dialect.
  *
- * Streaming uses OkHttp SSE. Retry policy per 02-ARCHITECTURE.md §6: exponential backoff
+ * Streaming uses OkHttp SSE. Retry policy: exponential backoff
  * (500ms base ×2, jittered), max 3 attempts, only for idempotent errors (timeout/429/5xx),
  * never for 4xx auth errors. Cancelling collection aborts the socket via invokeOnCancellation.
  *
@@ -70,7 +71,7 @@ class OpenAiCompatibleProvider(
         .writeTimeout(10, TimeUnit.SECONDS)
         .build()
 
-    private fun buildUrl(path: String): String = baseUrl.trimEnd('/') + path
+    private fun buildUrl(path: String): String = apiRoot(baseUrl) + path
 
     override suspend fun listModels(): Result<List<ModelInfo>> = withRetries {
         val request = Request.Builder()
@@ -186,7 +187,7 @@ class OpenAiCompatibleProvider(
         val source = EventSources.createFactory(streamClient()).newEventSource(httpRequest, listener)
 
         awaitClose {
-            // Cancellation contract (02-ARCHITECTURE.md §4): genuinely abort the socket.
+            // Cancellation: genuinely abort the socket.
             source.cancel()
         }
     }.flowOn(dispatchers.io)

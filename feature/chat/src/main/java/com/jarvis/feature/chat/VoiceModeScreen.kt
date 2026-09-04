@@ -60,10 +60,9 @@ import com.jarvis.core.designsystem.Motion
 import com.jarvis.core.designsystem.Spacing
 
 /**
- * Voice Mode (04-DESIGN.md Screen 4) — the full-screen pulsing blue gradient sphere
- * from `design/chatgpt/DESIGN.md`: full-screen takeover on black; center ~280dp sphere
- * with radial gradient #3B82F6 → #60A5FA → #93C5FD pulsing 0.95 ↔ 1.05 over 2s;
- * bottom Mute / Speak / End controls; white status text above them.
+ * Voice Mode — a full-screen takeover on black: a center ~280dp sphere with radial
+ * gradient #3B82F6 → #60A5FA → #93C5FD pulsing 0.95 ↔ 1.05 over 2s; bottom Mute /
+ * Speak / End controls; white status text above them.
  *
  * Shares the chat's [ChatViewModel] so recording/transcription state stays continuous
  * with the composer's push-to-talk.
@@ -242,7 +241,7 @@ fun VoiceModeScreen(
     }
 }
 
-/** 44dp circular control — white glyph on semi-transparent black (ChatGPT voice spec). */
+/** 56dp circular control — white glyph on semi-transparent black. */
 @Composable
 private fun VoiceControlButton(
     icon: ImageVector,
@@ -251,7 +250,7 @@ private fun VoiceControlButton(
 ) {
     Box(
         modifier = Modifier
-            .size(44.dp)
+            .size(56.dp)
             .clip(CircleShape)
             .background(Color.White.copy(alpha = 0.12f))
             .clickable(
@@ -265,7 +264,7 @@ private fun VoiceControlButton(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = Color.White,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(24.dp),
         )
     }
 }

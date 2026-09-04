@@ -30,6 +30,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.jarvis.core.designsystem.JarvisHeader
 import com.jarvis.core.designsystem.JarvisText
 import com.jarvis.core.designsystem.Radius
 import com.jarvis.core.designsystem.Spacing
@@ -43,16 +44,13 @@ fun SettingsScreen(
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Settings") },
+            JarvisHeader(
+                title = "Settings",
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
             )
         },
     ) { padding ->
@@ -110,21 +108,22 @@ private fun SettingsSection(
     title: String,
     content: @Composable () -> Unit,
 ) {
-    // Grouped settings card on the tinted surface — Claude/ChatGPT grouped-list style.
+    // Grouped warm card aligned with the app's sheet/list language (16dp radius,
+    // surfaceContainerLow on the paper canvas); section label aligned to card content.
     Column(modifier = Modifier.padding(top = Spacing.lg)) {
         Text(
-            text = title.uppercase(),
+            text = title,
             style = JarvisText.SectionHeader,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp),
+            modifier = Modifier.padding(start = Spacing.huge),
         )
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(Spacing.sm))
         Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = RoundedCornerShape(Radius.small),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            shape = RoundedCornerShape(Radius.chip),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = Spacing.lg),
         ) {
             Column { content() }
         }
@@ -147,7 +146,7 @@ private fun SettingsItem(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(start = Spacing.lg, end = Spacing.lg, top = 14.dp, bottom = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -172,5 +171,8 @@ private fun SettingsItem(
             )
         }
     }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    HorizontalDivider(
+        color = MaterialTheme.colorScheme.outlineVariant,
+        modifier = Modifier.padding(start = Spacing.lg),
+    )
 }

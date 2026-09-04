@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -40,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -100,13 +102,40 @@ fun ProviderEditScreen(
         ) {
             Spacer(modifier = Modifier.height(8.dp))
 
+            // Quick presets — cloud plus key-less local LLM servers (Ollama, LM Studio).
+            Text(
+                text = "Quick start",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ProviderPreset.entries.forEach { preset ->
+                    AssistChip(
+                        onClick = { viewModel.applyPreset(preset) },
+                        label = {
+                            Text(preset.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            Text(
+                text = "Local presets point at the emulator (10.0.2.2). On a phone, use your PC's LAN IP.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
             // Name
             OutlinedTextField(
                 value = editState.name,
                 onValueChange = viewModel::onNameChange,
                 label = { Text("Provider name") },
-                placeholder = { Text("e.g. OpenAI, Groq, My Server") },
+                placeholder = { Text("e.g. OpenAI, Ollama, My Server") },
                 singleLine = true,
+                shape = com.jarvis.core.designsystem.JarvisShapes.medium,
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -115,20 +144,40 @@ fun ProviderEditScreen(
                 value = editState.baseUrl,
                 onValueChange = viewModel::onBaseUrlChange,
                 label = { Text("Base URL") },
-                placeholder = { Text("https://api.openai.com/v1") },
+                placeholder = { Text("https://api.openai.com") },
+                supportingText = { Text("API root — do not add /v1") },
                 singleLine = true,
+                shape = com.jarvis.core.designsystem.JarvisShapes.medium,
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            // API Key
+            // Model (optional)
+            OutlinedTextField(
+                value = editState.model,
+                onValueChange = viewModel::onModelChange,
+                label = { Text("Model (optional)") },
+                placeholder = { Text("e.g. gpt-4o-mini, llama3.2, qwen2.5") },
+                supportingText = {
+                    Text("Sent with every chat. Blank auto-picks the server's first model.")
+                },
+                singleLine = true,
+                shape = com.jarvis.core.designsystem.JarvisShapes.medium,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            // API Key (optional for local servers)
             OutlinedTextField(
                 value = editState.apiKey,
                 onValueChange = viewModel::onApiKeyChange,
-                label = { Text("API key") },
+                label = { Text("API key (optional)") },
                 placeholder = { Text("sk-…") },
+                supportingText = {
+                    Text("Local servers like Ollama and LM Studio don't need one.")
+                },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                shape = com.jarvis.core.designsystem.JarvisShapes.medium,
                 modifier = Modifier.fillMaxWidth(),
             )
 

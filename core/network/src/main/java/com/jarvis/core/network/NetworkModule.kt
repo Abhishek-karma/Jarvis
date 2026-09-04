@@ -22,7 +22,7 @@ object NetworkModule {
         .writeTimeout(10, TimeUnit.SECONDS)
         .build()
 
-    /** Long-read-timeout client for LLM/voice streaming endpoints (02-ARCHITECTURE.md §6). */
+    /** Long-read-timeout client for LLM/voice streaming endpoints. */
     @Provides
     @Singleton
     @Named("llm")

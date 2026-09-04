@@ -4,7 +4,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
-/** Groups epoch-millis timestamps into the sections the History drawer shows (04-DESIGN.md Screen 2). */
+/** Groups epoch-millis timestamps into the sections the History drawer shows. */
 enum class TimeGroup(val label: String) {
     PINNED("Pinned"),
     TODAY("Today"),

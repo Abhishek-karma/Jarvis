@@ -5,9 +5,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Spacing on the 8dp grid, extended with the spec margins of the source designs
- * (`design/chatgpt/DESIGN-android.md`, `design/claude/DESIGN-android.md`):
- * 12dp thread insets, 16dp list insets, 20dp editor margins.
+ * Spacing on the 8dp grid with the extended thread/list/editor margins: 12dp thread
+ * insets, 16dp list insets, 20dp editor margins.
  */
 object Spacing {
     val xs = 4.dp
@@ -33,15 +32,14 @@ object Radius {
     val pill = 100.dp
 }
 
-/** Minimum tap target floor, independent of visual size (both source specs, §8). */
+/** Minimum tap target floor, independent of visual size. */
 object TapTargets {
     val min = 48.dp
 }
 
 /**
- * Motion spec (source DESIGN.md §6): send press 200ms scale, message slide-up 300ms
- * ease-out, voice sphere pulse 2s ease-in-out, cursor blink 300ms half-cycle,
- * sheet rise 300ms spring.
+ * Motion spec: send press 200ms scale, message slide-up 300ms ease-out, voice sphere
+ * pulse 2s ease-in-out, cursor blink 300ms half-cycle, sheet rise 300ms spring.
  */
 object Motion {
     const val sendPressMs = 200
@@ -54,7 +52,7 @@ object Motion {
 }
 
 /** Inter-based type scale; JetBrains Mono for code is handled by [JarvisText.Code]. */
-@Deprecated("Use [JarvisText] — the named ramp ported from the source DESIGN.md specs.")
+@Deprecated("Use [JarvisText] — the named type ramp.")
 object JarvisTypography {
     val display = androidx.compose.ui.text.TextStyle(fontSize = 28.sp, lineHeight = 36.sp)
     val title = androidx.compose.ui.text.TextStyle(fontSize = 20.sp, lineHeight = 28.sp)

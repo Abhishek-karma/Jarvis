@@ -1,4 +1,4 @@
-# CI pipeline per 12-BUILD-DEPLOY.md §2: lint → unit tests → assembleDebug
+# CI pipeline: lint → unit tests → assembleDebug
 name: CI
 
 on:

@@ -13,6 +13,7 @@ import com.jarvis.core.database.entity.ConversationEntity
 import com.jarvis.core.database.entity.MessageEntity
 import com.jarvis.core.database.entity.ProviderEntity
 import com.jarvis.core.database.repository.MIGRATION_1_2
+import com.jarvis.core.database.repository.MIGRATION_2_3
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -27,7 +28,7 @@ import javax.inject.Singleton
         ProviderEntity::class,
         AuditLogEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class JarvisDatabase : RoomDatabase() {
@@ -37,7 +38,7 @@ abstract class JarvisDatabase : RoomDatabase() {
     abstract fun auditLogDao(): AuditLogDao
 
     companion object {
-        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2)
+        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
     }
 }
 

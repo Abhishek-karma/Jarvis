@@ -21,17 +21,18 @@ This sequences the release plan in `01-PRD.md §8` into concrete milestone scope
 
 **Goal:** agent mode + photo tools + local model foundation.
 
-> **Status:** agent mode is end-to-end usable across **all three cloud providers** — OpenAI-compatible, Anthropic, and Gemini tool-call wire support all landed (tools in request, streamed tool_use/functionCall → `ToolCallRequested`, assistant tool_use/functionCall + tool_result/functionResponse round-trips; Anthropic DTOs also gained correct `@Json` wire names and the sealed-DTO adapters were flattened, since Moshi codegen never generated them). `:core:agent` engine core + Room audit log (DB v2, append-only) + Agent Canvas UI are in. The full 15-tool catalog and the remaining local/photos workstreams below are what's left.
+> **Status:** agent mode is end-to-end usable across **all three cloud providers** — OpenAI-compatible, Anthropic, and Gemini tool-call wire support all landed (tools in request, streamed tool_use/functionCall → `ToolCallRequested`, assistant tool_use/functionCall + tool_result/functionResponse round-trips; Anthropic DTOs also gained correct `@Json` wire names and the sealed-DTO adapters were flattened, since Moshi codegen never generated them). `:core:agent` engine core + Room audit log (DB v2, append-only) + Agent Canvas UI are in. **Local LLM foundation is in via `:core:ml`** — runtime-tagged model manifest (Gemma-2 2B int4, MediaPipe `tasks-genai 0.10.27`), checksummed download flow + debug dev-asset path, and real Local/Cloud/Auto routing (Auto = cloud online, on-device offline). Native `:native:llama` GGUF remains an optional later engine swap behind the same `OnDeviceEngine` interface. The full 15-tool catalog, photo work, and memory below are what's left.
 
 - [ ] `:core:agent` tool registry, ReAct loop, planner, permission tiers (`06-AGENT.md`)
 - [ ] 15 core agent tools spanning device control, calendar, files, web (subset of `06-AGENT.md §3` catalog)
 - [x] Agent Canvas UI (`04-DESIGN.md` Screen 5)
-- [ ] `:native:llama` integration, local model download/manifest flow (`05-LLM-PROVIDERS.md §7`)
-- [ ] Smart routing decision tree v1 (`03-FEATURES.md` Feature 6) — local vs. cloud, offline mode
+- [x] Local model download/manifest flow + on-device engine (`:core:ml` — MediaPipe GenAI + Gemma-2 2B; llama.cpp JNI later via the same interface)
+- [x] Smart routing decision tree v1 (`03-FEATURES.md` Feature 6) — Auto = cloud online / local offline, LOCAL forces on-device, CLOUD forces cloud
 - [ ] Photo tools batch 1: auto-enhance, crop, filters, background removal (`07-PHOTO-TOOLS.md`)
 - [ ] Memory system v1: extraction job, storage, user-facing view/edit screen (`03-FEATURES.md` Feature 7)
 - [ ] 3 additional providers (target: Anthropic, Gemini, one OpenAI-compatible like Groq/Mistral)
 - [x] Audit log (`14-SECURITY.md §7`)
+- [x] Provider model field + `/v1` double-prefix 404 fix + key-less local-server presets (Ollama/LM Studio)
 
 **Exit criteria:** a user can complete a multi-step agent task with a sensitive-tier confirmation, edit a photo fully offline, and see an extracted memory fact reused in a later conversation.
 

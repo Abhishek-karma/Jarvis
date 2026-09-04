@@ -1,11 +1,13 @@
 package com.jarvis.feature.settings
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -18,13 +20,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.jarvis.core.designsystem.JarvisHeader
 import com.jarvis.core.designsystem.JarvisMark
 import com.jarvis.core.designsystem.JarvisText
 import com.jarvis.core.designsystem.Radius
@@ -39,16 +40,13 @@ import com.jarvis.core.designsystem.Spacing
 fun AboutScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("About", style = JarvisText.ConvTitle) },
+            JarvisHeader(
+                title = "About",
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
             )
         },
     ) { padding ->
@@ -120,18 +118,18 @@ private fun AboutSection(
             .padding(top = Spacing.lg),
     ) {
         Text(
-            text = title.uppercase(),
+            text = title,
             style = JarvisText.SectionHeader,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 28.dp),
+            modifier = Modifier.padding(start = Spacing.huge),
         )
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(Spacing.sm))
         Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = RoundedCornerShape(Radius.small),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            shape = RoundedCornerShape(Radius.chip),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = Spacing.lg),
         ) {
             Column(modifier = Modifier.padding(Spacing.lg)) { content() }
         }
@@ -140,9 +138,14 @@ private fun AboutSection(
 
 @Composable
 private fun AboutRow(text: String) {
-    Column(modifier = Modifier.padding(vertical = 6.dp)) {
+    Row(
+        modifier = Modifier.padding(vertical = 6.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        JarvisMark(size = 14.dp, modifier = Modifier.padding(top = 2.dp))
+        Spacer(modifier = Modifier.width(8.dp))
         Text(
-            text = "·   $text",
+            text = text,
             style = JarvisText.BodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )

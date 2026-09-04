@@ -29,6 +29,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -79,40 +81,56 @@ fun ProvidersListScreen(
             ) {
                 Text("Loading…", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-        } else if (listState.providers.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        "No providers configured",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "Tap + to add your first LLM provider",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
         } else {
+            val localModelState by viewModel.localModelState.collectAsStateWithLifecycle()
+            val importLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocument(),
+            ) { uri -> uri?.let(viewModel::importLocalModel) }
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
             ) {
-                items(listState.providers, key = { it.id }) { provider ->
-                    ProviderRow(
-                        provider = provider,
-                        onClick = { onEditProvider(provider.id) },
-                        onDelete = { viewModel.deleteProvider(provider.id) },
-                        onSetDefault = { viewModel.setDefault(provider.id) },
+                item {
+                    LocalModelCard(
+                        state = localModelState,
+                        models = viewModel.localModels,
+                        onDownload = viewModel::startLocalModelDownload,
+                        onCancel = viewModel::cancelLocalModelDownload,
+                        onDelete = viewModel::deleteLocalModel,
+                        onImport = { importLauncher.launch(arrayOf("*/*")) },
                     )
+                }
+                if (listState.providers.isEmpty()) {
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp, vertical = 48.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                "No cloud providers configured",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "Tap + to add a cloud LLM — or use the local model above offline.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                } else {
+                    items(listState.providers, key = { it.id }) { provider ->
+                        ProviderRow(
+                            provider = provider,
+                            onClick = { onEditProvider(provider.id) },
+                            onDelete = { viewModel.deleteProvider(provider.id) },
+                            onSetDefault = { viewModel.setDefault(provider.id) },
+                        )
+                    }
                 }
                 item { Spacer(modifier = Modifier.height(80.dp)) } // FAB clearance
             }
@@ -147,6 +165,14 @@ private fun ProviderRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
             )
+            provider.model?.takeIf { it.isNotBlank() }?.let { model ->
+                Text(
+                    text = model,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
         }
 
         if (provider.isDefault) {

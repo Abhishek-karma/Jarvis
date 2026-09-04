@@ -9,7 +9,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
- * OpenAI TTS API adapter for text-to-speech (08-VOICE.md §1 TTS).
+ * OpenAI TTS API adapter for text-to-speech.
  * Uses the POST /v1/audio/speech endpoint.
  */
 class OpenAiTtsProvider(

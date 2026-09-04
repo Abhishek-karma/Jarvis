@@ -12,8 +12,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -42,14 +44,32 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * Shared signature components ported from the source design packs:
- * `design/chatgpt/DESIGN-android.md` (send circle, streaming cursor)
- * and `design/claude/DESIGN-android.md` (the 6-point asterisk logomark).
+ * Shared header composable for screen titles, consistent across features.
  */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun JarvisHeader(
+    title: String,
+    modifier: Modifier = Modifier,
+    navigationIcon: @Composable (() -> Unit)? = null,
+    actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
+) {
+    androidx.compose.material3.TopAppBar(
+        title = {
+            Text(text = title, style = JarvisText.ConvTitle)
+        },
+        navigationIcon = { navigationIcon?.invoke() },
+        actions = actions,
+        colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+            containerColor = androidx.compose.material3.MaterialTheme.colorScheme.background,
+        ),
+        modifier = modifier,
+    )
+}
 
 /**
- * The 6-point asterisk-meets-star logomark (Claude `ClaudeMark`, drawn on Canvas).
- * Always rendered in Claude Orange — never any other color.
+ * The 6-point asterisk-meets-star logomark (drawn on Canvas).
+ * Always rendered in the primary accent color.
  */
 @Composable
 fun JarvisMark(
@@ -79,7 +99,7 @@ fun JarvisMark(
 }
 
 /**
- * The streaming response cursor — an 8×18dp Claude Orange caret that blinks at a
+ * The streaming response cursor — an 8×18dp accent caret that blinks at a
  * 600ms cycle (300 on / 300 off) while the assistant is generating.
  */
 @Composable
@@ -106,8 +126,8 @@ fun StreamingCursor(modifier: Modifier = Modifier) {
 
 
 /**
- * The circular send button — 40dp Claude Orange circle with a paper-white up-arrow,
- * per `design/claude/DESIGN-android.md`. While streaming it becomes a stop control.
+ * The circular send button — 40dp accent circle with a white up-arrow.
+ * While streaming it becomes a stop control.
  * Press: scale 0.94 + medium haptic; disabled state uses the muted surface fill.
  */
 @Composable

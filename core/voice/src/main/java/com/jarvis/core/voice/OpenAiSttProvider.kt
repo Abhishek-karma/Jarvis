@@ -10,7 +10,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
- * OpenAI Whisper API adapter for speech-to-text (08-VOICE.md §1 STT).
+ * OpenAI Whisper API adapter for speech-to-text.
  * Uses the POST /v1/audio/transcriptions endpoint with multipart upload.
  */
 class OpenAiSttProvider(

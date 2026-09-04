@@ -5,7 +5,7 @@ import java.util.UUID
 /** Domain-level chat roles, stable across Room persistence and provider wire formats. */
 enum class MessageRole { USER, ASSISTANT, SYSTEM, TOOL }
 
-/** Lifecycle of a message row (09-DATA-MODELS.md §1). */
+/** Lifecycle of a message row. */
 enum class MessageStatus { COMPLETE, STREAMING, STOPPED, ERROR }
 
 /** Domain model for a single chat message (UI-facing, provider-agnostic). */
@@ -55,6 +55,8 @@ data class ProviderConfig(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
     val baseUrl: String,
+    /** Optional model id used for new chats; null = pick the provider's first model. */
+    val model: String? = null,
     val type: ProviderType = ProviderType.OPENAI_COMPATIBLE,
     val isDefault: Boolean = false,
 )

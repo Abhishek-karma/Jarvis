@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Persists provider configurations; API keys are deliberately NOT stored here (14-SECURITY.md §2). */
+/** Persists provider configurations; API keys are deliberately NOT stored here. */
 @Singleton
 class ProviderRepository @Inject constructor(
     private val providerDao: ProviderDao,

@@ -17,7 +17,7 @@ import javax.inject.Singleton
 /**
  * Owns live [OpenAiCompatibleProvider] instances — one per configured provider config.
  * Shared state lives here (a Hilt singleton), not in ViewModels, so every screen observing
- * the active provider stays in sync (02-ARCHITECTURE.md §3).
+ * the active provider stays in sync.
  */
 @Singleton
 class ProviderManager @Inject constructor(

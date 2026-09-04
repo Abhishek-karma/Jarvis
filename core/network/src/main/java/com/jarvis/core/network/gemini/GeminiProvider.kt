@@ -8,6 +8,7 @@ import com.jarvis.core.network.ChatRequest
 import com.jarvis.core.network.ChatStreamEvent
 import com.jarvis.core.network.LlmProvider
 import com.jarvis.core.network.ProviderCapabilities
+import com.jarvis.core.network.apiRoot
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import kotlinx.coroutines.channels.awaitClose
@@ -33,8 +34,7 @@ import kotlin.coroutines.resumeWithException
 import kotlin.random.Random
 
 /**
- * Google Gemini API adapter (05-LLM-PROVIDERS.md §2).
- * Uses generateContent endpoint with SSE streaming.
+ * Google Gemini API adapter. Uses the generateContent endpoint with SSE streaming.
  * Supports vision and tool calling.
  */
 class GeminiProvider(
@@ -64,7 +64,7 @@ class GeminiProvider(
         .writeTimeout(10, TimeUnit.SECONDS)
         .build()
 
-    private fun buildUrl(path: String): String = baseUrl.trimEnd('/') + path
+    private fun buildUrl(path: String): String = apiRoot(baseUrl) + path
 
     override suspend fun listModels(): Result<List<ModelInfo>> = withRetries {
         val request = Request.Builder()
@@ -207,12 +207,10 @@ class GeminiProvider(
         // No per-stream state held
     }
 
-    // ---- helpers ----
-
     /**
      * Maps domain history to Gemini contents. Tool calls become `functionCall` parts on model
      * turns and observations become `functionResponse` parts on the following user turn — the
-     * dialect Gemini requires (05-LLM-PROVIDERS.md §2).
+     * dialect Gemini requires.
      */
     private fun buildWireContents(request: ChatRequest): List<Content> {
         val contents = mutableListOf<Content>()

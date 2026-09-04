@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "gemma-4-e2b-it",
+      "displayName": "Gemma 4 E2B",
+      "family": "Gemma 4",
+      "runtime": "MEDIAPIPE",
+      "fileName": "gemma-4-E2B-it-web.task",
+      "url": "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.task",
+      "manualPage": "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm",
+      "checksumSha256": "",
+      "approxSizeLabel": "~2.0 GB",
+      "ramNote": "Fits 8 GB devices (quantized)",
+      "license": "Gemma Terms of Use"
+    }
+  ]
+}

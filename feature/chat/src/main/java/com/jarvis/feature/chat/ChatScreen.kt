@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
@@ -73,6 +75,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -82,6 +85,7 @@ import com.jarvis.core.common.MessageRole
 import com.jarvis.core.common.RoutingOverride
 import com.jarvis.core.designsystem.JarvisBubbleShapes
 import com.jarvis.core.designsystem.JarvisColors
+import com.jarvis.core.designsystem.JarvisHeader
 import com.jarvis.core.designsystem.JarvisMark
 import com.jarvis.core.designsystem.JarvisSendButton
 import com.jarvis.core.designsystem.JarvisShapes
@@ -113,7 +117,13 @@ fun ChatRoute(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
-    Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { innerPadding ->
+    // This wrapper only hosts the snackbar — the inner ChatScreen Scaffold (top bar +
+    // composer) applies system-bar insets itself. Without zeroing insets here the status
+    // and nav bars get counted twice, pushing the whole page down by an extra bar height.
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        contentWindowInsets = WindowInsets(0.dp),
+    ) { innerPadding ->
         ModalNavigationDrawer(
             drawerState = drawerState,
             modifier = Modifier.padding(innerPadding),
@@ -179,7 +189,6 @@ fun ChatScreen(
         }
     }
 
-    // ── Agent Canvas (04-DESIGN.md Screen 5) ────────────────────────────────────────
     var agentSheetOpen by remember { mutableStateOf(false) }
     val pending = uiState.pendingConfirmation
     val canvasVisible = uiState.isAgentRunning || pending != null
@@ -192,8 +201,8 @@ fun ChatScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(uiState.conversationTitle) },
+            JarvisHeader(
+                title = uiState.conversationTitle,
                 navigationIcon = {
                     IconButton(onClick = onOpenDrawer) {
                         Icon(Icons.Default.Menu, contentDescription = "History")
@@ -232,7 +241,12 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(padding),
             state = listState,
-            contentPadding = PaddingValues(Spacing.md),
+            contentPadding = PaddingValues(
+                top = Spacing.sm,
+                start = Spacing.lg,
+                end = Spacing.lg,
+                bottom = Spacing.lg,
+            ),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             if (uiState.messages.isEmpty()) {
@@ -254,12 +268,16 @@ fun ChatScreen(
         }
     }
 
-    // Agent Canvas overlay (Screen 5): the step sheet, or the collapsed pill while hidden.
+    // Agent Canvas overlay: the step sheet, or the collapsed pill while hidden.
     if (uiState.isAgentRunning && !agentSheetOpen && uiState.agentSteps.isNotEmpty()) {
         AgentProgressPill(onClick = { agentSheetOpen = true })
     }
     if (agentSheetOpen && canvasVisible) {
-        ModalBottomSheet(onDismissRequest = { agentSheetOpen = false }) {
+        ModalBottomSheet(
+            onDismissRequest = { agentSheetOpen = false },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        ) {
             AgentCanvasContent(
                 steps = uiState.agentSteps,
                 pending = pending,
@@ -273,9 +291,9 @@ fun ChatScreen(
 }
 
 /**
- * Collapsed agent pill shown while the canvas is hidden but the run continues (Screen 5).
- * Wrapped in a transparent full-size Box so the pill floats above the composer without
- * blocking scroll or taps elsewhere (only the pill itself is clickable).
+ * Collapsed agent pill shown while the canvas is hidden but the run continues. Wrapped in a
+ * transparent full-size Box so it floats above the composer without blocking scroll or taps
+ * elsewhere (only the pill itself is clickable).
  */
 @Composable
 private fun AgentProgressPill(onClick: () -> Unit) {
@@ -312,10 +330,9 @@ private fun AgentProgressPill(onClick: () -> Unit) {
 }
 
 /**
- * Agent Canvas bottom sheet per 04-DESIGN.md Screen 5: step list with checkmarks, the
- * running row highlighted inline, and a non-blocking progress feel. When a Sensitive-tier
- * tool parks the run, the sheet becomes the confirmation sheet (06-AGENT.md §4) and shows
- * the pending action's full parameters with Allow/Deny.
+ * Agent Canvas bottom sheet: step list with checkmarks, the running row highlighted inline,
+ * and a non-blocking progress feel. When a Sensitive-tier tool parks the run, the sheet
+ * becomes the confirmation sheet and shows the pending action's full parameters with Allow/Deny.
  */
 @Composable
 private fun AgentCanvasContent(
@@ -332,11 +349,15 @@ private fun AgentCanvasContent(
             .padding(horizontal = Spacing.lg)
             .padding(bottom = Spacing.lg),
     ) {
-        Text(
-            text = if (pending != null) "Agent needs your input" else "Agent working",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            JarvisMark(size = 18.dp)
+            Spacer(modifier = Modifier.width(Spacing.sm))
+            Text(
+                text = if (pending != null) "Agent needs your input" else "Agent working",
+                style = JarvisText.ConvTitle,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
 
         if (pending != null) {
             Spacer(modifier = Modifier.height(Spacing.md))
@@ -393,7 +414,7 @@ private fun AgentCanvasContent(
     }
 }
 
-/** The parked Sensitive-tier call: what will run, with its full parameters (06-AGENT.md §4). */
+/** The parked Sensitive-tier call: what will run, with its full parameters. */
 @Composable
 private fun ConfirmationCard(confirmation: AgentConfirmation) {
     Surface(
@@ -435,37 +456,50 @@ private fun ConfirmationCard(confirmation: AgentConfirmation) {
 @Composable
 private fun AgentStepRow(step: AgentStep) {
     val running = step.state == AgentStepState.RUNNING
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        if (running) {
-            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+    // Quiet warm pill per milestone so the sheet reads like the app, not a stock dialog.
+    Surface(
+        shape = JarvisShapes.chip,
+        color = if (running) {
+            MaterialTheme.colorScheme.primaryContainer
         } else {
-            Icon(
-                imageVector = Icons.Default.Check,
-                contentDescription = "Done",
-                tint = JarvisColors.Accent.orange,
-                modifier = Modifier.size(16.dp),
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.sm),
+        ) {
+            if (running) {
+                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = "Done",
+                    tint = JarvisColors.Accent.orange,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+            Spacer(modifier = Modifier.width(Spacing.sm))
+            Text(
+                text = step.text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (running) {
+                    JarvisColors.Accent.orange
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                fontWeight = if (running) FontWeight.Medium else FontWeight.Normal,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
         }
-        Spacer(modifier = Modifier.width(Spacing.sm))
-        Text(
-            text = step.text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (running) {
-                JarvisColors.Accent.orange
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            fontWeight = if (running) FontWeight.Medium else FontWeight.Normal,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
 
 /**
- * Empty state per 04-DESIGN.md Screen 1: welcome display text plus 4 suggestion chips.
- * The chip set rotates from a curated list by day (deterministic across launches within
- * a day, not random every open).
+ * Empty state: welcome display text plus 4 suggestion chips. The chip set rotates from a
+ * curated list by day (deterministic across launches within a day, not random every open).
  */
 @Composable
 private fun EmptyChatState(
@@ -475,7 +509,7 @@ private fun EmptyChatState(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = Spacing.xxl, bottom = Spacing.lg),
+            .padding(top = Spacing.sm, bottom = Spacing.lg),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Spacing.lg),
     ) {
@@ -491,6 +525,8 @@ private fun EmptyChatState(
             },
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.widthIn(max = 400.dp),
         )
         if (enabled) {
             Column(
@@ -552,10 +588,9 @@ private fun curatedSuggestions(): List<String> {
 }
 
 /**
- * Message rendering per the fused spec: user messages are a right-aligned soft-gray
- * pill with asymmetric corners (18/18/18/4 — ChatGPT bubble); assistant messages are
- * bubble-less inline prose led by the orange asterisk logomark (Claude signature),
- * with the blinking orange cursor while streaming and a quiet feedback row below.
+ * Message rendering: user messages are a right-aligned soft-gray pill; assistant messages
+ * are bubble-less inline prose led by the Jarvis mark, with a blinking cursor while
+ * streaming and a quiet feedback row below.
  */
 @Composable
 private fun MessageBubble(
@@ -630,7 +665,7 @@ private fun MessageBubble(
                 color = MaterialTheme.colorScheme.error,
             )
             "COMPLETE" -> {
-                // Feedback row: quiet 20dp glyphs in 48dp hit areas (ChatGPT spec §8).
+                // Feedback row: quiet 20dp glyphs in 48dp hit areas.
                 if (message.content.isNotEmpty()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { if (isPlayingAudio) onStopSpeaking() else onSpeak() }) {
@@ -649,10 +684,7 @@ private fun MessageBubble(
     }
 }
 
-/**
- * Top-bar route selector (Feature 6 §Settings): Auto / Always Local / Always Cloud,
- * per chat. Shows a ⚡ badge with the current override label and opens a dropdown.
- */
+/** Top-bar route selector: Auto / Local / Cloud override for the chat, opens a dropdown. */
 @Composable
 private fun RouteSelector(
     selected: RoutingOverride,
@@ -714,16 +746,15 @@ private fun Composer(
             modifier = Modifier
                 .fillMaxWidth()
                 .imePadding()
-                .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
+                .padding(horizontal = Spacing.md, vertical = Spacing.sm),
             verticalAlignment = Alignment.Bottom,
         ) {
             Row(
                 modifier = Modifier
-                    .weight(1f)
+                    .fillMaxWidth()
                     .clip(JarvisShapes.composer)
                     .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, JarvisShapes.composer)
-                    .padding(horizontal = Spacing.lg, vertical = 2.dp),
+                    .padding(start = Spacing.lg, top = 4.dp, end = 6.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
                 BasicTextField(
@@ -735,30 +766,38 @@ private fun Composer(
                     enabled = !isRecording && !isTranscribing,
                     modifier = Modifier.weight(1f),
                     decorationBox = { innerField ->
-                        Column(modifier = Modifier.padding(vertical = Spacing.md)) {
+                        val placeholder = when {
+                            isRecording -> "Listening…"
+                            isTranscribing -> "Transcribing…"
+                            else -> "Message Jarvis…"
+                        }
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            innerField()
                             if (text.isEmpty()) {
                                 Text(
-                                    text = when {
-                                        isRecording -> "Listening…"
-                                        isTranscribing -> "Transcribing…"
-                                        else -> "Message Jarvis…"
-                                    },
+                                    text = placeholder,
                                     style = JarvisText.Body,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = if (isRecording || isTranscribing) {
+                                        MaterialTheme.colorScheme.error
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.align(Alignment.CenterStart),
                                 )
                             }
-                            innerField()
                         }
                     },
                 )
 
-                // Trailing voice affordance inside the pill — swaps to the send
-                // circle outside the pill once there is text (both source specs).
+                // Mic control lives inside the pill's trailing edge (hidden while
+                // streaming — the circle then becomes the Stop control).
                 if (!isStreaming) {
                     Box(
                         modifier = Modifier
-                            .padding(bottom = Spacing.md)
-                            .size(28.dp)
+                            .padding(start = Spacing.xs, bottom = 10.dp)
+                            .size(32.dp)
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null,
@@ -775,7 +814,7 @@ private fun Composer(
                                 modifier = Modifier.size(20.dp),
                             )
                             isTranscribing -> CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
+                                modifier = Modifier.size(16.dp),
                                 strokeWidth = 2.dp,
                             )
                             else -> Icon(
@@ -787,17 +826,15 @@ private fun Composer(
                         }
                     }
                 }
+
+                JarvisSendButton(
+                    enabled = enabled && text.isNotBlank(),
+                    isStreaming = isStreaming,
+                    onSend = onSend,
+                    onCancel = onCancel,
+                    modifier = Modifier.padding(bottom = 6.dp),
+                )
             }
-
-            Spacer(modifier = Modifier.width(Spacing.sm))
-
-            JarvisSendButton(
-                enabled = enabled && text.isNotBlank(),
-                isStreaming = isStreaming,
-                onSend = onSend,
-                onCancel = onCancel,
-                modifier = Modifier.padding(bottom = Spacing.xs),
-            )
         }
     }
 }

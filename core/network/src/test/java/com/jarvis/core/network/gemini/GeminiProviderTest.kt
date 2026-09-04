@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 
 /**
- * Gemini generateContent adapter contract tests per 13-TESTING.md §1 — 100% of the
+ * Gemini generateContent adapter contract tests — 100% of the
  * [com.jarvis.core.network.LlmProvider] surface, against MockWebServer fixtures.
  */
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
@@ -76,8 +76,6 @@ class GeminiProviderTest {
         model = "gemini-2.0-flash",
     )
 
-    // ── streamChat ────────────────────────────────────────────────────────────
-
     @Test
     fun `streamChat emits TokenDelta events from SSE stream`() = runTest {
         val fixture = javaClass.classLoader!!.getResource("fixtures/gemini_stream_text.txt")!!.readText()
@@ -103,8 +101,6 @@ class GeminiProviderTest {
         assertTrue(recorded.path!!.contains(":streamGenerateContent"))
         assertTrue(recorded.path!!.contains("key=test-api-key"))
     }
-
-    // ── tool calling (v0.5 agent mode) ────────────────────────────────────────
 
     @Test
     fun `streamChat emits ToolCallRequested from a functionCall part`() = runTest {
@@ -179,8 +175,6 @@ class GeminiProviderTest {
         assertTrue(body.contains("\"functionResponse\":{\"name\":\"get_weather\",\"response\":{\"result\":\"Sunny, 21C\"}}"))
         assertTrue(body.contains("\"role\":\"user\""))
     }
-
-    // ── capabilities ──────────────────────────────────────────────────────────
 
     @Test
     fun `capabilities are correctly declared`() {

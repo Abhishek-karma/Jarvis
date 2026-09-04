@@ -15,6 +15,14 @@ import com.jarvis.core.agent.ToolResult
 import com.jarvis.core.database.repository.ConversationRepository
 import com.jarvis.core.network.ChatStreamEvent
 import com.jarvis.core.network.ProviderCapabilities
+import com.jarvis.core.ml.LocalConnectivity
+import com.jarvis.core.ml.LocalLlmProvider
+import com.jarvis.core.ml.LocalLlmRuntime
+import com.jarvis.core.ml.LocalModelSpec
+import com.jarvis.core.ml.LocalModelState
+import com.jarvis.core.ml.LocalModelStore
+import com.jarvis.core.ml.OnDeviceEngine
+import java.io.File
 import com.jarvis.core.network.ProviderManager
 import com.jarvis.core.network.sse.OpenAiCompatibleProvider
 import com.jarvis.core.voice.AudioPlayer
@@ -62,6 +70,10 @@ class ChatViewModelTest {
     private lateinit var audioPlayer: AudioPlayer
     private lateinit var sttProvider: SttProvider
     private lateinit var ttsProvider: TtsProvider
+    private lateinit var localModelStore: LocalModelStore
+    private lateinit var localLlmRuntime: LocalLlmRuntime
+    private lateinit var connectivity: LocalConnectivity
+    private lateinit var localModelStateFlow: MutableStateFlow<LocalModelState>
 
     @BeforeEach
     fun setUp() {
@@ -78,6 +90,12 @@ class ChatViewModelTest {
         audioPlayer = mockk(relaxed = true)
         sttProvider = mockk(relaxed = true)
         ttsProvider = mockk(relaxed = true)
+        localModelStore = mockk(relaxed = true)
+        localLlmRuntime = mockk(relaxed = true)
+        connectivity = mockk(relaxed = true)
+        localModelStateFlow = MutableStateFlow(LocalModelState.NotDownloaded)
+        every { localModelStore.status } returns localModelStateFlow
+        every { connectivity.isOnline() } returns true
 
         // Default: no saved conversation ID → creates new
         val savedStateHandle = androidx.lifecycle.SavedStateHandle()
@@ -92,6 +110,9 @@ class ChatViewModelTest {
             ttsProvider = ttsProvider,
             toolRegistry = ToolRegistry(), // empty registry: agent tests keep to the answer path
             auditLogger = AuditLogger { },
+            localModelStore = localModelStore,
+            localLlmRuntime = localLlmRuntime,
+            connectivity = connectivity,
             savedStateHandle = savedStateHandle,
         )
     }
@@ -163,8 +184,6 @@ class ChatViewModelTest {
         coVerify { conversationRepository.upsertConversation(match { it.title == "New chat" }) }
         assertTrue(viewModel.uiState.value.conversationId != null)
     }
-
-    // ── Routing (Feature 6) ─────────────────────────────────────────────
 
     @Test
     fun `setRoutingOverride persists override to conversation`() = runTest {
@@ -265,8 +284,6 @@ class ChatViewModelTest {
         assertEquals(RoutingOverride.AUTO, viewModel.uiState.value.routingOverride)
     }
 
-    // ── Cancel mid-stream (15-ROADMAP.md v0.1) ──────────────────────────
-
     @Test
     fun `cancelStreaming marks STREAMING assistant message as STOPPED`() = runTest {
         val streamingMessage = Message(
@@ -309,8 +326,6 @@ class ChatViewModelTest {
         assertFalse(viewModel.uiState.value.isStreaming)
     }
 
-    // ── Agent mode (v0.5) ────────────────────────────────────────────────────
-
     @Test
     fun `Jarvis prefix routes to agent mode and persists the final answer`() = runTest {
         val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
@@ -329,7 +344,13 @@ class ChatViewModelTest {
         coEvery { conversationRepository.getMessages("conv-agent") } returns emptyList()
         coEvery { conversationRepository.upsertMessage(any()) } just Runs
         providersFlow.value = listOf(
-            ProviderConfig(id = "p1", name = "OpenAI", baseUrl = "https://api.openai.com/v1", isDefault = true),
+            ProviderConfig(
+                id = "p1",
+                name = "OpenAI",
+                baseUrl = "https://api.openai.com",
+                model = "gpt-4o-mini",
+                isDefault = true,
+            ),
         )
 
         viewModel.openConversationById("conv-agent")
@@ -350,6 +371,45 @@ class ChatViewModelTest {
                 },
             )
         }
+    }
+
+    @Test
+    fun `sendMessage aborts with an error when no model resolves`() = runTest {
+        val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+        every { provider.capabilities } returns ProviderCapabilities(supportsTools = false)
+        coEvery { provider.listModels() } returns Result.success(emptyList())
+        coEvery { provider.streamChat(any()) } returns flowOf(ChatStreamEvent.Done)
+        coEvery { providerManager.adapterFor(any()) } returns provider
+
+        val conversation = Conversation(id = "conv-nomodel", title = "Chat")
+        coEvery { conversationRepository.getConversation("conv-nomodel") } returns conversation
+        coEvery { conversationRepository.observeMessages("conv-nomodel") } returns emptyFlow()
+        coEvery { conversationRepository.upsertConversation(any()) } just Runs
+        coEvery { conversationRepository.upsertMessage(any()) } just Runs
+        providersFlow.value = listOf(
+            ProviderConfig(
+                id = "p1",
+                name = "Local",
+                baseUrl = "http://10.0.2.2:11434",
+                isDefault = true,
+            ),
+        )
+
+        viewModel.openConversationById("conv-nomodel")
+        advanceUntilIdle()
+
+        viewModel.uiEvents.test {
+            viewModel.onTextChange("hello")
+            viewModel.sendMessage()
+            val event = awaitItem()
+            assertTrue(event is ChatUiEvent.ShowError)
+            assertTrue((event as ChatUiEvent.ShowError).message.contains("No model"))
+        }
+
+        // Abort leaves the composer text intact for a retry and persists nothing.
+        assertEquals("hello", viewModel.uiState.value.composerText)
+        assertFalse(viewModel.uiState.value.isStreaming)
+        coVerify(exactly = 0) { conversationRepository.upsertMessage(any()) }
     }
 
     @Test
@@ -443,7 +503,74 @@ class ChatViewModelTest {
         }
     }
 
-    // ── helpers ─────────────────────────────────────────────────────────────────
+    @Test
+    fun `AUTO offline with an installed model routes to the on-device engine`() = runTest {
+        every { connectivity.isOnline() } returns false
+        installLocalModel(partials = listOf("Local answer"))
+        openAgentConversation()
+        // The real repo returns the just-persisted user row; the local engine needs non-blank history.
+        coEvery {
+            conversationRepository.getMessages("conv-agent")
+        } returns listOf(Message(id = "u1", conversationId = "conv-agent", role = MessageRole.USER, content = "hello"))
+
+        viewModel.onTextChange("hello")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals(RoutingOverride.LOCAL, state.activeRoute)
+        assertFalse(state.isStreaming)
+        coVerify {
+            conversationRepository.upsertMessage(
+                match {
+                    it.role == MessageRole.ASSISTANT &&
+                        it.status == MessageStatus.COMPLETE &&
+                        it.content == "Local answer"
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `AUTO online with an installed model still uses the cloud provider`() = runTest {
+        val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+        every { provider.capabilities } returns ProviderCapabilities(supportsTools = false)
+        coEvery { provider.streamChat(any()) } returns flowOf(ChatStreamEvent.Done)
+        coEvery { providerManager.adapterFor(any()) } returns provider
+        every { connectivity.isOnline() } returns true
+        installLocalModel()
+        openAgentConversation()
+
+        viewModel.onTextChange("hello")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertEquals(RoutingOverride.CLOUD, viewModel.uiState.value.activeRoute)
+        coVerify(exactly = 0) { localLlmRuntime.currentProvider() }
+    }
+
+    @Test
+    fun `forcing LOCAL without a model falls back to cloud with a notice`() = runTest {
+        val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+        every { provider.capabilities } returns ProviderCapabilities(supportsTools = false)
+        coEvery { provider.streamChat(any()) } returns flowOf(ChatStreamEvent.Done)
+        coEvery { providerManager.adapterFor(any()) } returns provider
+        // Store stays NotDownloaded (default), online so the cloud path is real.
+        every { connectivity.isOnline() } returns true
+        openAgentConversation()
+
+        viewModel.uiEvents.test {
+            viewModel.setRoutingOverride(RoutingOverride.LOCAL)
+            viewModel.onTextChange("hello")
+            viewModel.sendMessage()
+            val event = awaitItem()
+            assertTrue(event is ChatUiEvent.ShowNotice)
+            assertTrue((event as ChatUiEvent.ShowNotice).message.contains("Local"))
+        }
+        advanceUntilIdle()
+        assertEquals(RoutingOverride.CLOUD, viewModel.uiState.value.activeRoute)
+        coVerify(exactly = 0) { localLlmRuntime.currentProvider() }
+    }
 
     /** A ChatViewModel whose ToolRegistry carries the given tools. */
     private fun viewModelWith(vararg tools: Tool) {
@@ -459,6 +586,9 @@ class ChatViewModelTest {
             ttsProvider = ttsProvider,
             toolRegistry = registry,
             auditLogger = AuditLogger { },
+            localModelStore = localModelStore,
+            localLlmRuntime = localLlmRuntime,
+            connectivity = connectivity,
             savedStateHandle = androidx.lifecycle.SavedStateHandle(),
         )
     }
@@ -482,10 +612,45 @@ class ChatViewModelTest {
         coEvery { conversationRepository.getMessages("conv-agent") } returns emptyList()
         coEvery { conversationRepository.upsertMessage(any()) } just Runs
         providersFlow.value = listOf(
-            ProviderConfig(id = "p1", name = "OpenAI", baseUrl = "https://api.openai.com/v1", isDefault = true),
+            ProviderConfig(
+                id = "p1",
+                name = "OpenAI",
+                baseUrl = "https://api.openai.com",
+                model = "gpt-4o-mini",
+                isDefault = true,
+            ),
         )
         viewModel.openConversationById("conv-agent")
         advanceUntilIdle()
+    }
+
+    /** Make the local store report an installed model and the runtime return a fake-backed provider. */
+    private fun installLocalModel(partials: List<String> = listOf("Local answer")) {
+        val spec = LocalModelSpec(
+            id = "gemma-2-2b-it",
+            displayName = "Gemma 2 2B",
+            fileName = "gemma.task",
+        )
+        localModelStateFlow.value = LocalModelState.Ready(spec, File("model.task"))
+        coEvery { localLlmRuntime.currentProvider() } returns
+            LocalLlmProvider(id = "local-gemma", spec = spec, engine = FakeLocalEngine(partials))
+    }
+
+    /** Test engine replaying partials, mirroring the module-level fake. */
+    private class FakeLocalEngine(
+        private val partials: List<String>,
+    ) : OnDeviceEngine {
+        override suspend fun generate(
+            prompt: String,
+            onPartial: (String) -> Unit,
+            onDone: () -> Unit,
+            onError: (Throwable) -> Unit,
+        ) {
+            partials.forEach(onPartial)
+            onDone()
+        }
+
+        override fun close() = Unit
     }
 
     /** Minimal test tool returning [result]. */

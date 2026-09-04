@@ -23,6 +23,10 @@ import com.jarvis.core.network.ChatRequest
 import com.jarvis.core.network.ChatStreamEvent
 import com.jarvis.core.network.LlmProvider
 import com.jarvis.core.network.ProviderManager
+import com.jarvis.core.ml.LocalConnectivity
+import com.jarvis.core.ml.LocalLlmRuntime
+import com.jarvis.core.ml.LocalModelState
+import com.jarvis.core.ml.LocalModelStore
 import com.jarvis.core.voice.AudioFormat
 import com.jarvis.core.voice.AudioPlayer
 import com.jarvis.core.voice.AudioRecorder
@@ -50,21 +54,21 @@ data class ChatUiState(
     val composerText: String = "",
     val isStreaming: Boolean = false,
     val isSendingEnabled: Boolean = true,
-    /** Per-chat routing override (Feature 6: Smart Routing). Persists with the conversation. */
+    /** Per-chat routing override (Auto / Local / Cloud). Persists with the conversation. */
     val routingOverride: RoutingOverride = RoutingOverride.AUTO,
     /** Effective route for the current response, shown on the route badge. */
     val activeRoute: RoutingOverride = RoutingOverride.CLOUD,
-    /** Voice recording state (08-VOICE.md). */
+    /** Voice recording state. */
     val isRecording: Boolean = false,
-    /** Transcribing audio to text (08-VOICE.md). */
+    /** Transcribing audio to text. */
     val isTranscribing: Boolean = false,
-    /** TTS audio playback state (08-VOICE.md). */
+    /** TTS audio playback state. */
     val isPlayingAudio: Boolean = false,
-    /** Agent mode (v0.5): a ReAct run is in progress. */
+    /** A ReAct agent run is in progress. */
     val isAgentRunning: Boolean = false,
-    /** Sensitive-tier tool awaiting an explicit user decision (06-AGENT.md §4). */
+    /** Sensitive-tier tool awaiting an explicit user decision. */
     val pendingConfirmation: AgentConfirmation? = null,
-    /** Live step log rendered by the Agent Canvas (04-DESIGN.md Screen 5). */
+    /** Live step log rendered by the Agent Canvas. */
     val agentSteps: List<AgentStep> = emptyList(),
 )
 
@@ -88,8 +92,8 @@ data class AgentStep(
 )
 
 /**
- * MVI ViewModel for the chat screen (02-ARCHITECTURE.md §3): one immutable UiState,
- * events flow up, streaming responses update the assistant message as tokens arrive.
+ * MVI ViewModel for the chat screen: one immutable UiState, events flow up, streaming
+ * responses update the assistant message as tokens arrive.
  */
 @HiltViewModel
 class ChatViewModel @Inject constructor(
@@ -102,6 +106,9 @@ class ChatViewModel @Inject constructor(
     private val ttsProvider: TtsProvider,
     private val toolRegistry: ToolRegistry,
     private val auditLogger: AuditLogger,
+    private val localModelStore: LocalModelStore,
+    private val localLlmRuntime: LocalLlmRuntime,
+    private val connectivity: LocalConnectivity,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -113,7 +120,7 @@ class ChatViewModel @Inject constructor(
 
     private var activeProvider: ProviderConfig? = null
 
-    /** Handle to the in-flight streaming request, used by [cancelStreaming] (15-ROADMAP.md v0.1). */
+    /** Handle to the in-flight streaming request, used by [cancelStreaming]. */
     private var streamJob: Job? = null
 
     /** Bridges the engine's [ConfirmationGate] to the UI: completed by [respondToConfirmation]. */
@@ -142,7 +149,7 @@ class ChatViewModel @Inject constructor(
                 conversationId = conversation.id,
                 conversationTitle = conversation.title,
                 routingOverride = conversation.routingOverride,
-                activeRoute = resolveRoute(conversation.routingOverride),
+                activeRoute = effectiveRoute(conversation.routingOverride),
             )
         }
         conversationRepository.observeMessages(conversation.id).collectLatest { messages ->
@@ -158,7 +165,7 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Change the per-chat routing override (Feature 6 §Settings: Auto / Always Local / Always Cloud).
+     * Change the per-chat routing override (Auto / Always Local / Always Cloud).
      * Persists with the conversation so it survives process death.
      */
     fun setRoutingOverride(override: RoutingOverride) {
@@ -168,20 +175,30 @@ class ChatViewModel @Inject constructor(
                 conversationRepository.upsertConversation(current.copy(routingOverride = override))
             }
             _uiState.update {
-                it.copy(routingOverride = override, activeRoute = resolveRoute(override))
+                it.copy(routingOverride = override, activeRoute = effectiveRoute(override))
             }
-            if (override == RoutingOverride.LOCAL) {
-                _uiEvents.emit(ChatUiEvent.ShowNotice("Local models aren't available in v0.1 — using cloud."))
+            if (override == RoutingOverride.LOCAL && !localModelReady) {
+                _uiEvents.emit(ChatUiEvent.ShowNotice(LOCAL_UNAVAILABLE_NOTICE))
             }
         }
     }
 
-    /** Effective route for the current override. v0.1 has no local provider, so LOCAL falls back to cloud. */
-    private fun resolveRoute(override: RoutingOverride): RoutingOverride = when (override) {
-        RoutingOverride.AUTO -> RoutingOverride.CLOUD
+    /**
+     * Smart routing:
+     *  LOCAL → on-device when a model is installed, cloud otherwise;
+     *  CLOUD → cloud;
+     *  AUTO  → cloud when online, on-device when offline with a model installed.
+     */
+    private fun effectiveRoute(override: RoutingOverride): RoutingOverride = when (override) {
         RoutingOverride.CLOUD -> RoutingOverride.CLOUD
-        RoutingOverride.LOCAL -> RoutingOverride.CLOUD // local LLM lands in v0.5
+        RoutingOverride.LOCAL -> if (localModelReady) RoutingOverride.LOCAL else RoutingOverride.CLOUD
+        RoutingOverride.AUTO ->
+            if (!connectivity.isOnline() && localModelReady) RoutingOverride.LOCAL else RoutingOverride.CLOUD
     }
+
+    /** True when an on-device model file is installed and ready (used for routing decisions). */
+    private val localModelReady: Boolean
+        get() = runCatching { localModelStore.status.value is LocalModelState.Ready }.getOrDefault(false)
 
     /** Create a fresh conversation and switch to it (History drawer "New Chat"). */
     fun createNewConversation() {
@@ -210,6 +227,57 @@ class ChatViewModel @Inject constructor(
         streamJob?.cancel()
         streamJob = viewModelScope.launch(dispatchers.main) {
             val conversationId = state.conversationId ?: return@launch
+
+            // Smart routing v1: pick on-device vs cloud before persisting anything, so a
+            // failed route leaves the composer text intact for a retry.
+            val target = effectiveRoute(state.routingOverride)
+            if (state.routingOverride == RoutingOverride.LOCAL && target != RoutingOverride.LOCAL) {
+                _uiEvents.emit(ChatUiEvent.ShowNotice(LOCAL_UNAVAILABLE_NOTICE))
+            }
+
+            if (target == RoutingOverride.LOCAL) {
+                val localProvider = localLlmRuntime.currentProvider()
+                if (localProvider == null) {
+                    _uiEvents.emit(
+                        ChatUiEvent.ShowError(
+                            "On-device model failed to load — remove and re-download it in Settings → Providers.",
+                        ),
+                    )
+                    return@launch
+                }
+                _uiState.update { it.copy(activeRoute = RoutingOverride.LOCAL) }
+                val userMessage = Message(
+                    conversationId = conversationId,
+                    role = MessageRole.USER,
+                    content = text,
+                )
+                conversationRepository.upsertMessage(userMessage)
+                _uiState.update { it.copy(composerText = "", isStreaming = true) }
+                // Gemma 4 E2B supports tools, so local routing runs the agent fully offline.
+                if (AgentTrigger.shouldUseAgent(text) && localProvider.capabilities.supportsTools) {
+                    streamAgentReply(conversationId, localProvider, localProvider.modelId)
+                } else {
+                    streamAssistantReply(conversationId, localProvider, localProvider.modelId)
+                }
+                return@launch
+            }
+
+            _uiState.update { it.copy(activeRoute = RoutingOverride.CLOUD) }
+
+            // Resolve the model before persisting the user message, so a misconfigured
+            // provider aborts cleanly with the composer text still in place for a retry.
+            val model = resolveModel(providerAdapter, provider)
+            if (model == null) {
+                _uiState.update { it.copy(isStreaming = false) }
+                _uiEvents.emit(
+                    ChatUiEvent.ShowError(
+                        "No model available for \"${provider.name}\". Set one under " +
+                            "Model in the provider settings — local servers usually need it.",
+                    ),
+                )
+                return@launch
+            }
+
             val userMessage = Message(
                 conversationId = conversationId,
                 role = MessageRole.USER,
@@ -218,18 +286,18 @@ class ChatViewModel @Inject constructor(
             conversationRepository.upsertMessage(userMessage)
             _uiState.update { it.copy(composerText = "", isStreaming = true) }
 
-            // Feature 4 triggers: a "Jarvis," prefix / action verbs on a tools-capable provider.
+            // Agent trigger: a "Jarvis," prefix / action verbs on a tools-capable provider.
             if (AgentTrigger.shouldUseAgent(text) && providerAdapter.capabilities.supportsTools) {
-                streamAgentReply(conversationId, providerAdapter)
+                streamAgentReply(conversationId, providerAdapter, model)
             } else {
-                streamAssistantReply(conversationId, providerAdapter)
+                streamAssistantReply(conversationId, providerAdapter, model)
             }
         }
     }
 
     /**
-     * Stop the in-flight stream (15-ROADMAP.md v0.1 "cancel mid-stream"). The partial
-     * assistant response is preserved and marked [MessageStatus.STOPPED] per 13-TESTING.md §3.
+     * Stop the in-flight stream. The partial assistant response is preserved and marked
+     * [MessageStatus.STOPPED].
      */
     fun cancelStreaming() {
         streamJob?.cancel()
@@ -262,7 +330,11 @@ class ChatViewModel @Inject constructor(
         pendingGate = null
     }
 
-    private suspend fun streamAgentReply(conversationId: String, provider: com.jarvis.core.network.LlmProvider) {
+    private suspend fun streamAgentReply(
+        conversationId: String,
+        provider: com.jarvis.core.network.LlmProvider,
+        model: String,
+    ) {
         _uiState.update { it.copy(isAgentRunning = true, agentSteps = emptyList()) }
         val history = conversationRepository.getMessages(conversationId)
         val engine = AgentEngine(
@@ -272,13 +344,13 @@ class ChatViewModel @Inject constructor(
         )
         val request = AgentRunRequest(
             provider = provider,
-            modelId = providerModel(provider),
+            modelId = model,
             messages = history,
         )
 
         // Local step log pushed into state on each event so the Canvas renders live. At most
         // one row is RUNNING at a time: milestones finish as DONE (✓) and the next one becomes
-        // the highlighted row (04-DESIGN.md Screen 5).
+        // the highlighted row.
         val steps = mutableListOf<AgentStep>()
 
         fun publish() = _uiState.update { it.copy(agentSteps = steps.toList()) }
@@ -367,7 +439,11 @@ class ChatViewModel @Inject constructor(
         return gate.await()
     }
 
-    private suspend fun streamAssistantReply(conversationId: String, provider: LlmProvider) {
+    private suspend fun streamAssistantReply(
+        conversationId: String,
+        provider: LlmProvider,
+        model: String,
+    ) {
         val history = conversationRepository.getMessages(conversationId)
         val assistantMessage = Message(
             conversationId = conversationId,
@@ -379,10 +455,10 @@ class ChatViewModel @Inject constructor(
 
         val request = ChatRequest(
             conversationHistory = history,
-            model = providerModel(provider),
+            model = model,
         )
 
-        // Streaming-token appends are debounced at 100ms (02-ARCHITECTURE.md §4): tokens
+        // Streaming-token appends are debounced at 100ms: tokens
         // accumulate in local builders and Room writes are batched, not per-token. The
         // accumulator is authoritative — safer than read-modify-write against UI state,
         // which can drop tokens when deltas arrive faster than the Room Flow re-emits.
@@ -416,7 +492,7 @@ class ChatViewModel @Inject constructor(
                         completionTokens = event.completionTokens
                     }
                     is ChatStreamEvent.Error -> streamError = event
-                    is ChatStreamEvent.ToolCallRequested -> Unit // agent mode arrives in v0.5
+                    is ChatStreamEvent.ToolCallRequested -> Unit
                     ChatStreamEvent.Done -> Unit // completion is handled after the flow ends
                 }
                 if (text.isNotBlank() && System.nanoTime() - lastPersistNanos >= PERSIST_DEBOUNCE_NS) {
@@ -425,7 +501,7 @@ class ChatViewModel @Inject constructor(
                 }
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
-            // Cancel mid-stream: partial response kept, marked "stopped" (Feature 1).
+            // Cancel mid-stream: partial response kept, marked "stopped".
             if (text.isNotBlank() || reasoning.isNotBlank()) persist(MessageStatus.STOPPED)
             throw e
         } catch (t: Throwable) {
@@ -438,7 +514,7 @@ class ChatViewModel @Inject constructor(
 
         val error = streamError
         if (error != null) {
-            // Partial text + failure → keep the partial, marked failed (Feature 1 error table).
+            // Partial text + failure → keep the partial, marked failed.
             if (text.isNotBlank() || reasoning.isNotBlank()) persist(MessageStatus.ERROR)
             _uiState.update { it.copy(isStreaming = false) }
             _uiEvents.emit(ChatUiEvent.ShowError(error.message))
@@ -449,28 +525,32 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * v0.1 uses the provider's first model; model selection UI arrives with the settings
-     * screen. The list is cached per provider id so sending a message doesn't pay a
-     * /v1/models round trip every time.
+     * Model used for a new request: the provider config's stored model when set, else the
+     * first model the server lists (cached per provider id to skip a /v1/models round trip
+     * per message). Returns null when nothing resolves — a hard error rather than silently
+     * sending an OpenAI-specific guess to a local server, which 400s with "model not found".
      */
-    private suspend fun providerModel(provider: LlmProvider): String {
+    private suspend fun resolveModel(provider: LlmProvider, config: ProviderConfig): String? {
+        config.model?.takeIf { it.isNotBlank() }?.let { return it }
         cachedModels?.let { (id, models) ->
             if (id == provider.id && models.isNotEmpty()) return models.first()
         }
         val models = provider.listModels().getOrNull()?.map { it.id }.orEmpty()
         if (models.isNotEmpty()) cachedModels = provider.id to models
-        return models.firstOrNull() ?: "gpt-4o-mini"
+        return models.firstOrNull()
     }
 
     private companion object {
-        /** 100ms streaming-persist debounce (02-ARCHITECTURE.md §4). */
+        /** 100ms streaming-persist debounce. */
         const val PERSIST_DEBOUNCE_NS = 100_000_000L
+
+        /** Shown when the user forces Local routing but no on-device model is installed. */
+        const val LOCAL_UNAVAILABLE_NOTICE =
+            "Local model isn't downloaded yet — using cloud. Install it in Settings → Providers."
     }
 
     /** Per-provider model-id cache backing [providerModel]. */
     private var cachedModels: Pair<String, List<String>>? = null
-
-    // ── Voice (08-VOICE.md) ──────────────────────────────────────────────
 
     /** Start or stop push-to-talk recording. When stopped, auto-transcribes and sends. */
     fun toggleRecording() {

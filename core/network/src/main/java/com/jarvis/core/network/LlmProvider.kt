@@ -4,7 +4,7 @@ import com.jarvis.core.common.Message
 import com.jarvis.core.common.ModelInfo
 import kotlinx.coroutines.flow.Flow
 
-/** Provider capability flags (05-LLM-PROVIDERS.md §2). */
+/** Provider capability flags. */
 data class ProviderCapabilities(
     val vision: Boolean = false,
     val maxContext: Int = 128_000,
@@ -14,9 +14,9 @@ data class ProviderCapabilities(
 )
 
 /**
- * Wire-level tool description sent to the LLM as an available function
- * (10-API-REFERENCE.md §1). `parametersSchemaJson` is a JSON-Schema object serialized as a
- * JSON string; it is produced by :core:agent from its typed [com.jarvis.core.agent.JsonSchema].
+ * Wire-level tool description sent to the LLM as an available function.
+ * `parametersSchemaJson` is a JSON-Schema object serialized as a JSON string; it is produced
+ * by :core:agent from its typed [com.jarvis.core.agent.JsonSchema].
  */
 data class ToolDefinition(
     val name: String,
@@ -25,8 +25,8 @@ data class ToolDefinition(
 )
 
 /**
- * Normalized chat request (05-LLM-PROVIDERS.md §2). v0.1 carried only text history + system
- * prompt; `toolsAvailable` arrives with agent mode (v0.5) and is null when not in agent mode.
+ * Normalized chat request. `toolsAvailable` is non-null only in agent mode, when the
+ * provider may request tools mid-reply.
  */
 data class ChatRequest(
     val conversationHistory: List<Message>,
@@ -36,7 +36,7 @@ data class ChatRequest(
     val toolsAvailable: List<ToolDefinition>? = null,
 )
 
-/** Normalized streaming contract (05-LLM-PROVIDERS.md §4) — one sealed class for every adapter. */
+/** Normalized streaming contract — one sealed class for every adapter. */
 sealed class ChatStreamEvent {
     data class TokenDelta(val text: String) : ChatStreamEvent()
     data class ReasoningDelta(val text: String) : ChatStreamEvent()
@@ -55,7 +55,7 @@ sealed class ChatStreamEvent {
 
 /**
  * Every provider — cloud or local — implements this single interface so the rest of the app
- * never branches on provider identity (05-LLM-PROVIDERS.md §2, 10-API-REFERENCE.md §1).
+ * never branches on provider identity.
  */
 interface LlmProvider {
     val id: String

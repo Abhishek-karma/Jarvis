@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 
 /**
- * Anthropic Messages API adapter contract tests per 13-TESTING.md §1 — 100% of the
+ * Anthropic Messages API adapter contract tests — 100% of the
  * [com.jarvis.core.network.LlmProvider] surface, against MockWebServer fixtures.
  */
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
@@ -83,8 +83,6 @@ class AnthropicProviderTest {
         model = "claude-3-5-sonnet",
     )
 
-    // ── streamChat ────────────────────────────────────────────────────────────
-
     @Test
     fun `streamChat emits TokenDelta events from SSE stream`() = runTest {
         val fixture = javaClass.classLoader!!.getResource("fixtures/anthropic_stream_text.txt")!!.readText()
@@ -125,8 +123,6 @@ class AnthropicProviderTest {
         assertEquals("2023-06-01", recorded.getHeader("anthropic-version"))
         assertTrue(recorded.path!!.startsWith("/v1/messages"))
     }
-
-    // ── tool calling (v0.5 agent mode) ────────────────────────────────────────
 
     @Test
     fun `streamChat emits ToolCallRequested from streamed tool_use block`() = runTest {
@@ -249,8 +245,6 @@ class AnthropicProviderTest {
         assertEquals("Do the thing", (contents[0] as Map<*, *>)["text"])
         assertTrue(((contents[1] as Map<*, *>)["text"] as String).contains("Unknown tool"))
     }
-
-    // ── capabilities ──────────────────────────────────────────────────────────
 
     @Test
     fun `capabilities are correctly declared`() {

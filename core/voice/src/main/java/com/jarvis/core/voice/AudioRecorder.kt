@@ -2,6 +2,7 @@ package com.jarvis.core.voice
 
 import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -40,6 +41,9 @@ class AudioRecorder @Inject constructor(
      */
     fun start() {
         if (isRecording) return
+        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            throw SecurityException("RECORD_AUDIO permission not granted")
+        }
 
         audioRecord = AudioRecord(
             MediaRecorder.AudioSource.MIC,

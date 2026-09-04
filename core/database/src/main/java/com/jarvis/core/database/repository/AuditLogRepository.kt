@@ -8,7 +8,7 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Domain record for one audit row (14-SECURITY.md §7) — params arrive pre-redacted. */
+/** Domain record for one audit row — params arrive pre-redacted. */
 data class AuditLogEntry(
     val id: String = UUID.randomUUID().toString(),
     val agentRunId: String?,
@@ -43,7 +43,7 @@ class RoomAuditLogRepository @Inject constructor(
     )
 }
 
-/** v1 → v2: adds the append-only audit_log table (09-DATA-MODELS.md §2). */
+/** v1 → v2: adds the append-only audit_log table. */
 val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL(
@@ -58,5 +58,12 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
                 "`timestamp` INTEGER NOT NULL" +
                 ")",
         )
+    }
+}
+
+/** v2 → v3: providers gain an optional default-model column for chat requests. */
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `providers` ADD COLUMN `model` TEXT")
     }
 }

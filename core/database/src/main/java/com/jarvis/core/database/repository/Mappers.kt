@@ -79,6 +79,7 @@ fun ProviderEntity.toDomain(): ProviderConfig = ProviderConfig(
     id = id,
     name = name,
     baseUrl = baseUrl,
+    model = model,
     type = ProviderType.OPENAI_COMPATIBLE,
     isDefault = isDefault,
 )
@@ -87,6 +88,7 @@ fun ProviderConfig.toEntity(): ProviderEntity = ProviderEntity(
     id = id,
     name = name,
     baseUrl = baseUrl,
+    model = model,
     type = type.name.lowercase(),
     isDefault = isDefault,
 )

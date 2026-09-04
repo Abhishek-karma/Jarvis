@@ -1,8 +1,7 @@
 package com.jarvis.core.agent
 
 /**
- * Auto-detect agent mode (03-FEATURES.md Feature 4 triggers): a "Jarvis," prefix or a
- * request built around action verbs. Pure and unit-tested; the chat layer routes to the
+ * Auto-detect agent mode: a "Jarvis," prefix or a request built around action verbs. Pure and unit-tested; the chat layer routes to the
  * AgentEngine when this fires (and the provider supports tools).
  */
 object AgentTrigger {

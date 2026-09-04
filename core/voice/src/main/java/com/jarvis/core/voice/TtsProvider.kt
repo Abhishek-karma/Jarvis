@@ -33,7 +33,7 @@ data class TtsResult(
     override fun hashCode(): Int = 31 * audioData.contentHashCode() + format.hashCode()
 }
 
-/** Text-to-speech provider interface (08-VOICE.md §1 TTS). */
+/** Text-to-speech provider interface. */
 interface TtsProvider {
     /** Synthesize [text] to speech using [voice]. Returns audio bytes in [format]. */
     suspend fun synthesize(text: String, voice: TtsVoice = TtsVoice.NOVA, format: TtsFormat = TtsFormat.MP3): Result<TtsResult>

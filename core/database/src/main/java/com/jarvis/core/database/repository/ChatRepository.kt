@@ -10,8 +10,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Single source of truth for conversations and messages (02-ARCHITECTURE.md §3) — Hilt singleton
- * so multiple screens observing the same data stay in sync.
+ * Single source of truth for conversations and messages — a Hilt singleton so multiple
+ * screens observing the same data stay in sync.
  */
 @Singleton
 class ChatRepository @Inject constructor(

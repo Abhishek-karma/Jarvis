@@ -27,8 +27,8 @@ data class HistoryUiState(
 )
 
 /**
- * ViewModel for the History drawer (04-DESIGN.md Screen 2).
- * Observes all conversations, groups them by time, and surfaces pin/rename/delete actions.
+ * ViewModel for the History drawer. Observes all conversations, groups them by time, and
+ * surfaces pin/rename/delete actions.
  */
 @HiltViewModel
 class HistoryViewModel @Inject constructor(

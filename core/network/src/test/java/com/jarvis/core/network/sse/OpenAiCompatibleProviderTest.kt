@@ -25,8 +25,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 
 /**
- * Provider contract tests per 13-TESTING.md §1: 100% of [LlmProvider] interface surface.
- * All tests run against MockWebServer with recorded fixtures — no real provider endpoint.
+ * Provider contract tests: 100% of the [LlmProvider] interface surface, against
+ * MockWebServer with recorded fixtures — no real provider endpoint.
  */
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 class OpenAiCompatibleProviderTest {
@@ -66,8 +66,6 @@ class OpenAiCompatibleProviderTest {
         mockServer.shutdown()
     }
 
-    // ── listModels ────────────────────────────────────────────────────────────
-
     @Test
     fun `listModels returns models on 200 response`() = runTest {
         val fixture = javaClass.classLoader!!.getResource("fixtures/models_list.json")!!.readText()
@@ -80,6 +78,32 @@ class OpenAiCompatibleProviderTest {
         assertEquals(2, models.size)
         assertEquals("gpt-4o", models[0].id)
         assertEquals("gpt-4o-mini", models[1].id)
+    }
+
+    @Test
+    fun `stored base URL ending in v1 never double-prefixes the version path`() = runTest {
+        // The settings form used to default to "https://api.openai.com/v1", and providers
+        // append "/v1/..." themselves — that produced /v1/v1/models → 404. apiRoot() must
+        // normalize whether or not the stored URL carries the suffix.
+        val fixture = javaClass.classLoader!!.getResource("fixtures/models_list.json")!!.readText()
+        mockServer.enqueue(MockResponse().setBody(fixture).setResponseCode(200))
+
+        val client = OkHttpClient()
+        val dispatchers = mockk<com.jarvis.core.common.DispatcherProvider>()
+        every { dispatchers.main } returns testDispatcher
+        every { dispatchers.io } returns testDispatcher
+        every { dispatchers.default } returns testDispatcher
+        val adapterWithV1Base = OpenAiCompatibleProvider(
+            id = "v1-base",
+            baseUrl = mockServer.url("/").toString().trimEnd('/') + "/v1",
+            apiKeyProvider = { null },
+            client = client,
+            moshi = Moshi.Builder().add(Any::class.java, JsonTreeAdapter).build(),
+            dispatchers = dispatchers,
+        )
+
+        assertTrue(adapterWithV1Base.listModels().isSuccess)
+        assertEquals("/v1/models", mockServer.takeRequest().path)
     }
 
     @Test
@@ -116,8 +140,6 @@ class OpenAiCompatibleProviderTest {
         assertTrue(result.isFailure)
         assertEquals(3, mockServer.requestCount)
     }
-
-    // ── streamChat ────────────────────────────────────────────────────────────
 
     @Test
     fun `streamChat emits TokenDelta events from SSE stream`() = runTest {
@@ -279,8 +301,6 @@ class OpenAiCompatibleProviderTest {
         assertTrue(errors.isNotEmpty())
     }
 
-    // ── tool calls (v0.5 agent mode) ──────────────────────────────────────────
-
     @Test
     fun `streamChat emits ToolCallRequested from streamed tool_calls deltas`() = runTest {
         val sseBody = javaClass.classLoader!!.getResource("fixtures/chat_stream_tool_calls.txt")!!.readText()
@@ -385,8 +405,6 @@ class OpenAiCompatibleProviderTest {
         assertTrue(body.contains("\"role\":\"tool\",\"content\":\"Sunny, 21C\""))
         assertTrue(body.contains("\"tool_call_id\":\"call_x\""))
     }
-
-    // ── capabilities ──────────────────────────────────────────────────────────
 
     @Test
     fun `capabilities are correctly declared`() {

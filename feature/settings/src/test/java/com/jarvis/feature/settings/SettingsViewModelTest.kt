@@ -3,6 +3,8 @@ package com.jarvis.feature.settings
 import com.jarvis.core.common.ProviderConfig
 import com.jarvis.core.database.repository.ProviderRepository
 import com.jarvis.core.database.security.ApiKeyStore
+import com.jarvis.core.ml.LocalModelState
+import com.jarvis.core.ml.LocalModelStore
 import com.jarvis.core.network.ProviderManager
 import com.jarvis.core.network.sse.OpenAiCompatibleProvider
 import io.mockk.Runs
@@ -36,7 +38,15 @@ class SettingsViewModelTest {
     private lateinit var providerRepository: ProviderRepository
     private lateinit var providerManager: ProviderManager
     private lateinit var apiKeyStore: ApiKeyStore
+    private lateinit var localModelStore: LocalModelStore
     private lateinit var providersFlow: MutableStateFlow<List<ProviderConfig>>
+    private lateinit var localModelStateFlow: MutableStateFlow<LocalModelState>
+
+    private val testDispatchers = mockk<com.jarvis.core.common.DispatcherProvider>().apply {
+        every { main } returns testDispatcher
+        every { io } returns testDispatcher
+        every { default } returns testDispatcher
+    }
 
     @BeforeEach
     fun setUp() {
@@ -45,7 +55,10 @@ class SettingsViewModelTest {
         providerRepository = mockk(relaxed = true)
         providerManager = mockk(relaxed = true)
         apiKeyStore = mockk(relaxed = true)
+        localModelStore = mockk(relaxed = true)
         providersFlow = MutableStateFlow(emptyList())
+        localModelStateFlow = MutableStateFlow(LocalModelState.NotDownloaded)
+        every { localModelStore.status } returns localModelStateFlow
 
         coEvery { providerRepository.observeProviders() } returns providersFlow
 
@@ -53,7 +66,9 @@ class SettingsViewModelTest {
             providerRepository = providerRepository,
             providerManager = providerManager,
             apiKeyStore = apiKeyStore,
-            dispatchers = com.jarvis.core.common.DispatcherProvider(),
+            localModelStore = localModelStore,
+            context = mockk(relaxed = true),
+            dispatchers = testDispatchers,
         )
     }
 
@@ -61,8 +76,6 @@ class SettingsViewModelTest {
     fun tearDown() {
         Dispatchers.resetMain()
     }
-
-    // ── List actions ──────────────────────────────────────────────────────────
 
     @Test
     fun `deleteProvider removes from repository and key store`() = runTest {
@@ -86,17 +99,36 @@ class SettingsViewModelTest {
         coVerify { providerRepository.setDefault("p1") }
     }
 
-    // ── Edit actions ──────────────────────────────────────────────────────────
-
     @Test
     fun `resetForNew clears edit state`() {
         viewModel.resetForNew()
 
         val state = viewModel.editState.value
         assertTrue(state.isNew)
-        assertEquals("https://api.openai.com/v1", state.baseUrl)
+        assertEquals("https://api.openai.com", state.baseUrl)
         assertEquals("", state.name)
+        assertEquals("", state.model)
         assertEquals("", state.apiKey)
+    }
+
+    @Test
+    fun `applyPreset fills the form for a local server`() {
+        viewModel.applyPreset(ProviderPreset.OLLAMA)
+
+        val state = viewModel.editState.value
+        assertEquals("Ollama (local)", state.name)
+        assertEquals("http://10.0.2.2:11434", state.baseUrl)
+        assertEquals("", state.model)
+    }
+
+    @Test
+    fun `applyPreset fills the form for a cloud provider`() {
+        viewModel.applyPreset(ProviderPreset.OPENAI)
+
+        val state = viewModel.editState.value
+        assertEquals("OpenAI", state.name)
+        assertEquals("https://api.openai.com", state.baseUrl)
+        assertEquals("gpt-4o-mini", state.model)
     }
 
     @Test
@@ -126,6 +158,16 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `onModelChange updates model and clears errors`() {
+        viewModel.onModelChange("llama3.2")
+
+        val state = viewModel.editState.value
+        assertEquals("llama3.2", state.model)
+        assertNull(state.verificationError)
+        assertFalse(state.verificationSuccess)
+    }
+
+    @Test
     fun `onDefaultChange updates default flag`() {
         viewModel.onDefaultChange(true)
 
@@ -145,14 +187,24 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `verifyAndSave fails when API key is empty`() = runTest {
-        viewModel.onNameChange("Test Provider")
-        viewModel.onApiKeyChange("")
+    fun `verifyAndSave allows empty API key for keyless local servers`() = runTest {
+        val mockAdapter = mockk<OpenAiCompatibleProvider>(relaxed = true)
+        coEvery { providerManager.adapterFor(any()) } returns mockAdapter
+        coEvery { mockAdapter.listModels() } returns Result.success(emptyList())
+        coEvery { providerRepository.upsert(any()) } just Runs
+        coEvery { providerManager.dropAdapter(any()) } just Runs
+        coEvery { apiKeyStore.removeKey(any()) } just Runs
 
+        viewModel.onNameChange("Ollama")
+        viewModel.onBaseUrlChange("http://10.0.2.2:11434")
+        viewModel.onApiKeyChange("")
         viewModel.verifyAndSave()
         advanceUntilIdle()
 
-        assertEquals("API key is required", viewModel.editState.value.verificationError)
+        coVerify { providerRepository.upsert(match { it.name == "Ollama" }) }
+        coVerify { apiKeyStore.removeKey(any()) }
+        assertTrue(viewModel.editState.value.verificationSuccess)
+        assertEquals(null, viewModel.editState.value.verificationError)
     }
 
     @Test
@@ -163,13 +215,25 @@ class SettingsViewModelTest {
         coEvery { providerRepository.upsert(any()) } just Runs
         coEvery { providerRepository.setDefault(any()) } just Runs
         coEvery { providerManager.dropAdapter(any()) } just Runs
+        coEvery { apiKeyStore.putKey(any(), any()) } just Runs
 
         viewModel.onNameChange("Test Provider")
+        // /v1 typed by the user is normalized to the API root on save.
+        viewModel.onBaseUrlChange("https://api.openai.com/v1")
+        viewModel.onModelChange("gpt-4o-mini")
         viewModel.onApiKeyChange("sk-test-123")
         viewModel.verifyAndSave()
         advanceUntilIdle()
 
-        coVerify { providerRepository.upsert(match { it.name == "Test Provider" }) }
+        coVerify {
+            providerRepository.upsert(
+                match {
+                    it.name == "Test Provider" &&
+                        it.baseUrl == "https://api.openai.com" &&
+                        it.model == "gpt-4o-mini"
+                },
+            )
+        }
         assertTrue(viewModel.editState.value.verificationSuccess)
     }
 
@@ -192,7 +256,12 @@ class SettingsViewModelTest {
 
     @Test
     fun `loadProvider populates edit state from repository`() = runTest {
-        val provider = ProviderConfig(id = "p1", name = "OpenAI", baseUrl = "https://api.openai.com/v1")
+        val provider = ProviderConfig(
+            id = "p1",
+            name = "OpenAI",
+            baseUrl = "https://api.openai.com",
+            model = "gpt-4o-mini",
+        )
         coEvery { providerRepository.getProvider("p1") } returns provider
         coEvery { apiKeyStore.getKey("p1") } returns "sk-existing"
 
@@ -202,6 +271,7 @@ class SettingsViewModelTest {
         val state = viewModel.editState.value
         assertEquals("p1", state.providerId)
         assertEquals("OpenAI", state.name)
+        assertEquals("gpt-4o-mini", state.model)
         assertEquals("sk-existing", state.apiKey)
         assertFalse(state.isNew)
     }

@@ -6,7 +6,7 @@ import com.jarvis.core.agent.ToolResult
 import java.time.Instant
 
 /**
- * First batch of built-in tools — the "System info" category of 06-AGENT.md §3. Platform
+ * First batch of built-in tools — the "System info" category. Platform
  * access is injected as plain lambdas so every tool stays JVM-unit-testable; the agent UI
  * phase binds real Android readers (BatteryManager, StatFs, ConnectivityManager) behind them.
  */

@@ -1,8 +1,8 @@
 package com.jarvis.core.navigation
 
 /**
- * Cross-feature navigation contract (02-ARCHITECTURE.md §2): route definitions only,
- * no ViewModel sharing. Features depend on this module, never on each other.
+ * Cross-feature navigation contract: route definitions only, no ViewModel sharing.
+ * Features depend on this module, never on each other.
  */
 object Routes {
     const val CHAT = "chat"

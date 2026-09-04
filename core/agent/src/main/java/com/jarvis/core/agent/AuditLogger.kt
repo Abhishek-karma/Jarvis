@@ -8,8 +8,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import java.security.MessageDigest
 
 /**
- * One append-only audit record per tool execution (14-SECURITY.md §7). Never contains
- * plaintext sensitive values — [AuditRecord.paramsRedactedJson] is redacted first.
+ * One append-only audit record per tool execution. Never contains plaintext sensitive
+ * values — [AuditRecord.paramsRedactedJson] is redacted first.
  */
 data class AuditRecord(
     val agentRunId: String?, // nullable — some tool calls happen outside a full agent run
@@ -22,9 +22,8 @@ data class AuditRecord(
 )
 
 /**
- * Storage hook for the audit log. A Room-backed, DAO-append-only implementation lands with
- * the v0.5 "audit log" roadmap bullet (09-DATA-MODELS.md §2); the engine only depends on
- * this seam so it never decides how rows are persisted.
+ * Storage hook for the audit log. A Room-backed, DAO-append-only implementation lands later;
+ * the engine only depends on this seam so it never decides how rows are persisted.
  */
 fun interface AuditLogger {
     suspend fun record(entry: AuditRecord)
@@ -32,7 +31,7 @@ fun interface AuditLogger {
 
 /**
  * Replaces values under known-sensitive argument keys with a length + hash marker —
- * never plaintext (jarvis-agent-tool §4, 14-SECURITY.md §7). Nested objects and arrays
+ * never plaintext. Nested objects and arrays
  * are walked so e.g. message bodies inside a `messages` list are caught too.
  */
 object AuditRedaction {

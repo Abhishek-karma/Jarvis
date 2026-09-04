@@ -6,78 +6,77 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 
 /**
- * Raw token values — the full Claude identity layer ported from
- * `design/claude/DESIGN-android.md §1`. The app reads like warm paper, never cold chrome:
+ * Raw token values — Jarvis's redesigned palette:
  *
- *  - Canvas is cream `#F8F4ED` (light) / warm near-black `#1F1B16` (dark).
- *  - Text is warm ink (`#2D2520` light / `#E8E0D2` dark) — never pure black or white.
- *  - Claude Orange `#D97757` is the single signature accent.
- *  - Code blocks are warm-dark in both themes — never blue-tinted.
- *  - The voice-mode takeover keeps ChatGPT's pulsing blue sphere (its flagship moment).
+ *  - Canvas is cool off-white `#F5F6F8` (light) / dark slate `#121820` (dark).
+ *  - Text is deep slate (`#1E2630` light / `#E4E7EC` dark) for crisp contrast.
+ *  - Accent is deep indigo `#3E4C8A` (light) / soft indigo `#7C8FD8` (dark).
+ *  - Code blocks are dark slate in both themes for consistency.
+ *  - Voice-mode sphere uses indigo-to-lavender gradient for a distinctive look.
  */
 object JarvisColors {
     object Dark {
-        val canvas = Color(0xFF1F1B16) // warm near-black, orange-undertoned
-        val surface = Color(0xFF2A2520) // Dark Surface 1: pills, chips, rows
-        val surfaceAlt = Color(0xFF3A332C) // Dark Surface 2: pressed / elevated
-        val paper = Color(0xFF2A2520) // input fill, raised surfaces
-        val sidebar = Color(0xFF2A2520) // history drawer
-        val sidebarActive = Color(0xFF3A332C)
-        val textPrimary = Color(0xFFE8E0D2) // warm cream type
-        val textSecondary = Color(0xFFB5AB9E) // graphite-warm
-        val textTertiary = Color(0xFF8A7E72)
-        val textDisabled = Color(0xFF6E6357)
-        val divider = Color(0xFF3A332C)
-        val codeBg = Color(0xFF26221D) // warm code surface, slightly raised off canvas
-        val codeFg = Color(0xFFE8E0D2)
-        val codeHeader = Color(0xFF3A332C)
-        val codeBorder = Color(0xFF3A332C)
-        val codeInlineBg = Color(0xFF3A332C)
-        val sendDisabled = Color(0xFF3A332C)
+        val canvas = Color(0xFF121820)
+        val surface = Color(0xFF1C2430)
+        val surfaceAlt = Color(0xFF253040)
+        val paper = Color(0xFF1C2430)
+        val sidebar = Color(0xFF161E28)
+        val sidebarActive = Color(0xFF253040)
+        val textPrimary = Color(0xFFE4E7EC)
+        val textSecondary = Color(0xFFA0AAB8)
+        val textTertiary = Color(0xFF6E7A8A)
+        val textDisabled = Color(0xFF4A5568)
+        val divider = Color(0xFF2A3444)
+        val codeBg = Color(0xFF0E141C)
+        val codeFg = Color(0xFFE4E7EC)
+        val codeHeader = Color(0xFF253040)
+        val codeBorder = Color(0xFF2A3444)
+        val codeInlineBg = Color(0xFF253040)
+        val sendDisabled = Color(0xFF253040)
     }
 
     object Light {
-        val canvas = Color(0xFFF8F4ED) // cream paper
-        val surface = Color(0xFFF0EAE0) // Surface Warm 1: user pill, chips, callouts
-        val surfaceAlt = Color(0xFFE8E0D2) // Surface Warm 2: pressed / chip fills
-        val paper = Color(0xFFFBF9F4) // Paper White: input fill, raised surfaces
-        val sidebar = Color(0xFFF0EAE0) // history drawer
-        val sidebarActive = Color(0xFFE8E0D2)
-        val textPrimary = Color(0xFF2D2520) // warm ink, not pure black
-        val textSecondary = Color(0xFF5A4F44) // graphite-warm
-        val textTertiary = Color(0xFF8A7E72) // stone-warm
-        val textDisabled = Color(0xFFB5AB9E) // bone-warm
-        val divider = Color(0xFFDDD2BD) // divider sand
-        val codeBg = Color(0xFF1F1B16) // warm-dark code block on the cream canvas
-        val codeFg = Color(0xFFE8E0D2)
-        val codeHeader = Color(0xFF3A332C)
-        val codeBorder = Color(0xFF3A332C)
-        val codeInlineBg = Color(0xFFE8E0D2)
-        val sendDisabled = Color(0xFFE8E0D2)
+        val canvas = Color(0xFFF5F6F8)
+        val surface = Color(0xFFEAECF0)
+        val surfaceAlt = Color(0xFFDDE1E8)
+        val paper = Color(0xFFFCFCFD)
+        val sidebar = Color(0xFFF0F2F5)
+        val sidebarActive = Color(0xFFE2E6EE)
+        val textPrimary = Color(0xFF1E2630)
+        val textSecondary = Color(0xFF4A5568)
+        val textTertiary = Color(0xFF6E7A8A)
+        val textDisabled = Color(0xFFA0AAB8)
+        val divider = Color(0xFFD0D5DD)
+        val codeBg = Color(0xFF121820)
+        val codeFg = Color(0xFFE4E7EC)
+        val codeHeader = Color(0xFF253040)
+        val codeBorder = Color(0xFF2A3444)
+        val codeInlineBg = Color(0xFFE2E6EE)
+        val sendDisabled = Color(0xFFDDE1E8)
     }
 
-    /** Claude Orange — the single signature accent (send, cursor, logomark, links). */
+    /** Accent — deep indigo signature for interactive elements. */
     object Accent {
-        val orange = Color(0xFFD97757)
-        val orangePressed = Color(0xFFBE6242)
-        val orangeSoft = Color(0xFFF2DDD0) // active chip / "Thinking…" fill (light)
-        val orangeSoftDark = Color(0xFF4A352A) // active chip fill (dark)
-        val onOrange = Color(0xFFFBF9F4) // Paper White glyph on orange
+        val orange = Color(0xFF3E4C8A) // primary indigo
+        val orangePressed = Color(0xFF2C376A)
+        val orangeSoft = Color(0xFFD9DFF0) // light active chip fill
+        val orangeSoftDark = Color(0xFF2C376A) // dark active chip fill
+        val onOrange = Color(0xFFFFFFFF)
     }
 
-    /** Semantic — warm-toned, never pure. */
+    /** Semantic — clean, accessible hues. */
     object Semantic {
-        val error = Color(0xFFC16654) // terracotta red
-        val warning = Color(0xFFD49952) // warm amber
-        val success = Color(0xFF6B9D5E) // sage
+        val error = Color(0xFFB33A3A)
+        val warning = Color(0xFFB8860B)
+        val success = Color(0xFF2E7D32)
     }
 
-    /** Voice-mode sphere gradient (ChatGPT voice takeover — kept for its flagship moment). */
+    /** Voice-mode sphere gradient — indigo to lavender. */
     object Voice {
-        val blue1 = Color(0xFF3B82F6)
-        val blue2 = Color(0xFF60A5FA)
-        val blue3 = Color(0xFF93C5FD)
-        val takeover = Color(0xFF1B1713) // warm near-black behind the sphere
+        val blue1 = Color(0xFF3E4C8A)
+        val blue2 = Color(0xFF7C8FD8)
+        val blue3 = Color(0xFFC4CEEF)
+        val takeover = Color(0xFF0E141C)
     }
 }
 

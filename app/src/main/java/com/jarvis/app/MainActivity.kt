@@ -28,7 +28,7 @@ import dagger.hilt.android.AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Edge-to-edge per the design spec: system-bar contrast follows the canvas.
+        // Edge-to-edge: system-bar contrast follows the canvas.
         enableEdgeToEdge()
         setContent {
             JarvisTheme {
@@ -53,10 +53,10 @@ private fun JarvisNavHost() {
                 onOpenVoiceMode = { navController.navigate(Routes.VOICE_MODE) },
             )
         }
-        composable(Routes.VOICE_MODE) {
-            // Voice mode shares the chat destination's ChatViewModel so recording
-            // and streaming state remain continuous between the two screens.
-            val chatEntry = remember(navController) { navController.getBackStackEntry(Routes.CHAT) }
+        composable(Routes.VOICE_MODE) { backStackEntry ->
+            // Voice mode shares the chat destination's ChatViewModel so recording and
+            // streaming state remain continuous between the two screens.
+            val chatEntry = remember(backStackEntry) { navController.getBackStackEntry(Routes.CHAT) }
             VoiceModeRoute(
                 onEnd = { navController.popBackStack() },
                 viewModel = hiltViewModel(chatEntry),
