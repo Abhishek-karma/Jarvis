@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "note": "Source-of-truth catalog for built-in agent tools (06-AGENT.md §3). Code registration lives in :core:agent ToolRegistry; keep manifest entries in sync when tools change.",
+  "tools": [
+    {
+      "name": "battery_level",
+      "category": "system_info",
+      "description": "Current battery charge percentage (0-100) of this device. Read-only.",
+      "tier": "read_only",
+      "parameters": { "type": "object", "properties": {}, "required": [] }
+    },
+    {
+      "name": "storage_free",
+      "category": "system_info",
+      "description": "Free device storage in bytes. Read-only.",
+      "tier": "read_only",
+      "parameters": { "type": "object", "properties": {}, "required": [] }
+    },
+    {
+      "name": "network_status",
+      "category": "system_info",
+      "description": "Current network state: wifi, cellular, or offline. Read-only.",
+      "tier": "read_only",
+      "parameters": { "type": "object", "properties": {}, "required": [] }
+    },
+    {
+      "name": "current_time",
+      "category": "system_info",
+      "description": "The current date and time in UTC (ISO-8601). Read-only.",
+      "tier": "read_only",
+      "parameters": { "type": "object", "properties": {}, "required": [] }
+    }
+  ]
+}

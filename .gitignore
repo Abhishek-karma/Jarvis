@@ -1,0 +1,28 @@
+# ── IDE ──
+*.iml
+.idea/
+.vscode/
+.DS_Store
+
+# ── Gradle / Android build output ──
+.gradle/
+**/build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+.kotlin/
+
+# ── Logs / profiling ──
+*.log
+*.hprof
+
+# ── Local agent/tool state (never commit) ──
+.freebuff/
+
+# ── Runtime models (downloaded on demand, not vendored) ──
+app/src/debug/assets/models-dev/
