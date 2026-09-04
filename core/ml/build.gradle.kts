@@ -29,7 +29,7 @@ dependencies {
     api(project(":core:network"))
     implementation(project(":core:common"))
 
-    api(libs.mediapipe.tasks.genai)
+    api(libs.litertlm.android)
     api(libs.okhttp)
     api(libs.moshi)
     ksp(libs.moshi.kotlin.codegen)

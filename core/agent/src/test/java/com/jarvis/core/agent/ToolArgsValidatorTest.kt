@@ -5,10 +5,11 @@ import com.jarvis.core.agent.ToolArgsValidator.Result.Valid
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-class ToolArgsValidatorTest {
+private const val SCHEMA = """{"type":"object","properties":{"level":{"type":"integer"},"note":{"type":"string"}},"required":["level"]}"""
 
+class ToolArgsValidatorTest {
     private val validator = ToolArgsValidator()
-    private val schema = """{"type":"object","properties":{"level":{"type":"integer"},"note":{"type":"string"}},"required":["level"]}"""
+    private val schema = SCHEMA
 
     @Test
     fun `valid args pass`() {

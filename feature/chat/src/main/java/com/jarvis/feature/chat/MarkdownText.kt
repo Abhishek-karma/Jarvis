@@ -2,10 +2,10 @@ package com.jarvis.feature.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -73,14 +73,15 @@ fun MarkdownText(
         blocks.forEach { block ->
             when (block) {
                 is MdBlock.Paragraph -> StyledText(block.spans, JarvisText.AssistantBody)
-                is MdBlock.Heading -> StyledText(
-                    block.spans,
-                    when (block.level) {
-                        1 -> JarvisText.H1
-                        2 -> JarvisText.H2
-                        else -> JarvisText.H3
-                    },
-                )
+                is MdBlock.Heading ->
+                    StyledText(
+                        block.spans,
+                        when (block.level) {
+                            1 -> JarvisText.H1
+                            2 -> JarvisText.H2
+                            else -> JarvisText.H3
+                        },
+                    )
                 is MdBlock.CodeBlock -> CodeBlock(block)
                 is MdBlock.BulletList -> ListBlock(block.items, numbered = false)
                 is MdBlock.NumberedList -> ListBlock(block.items, numbered = true)
@@ -97,35 +98,43 @@ private fun StyledText(
     style: androidx.compose.ui.text.TextStyle,
     modifier: Modifier = Modifier,
 ) {
-    val annotated = buildAnnotatedString {
-        spans.forEach { span ->
-            val spanStyle = SpanStyle(
-                fontWeight = when {
-                    span.bold -> FontWeight.SemiBold
-                    else -> style.fontWeight
-                },
-                fontStyle = if (span.italic) FontStyle.Italic else style.fontStyle,
-                fontFamily = if (span.code) JarvisFont.mono else style.fontFamily,
-                fontSize = if (span.code) JarvisText.Code.fontSize else style.fontSize,
-                // Warm inline-code chip — warm surface, never blue.
-                background = if (span.code) {
-                    if (isSystemInDarkTheme()) JarvisColors.Dark.codeInlineBg else JarvisColors.Light.codeInlineBg
+    val annotated =
+        buildAnnotatedString {
+            spans.forEach { span ->
+                val spanStyle =
+                    SpanStyle(
+                        fontWeight =
+                            when {
+                                span.bold -> FontWeight.SemiBold
+                                else -> style.fontWeight
+                            },
+                        fontStyle = if (span.italic) FontStyle.Italic else style.fontStyle,
+                        fontFamily = if (span.code) JarvisFont.mono else style.fontFamily,
+                        fontSize = if (span.code) JarvisText.Code.fontSize else style.fontSize,
+                        // Warm inline-code chip — warm surface, never blue.
+                        background =
+                            if (span.code) {
+                                if (isSystemInDarkTheme()) {
+                                    JarvisColors.Dark.codeInlineBg
+                                } else {
+                                    JarvisColors.Light.codeInlineBg
+                                }
+                            } else {
+                                Color.Unspecified
+                            },
+                    )
+                if (span.url != null) {
+                    pushStringAnnotation(tag = "URL", annotation = span.url)
+                    // Links use the single accent color.
+                    pushStyle(spanStyle.copy(color = JarvisColors.Accent.orange))
+                    append(span.text)
+                    pop()
+                    pop()
                 } else {
-                    Color.Unspecified
-                },
-            )
-            if (span.url != null) {
-                pushStringAnnotation(tag = "URL", annotation = span.url)
-                // Links use the single accent color.
-                pushStyle(spanStyle.copy(color = JarvisColors.Accent.orange))
-                append(span.text)
-                pop()
-                pop()
-            } else {
-                withStyle(spanStyle) { append(span.text) }
+                    withStyle(spanStyle) { append(span.text) }
+                }
             }
         }
-    }
     Text(
         text = annotated,
         style = style,
@@ -138,10 +147,11 @@ private fun StyledText(
 private fun QuoteBlock(block: MdBlock.Quote) {
     Row(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier
-                .width(3.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(JarvisColors.Accent.orange),
+            modifier =
+                Modifier
+                    .width(3.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(JarvisColors.Accent.orange),
         ) {}
         StyledText(
             block.spans,
@@ -172,18 +182,20 @@ private fun CodeBlock(block: MdBlock.CodeBlock) {
     val codeFg = if (dark) JarvisColors.Dark.codeFg else JarvisColors.Light.codeFg
 
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(JarvisShapes.codeBlock)
-            .background(codeBg)
-            .border(1.dp, codeBorder, JarvisShapes.codeBlock),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clip(JarvisShapes.codeBlock)
+                .background(codeBg)
+                .border(1.dp, codeBorder, JarvisShapes.codeBlock),
     ) {
         // Header strip: language label + copy button.
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(codeHeader.copy(alpha = 0.5f))
-                .padding(horizontal = Spacing.lg, vertical = Spacing.xs),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .background(codeHeader.copy(alpha = 0.5f))
+                    .padding(horizontal = Spacing.lg, vertical = Spacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -196,18 +208,18 @@ private fun CodeBlock(block: MdBlock.CodeBlock) {
                 imageVector = if (copied) Icons.Filled.Check else Icons.Filled.ContentCopy,
                 contentDescription = if (copied) "Copied" else "Copy code",
                 tint = codeFg.copy(alpha = 0.85f),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(Spacing.sm))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) {
-                        clipboard.setText(AnnotatedString(block.code))
-                        copied = true
-                    }
-                    .padding(Spacing.sm)
-                    .width(16.dp)
-                    .height(16.dp),
+                modifier =
+                    Modifier
+                        .clip(RoundedCornerShape(Spacing.sm))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) {
+                            clipboard.setText(AnnotatedString(block.code))
+                            copied = true
+                        }.padding(Spacing.sm)
+                        .width(16.dp)
+                        .height(16.dp),
             )
         }
         HorizontalDivider(color = codeBorder)
@@ -215,9 +227,10 @@ private fun CodeBlock(block: MdBlock.CodeBlock) {
             text = block.code,
             style = JarvisText.Code,
             color = codeFg,
-            modifier = Modifier
-                .horizontalScroll(rememberScrollState())
-                .padding(Spacing.lg),
+            modifier =
+                Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(Spacing.lg),
         )
     }
 }

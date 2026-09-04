@@ -9,67 +9,72 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class SystemInfoToolsTest {
+    @Test
+    fun `battery level returns percentage as observation`() =
+        runBlocking {
+            val tool = SystemInfoTools.batteryLevel { 76 }
+
+            val result = tool.execute("{}")
+
+            assertTrue(result.success)
+            assertTrue(result.observationText.contains("76"))
+            assertEquals(76, result.structuredData?.get("percent"))
+        }
 
     @Test
-    fun `battery level returns percentage as observation`() = runBlocking {
-        val tool = SystemInfoTools.batteryLevel { 76 }
+    fun `battery level reports failure when the platform cannot read it`() =
+        runBlocking {
+            val tool = SystemInfoTools.batteryLevel { null }
 
-        val result = tool.execute("{}")
+            val result = tool.execute("{}")
 
-        assertTrue(result.success)
-        assertTrue(result.observationText.contains("76"))
-        assertEquals(76, result.structuredData?.get("percent"))
-    }
-
-    @Test
-    fun `battery level reports failure when the platform cannot read it`() = runBlocking {
-        val tool = SystemInfoTools.batteryLevel { null }
-
-        val result = tool.execute("{}")
-
-        assertFalse(result.success)
-        assertTrue(result.error != null)
-    }
+            assertFalse(result.success)
+            assertTrue(result.error != null)
+        }
 
     @Test
-    fun `storage free reports bytes`() = runBlocking {
-        val tool = SystemInfoTools.storageFree { 5_368_709_120L }
+    fun `storage free reports bytes`() =
+        runBlocking {
+            val tool = SystemInfoTools.storageFree { 5_368_709_120L }
 
-        val result = tool.execute("{}")
+            val result = tool.execute("{}")
 
-        assertTrue(result.success)
-        assertTrue(result.observationText.contains("5368709120"))
-        assertEquals(5_368_709_120L, result.structuredData?.get("freeBytes"))
-    }
-
-    @Test
-    fun `network status reports wifi`() = runBlocking {
-        val tool = SystemInfoTools.networkStatus { "wifi" }
-
-        val result = tool.execute("{}")
-
-        assertTrue(result.success)
-        assertTrue(result.observationText.contains("wifi"))
-        assertEquals("wifi", result.structuredData?.get("state"))
-    }
+            assertTrue(result.success)
+            assertTrue(result.observationText.contains("5368709120"))
+            assertEquals(5_368_709_120L, result.structuredData?.get("freeBytes"))
+        }
 
     @Test
-    fun `current time reports the injected clock in UTC ISO-8601`() = runBlocking {
-        val tool = SystemInfoTools.currentTime(nowUtcMillis = { 1_700_000_000_000L })
+    fun `network status reports wifi`() =
+        runBlocking {
+            val tool = SystemInfoTools.networkStatus { "wifi" }
 
-        val result = tool.execute("{}")
+            val result = tool.execute("{}")
 
-        assertTrue(result.success)
-        assertTrue(result.observationText.contains("2023-11-14T22:13:20Z"), result.observationText)
-    }
+            assertTrue(result.success)
+            assertTrue(result.observationText.contains("wifi"))
+            assertEquals("wifi", result.structuredData?.get("state"))
+        }
+
+    @Test
+    fun `current time reports the injected clock in UTC ISO-8601`() =
+        runBlocking {
+            val tool = SystemInfoTools.currentTime(nowUtcMillis = { 1_700_000_000_000L })
+
+            val result = tool.execute("{}")
+
+            assertTrue(result.success)
+            assertTrue(result.observationText.contains("2023-11-14T22:13:20Z"), result.observationText)
+        }
 
     @Test
     fun `all tools are read-only and register cleanly`() {
-        val tools = SystemInfoTools.all(
-            batteryPercent = { 100 },
-            storageFreeBytes = { 0L },
-            networkState = { "offline" },
-        )
+        val tools =
+            SystemInfoTools.all(
+                batteryPercent = { 100 },
+                storageFreeBytes = { 0L },
+                networkState = { "offline" },
+            )
         val registry = ToolRegistry()
         tools.forEach { registry.register(it) }
 

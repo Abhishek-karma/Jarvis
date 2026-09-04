@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class MarkdownParserTest {
-
     @Test
     fun `plain paragraph produces a single paragraph block`() {
         val blocks = parseMarkdown("Hello world")

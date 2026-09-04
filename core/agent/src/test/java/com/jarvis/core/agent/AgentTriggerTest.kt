@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class AgentTriggerTest {
-
     @Test
     fun `Jarvis prefix triggers agent mode`() {
         assertTrue(AgentTrigger.shouldUseAgent("Jarvis, check my battery"))

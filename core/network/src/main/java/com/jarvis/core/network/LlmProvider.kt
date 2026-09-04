@@ -38,12 +38,25 @@ data class ChatRequest(
 
 /** Normalized streaming contract — one sealed class for every adapter. */
 sealed class ChatStreamEvent {
-    data class TokenDelta(val text: String) : ChatStreamEvent()
-    data class ReasoningDelta(val text: String) : ChatStreamEvent()
+    data class TokenDelta(
+        val text: String,
+    ) : ChatStreamEvent()
+
+    data class ReasoningDelta(
+        val text: String,
+    ) : ChatStreamEvent()
 
     /** Emitted only when the provider supports tools (capabilities.supportsTools). */
-    data class ToolCallRequested(val name: String, val argsJson: String) : ChatStreamEvent()
-    data class Usage(val promptTokens: Int, val completionTokens: Int) : ChatStreamEvent()
+    data class ToolCallRequested(
+        val name: String,
+        val argsJson: String,
+    ) : ChatStreamEvent()
+
+    data class Usage(
+        val promptTokens: Int,
+        val completionTokens: Int,
+    ) : ChatStreamEvent()
+
     data class Error(
         val code: String,
         val message: String,

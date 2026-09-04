@@ -1,11 +1,12 @@
 package com.jarvis.core.common
 
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
 
 /** Groups epoch-millis timestamps into the sections the History drawer shows. */
-enum class TimeGroup(val label: String) {
+enum class TimeGroup(
+    val label: String,
+) {
     PINNED("Pinned"),
     TODAY("Today"),
     YESTERDAY("Yesterday"),
@@ -14,7 +15,10 @@ enum class TimeGroup(val label: String) {
 }
 
 object TimeGrouping {
-    fun groupFor(timestampMillis: Long, nowMillis: Long = System.currentTimeMillis()): TimeGroup {
+    fun groupFor(
+        timestampMillis: Long,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): TimeGroup {
         val zone = ZoneId.systemDefault()
         val date = Instant.ofEpochMilli(timestampMillis).atZone(zone).toLocalDate()
         val now = Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
@@ -27,11 +31,12 @@ object TimeGrouping {
     }
 
     /** Stable display order for sections. */
-    val ORDER = listOf(
-        TimeGroup.PINNED,
-        TimeGroup.TODAY,
-        TimeGroup.YESTERDAY,
-        TimeGroup.LAST_7_DAYS,
-        TimeGroup.OLDER,
-    )
+    val ORDER =
+        listOf(
+            TimeGroup.PINNED,
+            TimeGroup.TODAY,
+            TimeGroup.YESTERDAY,
+            TimeGroup.LAST_7_DAYS,
+            TimeGroup.OLDER,
+        )
 }

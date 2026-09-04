@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -27,6 +28,8 @@ import dagger.hilt.android.AndroidEntryPoint
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Must precede super.onCreate so the system splash shows during cold start.
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         // Edge-to-edge: system-bar contrast follows the canvas.
         enableEdgeToEdge()
@@ -81,7 +84,15 @@ private fun JarvisNavHost() {
         }
         composable(
             route = "${Routes.PROVIDER_EDIT}?${Routes.PROVIDER_ARG_ID}={${Routes.PROVIDER_ARG_ID}}",
-            arguments = listOf(navArgument(Routes.PROVIDER_ARG_ID) { type = NavType.StringType; nullable = true; defaultValue = null }),
+            arguments =
+                listOf(
+                    navArgument(Routes.PROVIDER_ARG_ID) {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue =
+                            null
+                    },
+                ),
         ) { backStackEntry ->
             val providerId = backStackEntry.arguments?.getString(Routes.PROVIDER_ARG_ID)
             ProviderEditScreen(

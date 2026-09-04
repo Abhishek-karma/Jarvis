@@ -4,8 +4,8 @@ import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import java.io.InputStream
 
-/** Inference runtime a model file targets. MEDIAPIPE ships now; LITERT_LM is a later drop-in engine. */
-enum class LocalRuntime { MEDIAPIPE, LITERT_LM }
+/** Inference runtime a model file targets. This build runs LiteRT-LM (.litertlm) only. */
+enum class LocalRuntime { LITERT_LM }
 
 /** One entry from the bundled model catalog (assets/local-models.json). */
 @JsonClass(generateAdapter = true)
@@ -13,7 +13,7 @@ data class LocalModelSpec(
     val id: String,
     val displayName: String,
     val family: String = "",
-    val runtime: LocalRuntime = LocalRuntime.MEDIAPIPE,
+    val runtime: LocalRuntime = LocalRuntime.LITERT_LM,
     val fileName: String,
     val url: String = "",
     /** Human page for the file — surfaced when an automated download is gated/blocked. */

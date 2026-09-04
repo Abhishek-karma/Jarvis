@@ -17,8 +17,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -28,7 +26,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -39,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,6 +64,15 @@ fun ProviderEditScreen(
         }
     }
 
+    // A verified-and-saved provider is done: leave the editor (the toast lands on the
+    // providers list, which has its own snackbar host).
+    LaunchedEffect(editState.verificationSuccess) {
+        val savedId = editState.providerId
+        if (editState.verificationSuccess && savedId != null) {
+            onSaved(savedId)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -86,18 +93,20 @@ fun ProviderEditScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
+                colors =
+                    TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
             )
         },
     ) { padding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp)
-                .verticalScroll(rememberScrollState()),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(horizontal = 16.dp)
+                    .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Spacer(modifier = Modifier.height(8.dp))
@@ -188,7 +197,10 @@ fun ProviderEditScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Set as default", style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold))
+                    Text(
+                        "Set as default",
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                    )
                     Text(
                         "This provider will be used for new conversations",
                         style = MaterialTheme.typography.bodySmall,
@@ -222,13 +234,11 @@ fun ProviderEditScreen(
             // Save / verify button
             Button(
                 onClick = viewModel::verifyAndSave,
-                enabled = !editState.isVerifying && !editState.isSaving,
+                enabled = !editState.isVerifying,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 if (editState.isVerifying) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.height(18.dp),
-                        strokeWidth = 2.dp,
+                    com.jarvis.core.designsystem.JarvisLoader(
                         color = MaterialTheme.colorScheme.onPrimary,
                     )
                 } else {

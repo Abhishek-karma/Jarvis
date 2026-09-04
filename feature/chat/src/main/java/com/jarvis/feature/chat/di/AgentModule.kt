@@ -21,32 +21,36 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object AgentModule {
+    @Provides
+    @Singleton
+    fun provideToolRegistry(
+        @ApplicationContext context: Context,
+    ): ToolRegistry =
+        ToolRegistry().apply {
+            SystemInfoTools
+                .all(
+                    batteryPercent = { readBatteryPercent(context) },
+                    storageFreeBytes = { readFreeBytes(context) },
+                    networkState = { readNetworkState(context) },
+                ).forEach { register(it) }
+        }
 
     @Provides
     @Singleton
-    fun provideToolRegistry(@ApplicationContext context: Context): ToolRegistry = ToolRegistry().apply {
-        SystemInfoTools.all(
-            batteryPercent = { readBatteryPercent(context) },
-            storageFreeBytes = { readFreeBytes(context) },
-            networkState = { readNetworkState(context) },
-        ).forEach { register(it) }
-    }
-
-    @Provides
-    @Singleton
-    fun provideAuditLogger(repository: AuditLogRepository): AuditLogger = AuditLogger { record ->
-        repository.record(
-            AuditLogEntry(
-                agentRunId = record.agentRunId,
-                toolName = record.toolName,
-                tier = record.tier,
-                paramsRedactedJson = record.paramsRedactedJson,
-                resultStatus = record.resultStatus,
-                userConfirmed = record.userConfirmed,
-                timestamp = record.timestamp,
-            ),
-        )
-    }
+    fun provideAuditLogger(repository: AuditLogRepository): AuditLogger =
+        AuditLogger { record ->
+            repository.record(
+                AuditLogEntry(
+                    agentRunId = record.agentRunId,
+                    toolName = record.toolName,
+                    tier = record.tier,
+                    paramsRedactedJson = record.paramsRedactedJson,
+                    resultStatus = record.resultStatus,
+                    userConfirmed = record.userConfirmed,
+                    timestamp = record.timestamp,
+                ),
+            )
+        }
 
     private fun readBatteryPercent(context: Context): Int? {
         val manager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager ?: return null
@@ -59,8 +63,9 @@ object AgentModule {
     private fun readNetworkState(context: Context): String {
         val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return "offline"
         val capabilities = manager.getNetworkCapabilities(manager.activeNetwork) ?: return "offline"
-        val online = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        val online =
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
         if (!online) return "offline"
         return when {
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"

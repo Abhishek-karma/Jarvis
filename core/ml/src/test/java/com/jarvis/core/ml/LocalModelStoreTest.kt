@@ -1,8 +1,6 @@
 package com.jarvis.core.ml
 
 import com.jarvis.core.common.DispatcherProvider
-import java.io.ByteArrayInputStream
-import java.io.File
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -16,13 +14,14 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import java.io.ByteArrayInputStream
+import java.io.File
 
 /**
  * Store logic tests: real files in a @TempDir and a real OkHttp client against MockWebServer
  * (downloads run on Dispatchers.IO; assertions poll the status flow with timeouts).
  */
 class LocalModelStoreTest {
-
     @TempDir
     lateinit var tempDir: File
 
@@ -33,13 +32,14 @@ class LocalModelStoreTest {
     fun setUp() {
         server = MockWebServer()
         server.start()
-        spec = LocalModelSpec(
-            id = "gemma-2-2b-it",
-            displayName = "Gemma 2 2B",
-            fileName = "gemma-2-2b-it-gpu-int4.task",
-            url = server.url("/gemma.task").toString(),
-            manualPage = "https://example.com/model-page",
-        )
+        spec =
+            LocalModelSpec(
+                id = "gemma-2-2b-it",
+                displayName = "Gemma 2 2B",
+                fileName = "gemma-2-2b-it-gpu-int4.task",
+                url = server.url("/gemma.task").toString(),
+                manualPage = "https://example.com/model-page",
+            )
     }
 
     @AfterEach
@@ -56,67 +56,141 @@ class LocalModelStoreTest {
             dispatchers = DispatcherProvider(),
         )
 
-    private fun specJson(): String = """
+    private fun specJson(): String =
+        """
         {"version":1,"models":[
           {
-            "id":"gemma-2-2b-it","displayName":"Gemma 2 2B","fileName":"gemma-2-2b-it-gpu-int4.task",
+            "id":"gemma-2-2b-it","displayName":"Gemma 2 2B","fileName":"gemma-2-2b-it-gpu-int4.litertlm",
             "url":"${server.url("/gemma.task")}","manualPage":"https://example.com/model-page"
           }
         ]}
-    """.trimIndent()
+        """.trimIndent()
 
     @Test
-    fun `downloads a model and reaches Ready`() = runBlocking {
-        val body = ByteArray(200 * 1024) { 0x41 }
-        server.enqueue(MockResponse().setResponseCode(200).setBody(Buffer().write(body)))
+    fun `downloads a model and reaches Ready`() =
+        runBlocking {
+            val body = ByteArray(200 * 1024) { 0x41 }
+            server.enqueue(MockResponse().setResponseCode(200).setBody(Buffer().write(body)))
 
-        val store = store()
-        store.refresh() // settle the async init refresh
-        assertEquals(LocalModelState.NotDownloaded, store.status.value)
+            val store = store()
+            store.refresh() // settle the async init refresh
+            assertEquals(LocalModelState.NotDownloaded, store.status.value)
 
-        store.startDownload("gemma-2-2b-it")
-        val ready = withTimeout(10_000) { store.status.first { it is LocalModelState.Ready } }
-        assertTrue(ready is LocalModelState.Ready)
-        val file = (ready as LocalModelState.Ready).file
-        assertEquals(200 * 1024, file.length())
-        assertTrue(file.name.endsWith(".task"))
-        // No .part residue.
-        assertTrue(tempDir.listFiles()?.none { it.name.endsWith(".part") } == true)
-    }
-
-    @Test
-    fun `maps gated or missing downloads to an actionable error`() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(404).setBody("nope"))
-
-        val store = store()
-        store.startDownload("gemma-2-2b-it")
-        val error = withTimeout(10_000) { store.status.first { it is LocalModelState.Error } }
-        val message = (error as LocalModelState.Error).message
-        assertTrue(message.contains("HTTP 404"), message)
-        assertTrue(message.contains("models-dev"), message)
-    }
+            store.startDownload("gemma-2-2b-it")
+            val ready = withTimeout(10_000) { store.status.first { it is LocalModelState.Ready } }
+            assertTrue(ready is LocalModelState.Ready)
+            val file = (ready as LocalModelState.Ready).file
+            assertEquals(200 * 1024, file.length())
+            assertTrue(file.name.endsWith(".litertlm"))
+            // No .part residue.
+            assertTrue(tempDir.listFiles()?.none { it.name.endsWith(".part") } == true)
+        }
 
     @Test
-    fun `copies a dev-asset model instead of downloading`() = runBlocking {
-        val payload = ByteArray(64) { 0x42 }
-        val store = store(openAsset = { payload.inputStream() })
+    fun `maps gated or missing downloads to an actionable error`() =
+        runBlocking {
+            server.enqueue(MockResponse().setResponseCode(404).setBody("nope"))
 
-        store.refresh()
-        val ready = withTimeout(5_000) { store.status.first { it is LocalModelState.Ready } }
-        assertEquals(64, (ready as LocalModelState.Ready).file.length())
-        // Server must never have been hit.
-        assertEquals(0, server.requestCount)
-    }
+            val store = store()
+            store.startDownload("gemma-2-2b-it")
+            val error = withTimeout(10_000) { store.status.first { it is LocalModelState.Error } }
+            val message = (error as LocalModelState.Error).message
+            assertTrue(message.contains("HTTP 404"), message)
+            assertTrue(message.contains("models-dev"), message)
+        }
 
     @Test
-    fun `deleteModel removes the file and resets state`() = runBlocking {
-        val payload = ByteArray(64) { 0x42 }
-        val store = store(openAsset = { payload.inputStream() })
-        store.refresh()
-        withTimeout(5_000) { store.status.first { it is LocalModelState.Ready } }
+    fun `copies a dev-asset model instead of downloading`() =
+        runBlocking {
+            val payload = ByteArray(64) { 0x42 }
+            val store = store(openAsset = { payload.inputStream() })
 
-        store.deleteModel()
-        assertEquals(LocalModelState.NotDownloaded, store.status.value)
-        assertTrue(tempDir.listFiles()?.isEmpty() != false)
-    }
+            store.refresh()
+            val ready = withTimeout(5_000) { store.status.first { it is LocalModelState.Ready } }
+            assertEquals(64, (ready as LocalModelState.Ready).file.length())
+            // Server must never have been hit.
+            assertEquals(0, server.requestCount)
+        }
+
+    @Test
+    fun `deleteModel removes the file and resets state`() =
+        runBlocking {
+            val payload = ByteArray(64) { 0x42 }
+            val store = store(openAsset = { payload.inputStream() })
+            store.refresh()
+            withTimeout(5_000) { store.status.first { it is LocalModelState.Ready } }
+
+            store.deleteModel()
+            assertEquals(LocalModelState.NotDownloaded, store.status.value)
+            assertTrue(tempDir.listFiles()?.isEmpty() != false)
+        }
+
+    @Test
+    fun `imports a real litertlm container`() =
+        runBlocking {
+            // Real signature from litert-community bundles: the .litertlm container (literal "LITERTLM").
+            val signature = "LITERTLM".toByteArray(Charsets.US_ASCII)
+            val payload = ByteArray(4 * 1024 * 1024 + 16) { 0x41 }
+            signature.copyInto(payload)
+
+            val store = store()
+            val result = store.importModel("picked.model", "My Gemma") { payload.inputStream() }
+
+            assertTrue(result.isSuccess, result.exceptionOrNull()?.message)
+            assertTrue(store.status.value is LocalModelState.Ready)
+            val file = (store.status.value as LocalModelState.Ready).file
+            assertEquals(payload.size.toLong(), file.length())
+            // No .part residue under the final name.
+            assertTrue(tempDir.listFiles()?.none { it.name.endsWith(".part") } == true)
+        }
+
+    @Test
+    fun `rejects a task container that needs the removed MediaPipe engine`() =
+        runBlocking {
+            // A TFLite flatbuffer .task (size prefix + "TFL3") is no longer a supported container.
+            val signature =
+                byteArrayOf(
+                    0x1c, 0, 0, 0,
+                    'T'.code.toByte(), 'F'.code.toByte(), 'L'.code.toByte(), '3'.code.toByte(),
+                )
+            val payload = ByteArray(4 * 1024 * 1024 + 16) { 0x41 }
+            signature.copyInto(payload)
+
+            val store = store()
+            val result = store.importModel("picked.task", "Bad file") { payload.inputStream() }
+
+            assertTrue(result.isFailure)
+            assertTrue(result.exceptionOrNull()?.message?.contains("isn't a supported on-device model bundle") == true)
+        }
+
+    @Test
+    fun `rejects an invalid import with Error state and no leftover file`() =
+        runBlocking {
+            val store = store()
+            // Too small to be a real bundle: validation must reject it before Ready.
+            val result = store.importModel("bad.task", "Bad file") { ByteArray(5) { 0x00 }.inputStream() }
+
+            assertTrue(result.isFailure)
+            val state = store.status.value
+            assertTrue(state is LocalModelState.Error, "expected Error, got $state")
+            assertTrue((state as LocalModelState.Error).message.contains("not a valid on-device model"))
+            // Both the target and the .part must be gone — refresh() must never see a corrupt file.
+            assertTrue(tempDir.listFiles()?.isEmpty() != false)
+        }
+
+    @Test
+    fun `refuses an import while a model is already installed`() =
+        runBlocking {
+            val store = store()
+            val payload = ByteArray(4 * 1024 * 1024 + 16) { 0x42 }
+            "LITERTLM".toByteArray(Charsets.US_ASCII).copyInto(payload)
+            val first = store.importModel("a.litertlm", "A") { payload.inputStream() }
+            assertTrue(first.isSuccess)
+
+            // importModel is synchronous, so a second call arrives after the first finished:
+            // it must be refused because a model is already installed.
+            val second = store.importModel("b.litertlm", "B") { ByteArrayInputStream(ByteArray(8) { 0x00 }) }
+            assertTrue(second.isFailure)
+            assertTrue(second.exceptionOrNull()?.message?.contains("already installed") == true)
+        }
 }

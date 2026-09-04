@@ -49,13 +49,19 @@ data class ChatCompletionRequestDto(
 )
 
 @JsonClass(generateAdapter = true)
-data class StreamOptionsDto(val include_usage: Boolean = true)
+data class StreamOptionsDto(
+    val include_usage: Boolean = true,
+)
 
 @JsonClass(generateAdapter = true)
-data class ModelListResponseDto(val data: List<ModelDto>)
+data class ModelListResponseDto(
+    val data: List<ModelDto>,
+)
 
 @JsonClass(generateAdapter = true)
-data class ModelDto(val id: String)
+data class ModelDto(
+    val id: String,
+)
 
 /** One SSE chunk from an OpenAI-compatible /chat/completions stream. */
 @JsonClass(generateAdapter = true)

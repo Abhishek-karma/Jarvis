@@ -23,7 +23,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jarvis.core.designsystem.JarvisHeader
 import com.jarvis.core.designsystem.JarvisMark
@@ -51,10 +50,11 @@ fun AboutScreen(onBack: () -> Unit) {
         },
     ) { padding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState()),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(modifier = Modifier.height(Spacing.huge))
@@ -78,9 +78,10 @@ fun AboutScreen(onBack: () -> Unit) {
 
             AboutSection(title = "What this is") {
                 Text(
-                    text = "A local-first personal AI assistant for Android. Multi-provider " +
-                        "LLM chat with streaming responses, markdown rendering, conversation " +
-                        "history, and push-to-talk voice — all stored on your device.",
+                    text =
+                        "A local-first personal AI assistant for Android. Multi-provider " +
+                            "LLM chat with streaming responses, markdown rendering, conversation " +
+                            "history, and push-to-talk voice — all stored on your device.",
                     style = JarvisText.BodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -94,10 +95,11 @@ fun AboutScreen(onBack: () -> Unit) {
 
             AboutSection(title = "Design") {
                 Text(
-                    text = "The interface follows the ChatGPT and Claude design systems from " +
-                        "awesome-ios-design-md (Meliwat), ported to Jetpack Compose: a " +
-                        "monochrome canvas, a single terracotta accent, and serif assistant " +
-                        "prose.",
+                    text =
+                        "The interface follows the ChatGPT and Claude design systems from " +
+                            "awesome-ios-design-md (Meliwat), ported to Jetpack Compose: a " +
+                            "monochrome canvas, a single terracotta accent, and serif assistant " +
+                            "prose.",
                     style = JarvisText.BodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -113,9 +115,10 @@ private fun AboutSection(
     content: @Composable () -> Unit,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = Spacing.lg),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(top = Spacing.lg),
     ) {
         Text(
             text = title,
@@ -127,9 +130,10 @@ private fun AboutSection(
         Surface(
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             shape = RoundedCornerShape(Radius.chip),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Spacing.lg),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Spacing.lg),
         ) {
             Column(modifier = Modifier.padding(Spacing.lg)) { content() }
         }

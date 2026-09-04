@@ -22,10 +22,18 @@ interface ConversationDao {
     suspend fun upsert(conversation: ConversationEntity)
 
     @Query("UPDATE conversations SET pinned = :pinned, updatedAt = :nowMs WHERE id = :id")
-    suspend fun setPinned(id: String, pinned: Boolean, nowMs: Long)
+    suspend fun setPinned(
+        id: String,
+        pinned: Boolean,
+        nowMs: Long,
+    )
 
     @Query("UPDATE conversations SET title = :title, updatedAt = :nowMs WHERE id = :id")
-    suspend fun rename(id: String, title: String, nowMs: Long)
+    suspend fun rename(
+        id: String,
+        title: String,
+        nowMs: Long,
+    )
 
     @Query("DELETE FROM conversations WHERE id = :id")
     suspend fun delete(id: String)
@@ -52,7 +60,10 @@ interface MessageDao {
     suspend fun delete(id: String)
 
     @Query("DELETE FROM messages WHERE conversationId = :conversationId AND createdAt > :fromCreatedAt")
-    suspend fun deleteAfter(conversationId: String, fromCreatedAt: Long)
+    suspend fun deleteAfter(
+        conversationId: String,
+        fromCreatedAt: Long,
+    )
 
     @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt DESC LIMIT 1")
     suspend fun latest(conversationId: String): MessageEntity?
@@ -85,4 +96,3 @@ interface AuditLogDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(entry: AuditLogEntity)
 }
-

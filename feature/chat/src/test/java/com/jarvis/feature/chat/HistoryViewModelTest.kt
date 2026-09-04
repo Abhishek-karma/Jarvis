@@ -27,7 +27,6 @@ import org.junit.jupiter.api.TestInstance
 @OptIn(ExperimentalCoroutinesApi::class)
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 class HistoryViewModelTest {
-
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var viewModel: HistoryViewModel
     private lateinit var conversationRepository: ConversationRepository
@@ -42,10 +41,13 @@ class HistoryViewModelTest {
 
         coEvery { conversationRepository.observeConversations() } returns conversationsFlow
 
-        viewModel = HistoryViewModel(
-            conversationRepository = conversationRepository,
-            dispatchers = com.jarvis.core.common.DispatcherProvider(),
-        )
+        viewModel =
+            HistoryViewModel(
+                conversationRepository = conversationRepository,
+                dispatchers =
+                    com.jarvis.core.common
+                        .DispatcherProvider(),
+            )
     }
 
     @AfterEach
@@ -59,91 +61,109 @@ class HistoryViewModelTest {
     }
 
     @Test
-    fun `conversations are grouped by time`() = runTest {
-        val now = System.currentTimeMillis()
-        val conversations = listOf(
-            Conversation(id = "1", title = "Today", updatedAt = now),
-            Conversation(id = "2", title = "Yesterday", updatedAt = now - 86_400_000),
-            Conversation(id = "3", title = "Old", updatedAt = now - 86_400_000 * 10),
-        )
-        conversationsFlow.value = conversations
-        advanceUntilIdle()
+    fun `conversations are grouped by time`() =
+        runTest {
+            val now = System.currentTimeMillis()
+            val conversations =
+                listOf(
+                    Conversation(id = "1", title = "Today", updatedAt = now),
+                    Conversation(id = "2", title = "Yesterday", updatedAt = now - 86_400_000),
+                    Conversation(id = "3", title = "Old", updatedAt = now - 86_400_000 * 10),
+                )
+            conversationsFlow.value = conversations
+            advanceUntilIdle()
 
-        val sections = viewModel.uiState.value.sections
-        assertFalse(viewModel.uiState.value.isLoading)
-        assertTrue(sections.isNotEmpty())
-    }
-
-    @Test
-    fun `pinned conversations appear in PINNED section at top`() = runTest {
-        val now = System.currentTimeMillis()
-        val conversations = listOf(
-            Conversation(id = "1", title = "Pinned", pinned = true, updatedAt = now),
-            Conversation(id = "2", title = "Not pinned", pinned = false, updatedAt = now),
-        )
-        conversationsFlow.value = conversations
-        advanceUntilIdle()
-
-        val sections = viewModel.uiState.value.sections
-        assertEquals(TimeGroup.PINNED, sections.first().group)
-        assertEquals("Pinned", sections.first().conversations.first().title)
-    }
+            val sections = viewModel.uiState.value.sections
+            assertFalse(viewModel.uiState.value.isLoading)
+            assertTrue(sections.isNotEmpty())
+        }
 
     @Test
-    fun `togglePin calls repository with negated pin state`() = runTest {
-        val conversation = Conversation(id = "1", title = "Test", pinned = false)
-        coEvery { conversationRepository.setPinned(any(), any()) } just Runs
+    fun `pinned conversations appear in PINNED section at top`() =
+        runTest {
+            val now = System.currentTimeMillis()
+            val conversations =
+                listOf(
+                    Conversation(id = "1", title = "Pinned", pinned = true, updatedAt = now),
+                    Conversation(id = "2", title = "Not pinned", pinned = false, updatedAt = now),
+                )
+            conversationsFlow.value = conversations
+            advanceUntilIdle()
 
-        viewModel.togglePin(conversation)
-        advanceUntilIdle()
-
-        coVerify { conversationRepository.setPinned("1", true) }
-    }
-
-    @Test
-    fun `rename calls repository with new title`() = runTest {
-        val conversation = Conversation(id = "1", title = "Old Title")
-        coEvery { conversationRepository.renameConversation(any(), any()) } just Runs
-
-        viewModel.rename(conversation, "New Title")
-        advanceUntilIdle()
-
-        coVerify { conversationRepository.renameConversation("1", "New Title") }
-    }
-
-    @Test
-    fun `rename ignores blank titles`() = runTest {
-        val conversation = Conversation(id = "1", title = "Old Title")
-
-        viewModel.rename(conversation, "   ")
-        advanceUntilIdle()
-
-        coVerify(exactly = 0) { conversationRepository.renameConversation(any(), any()) }
-    }
+            val sections = viewModel.uiState.value.sections
+            assertEquals(TimeGroup.PINNED, sections.first().group)
+            assertEquals(
+                "Pinned",
+                sections
+                    .first()
+                    .conversations
+                    .first()
+                    .title,
+            )
+        }
 
     @Test
-    fun `delete calls repository with conversation id`() = runTest {
-        val conversation = Conversation(id = "1", title = "To Delete")
-        coEvery { conversationRepository.deleteConversation(any()) } just Runs
+    fun `togglePin calls repository with negated pin state`() =
+        runTest {
+            val conversation = Conversation(id = "1", title = "Test", pinned = false)
+            coEvery { conversationRepository.setPinned(any(), any()) } just Runs
 
-        viewModel.delete(conversation)
-        advanceUntilIdle()
+            viewModel.togglePin(conversation)
+            advanceUntilIdle()
 
-        coVerify { conversationRepository.deleteConversation("1") }
-    }
+            coVerify { conversationRepository.setPinned("1", true) }
+        }
 
     @Test
-    fun `conversations within section are sorted by updatedAt descending`() = runTest {
-        val now = System.currentTimeMillis()
-        val conversations = listOf(
-            Conversation(id = "1", title = "Older today", updatedAt = now - 3_600_000),
-            Conversation(id = "2", title = "Newer today", updatedAt = now),
-        )
-        conversationsFlow.value = conversations
-        advanceUntilIdle()
+    fun `rename calls repository with new title`() =
+        runTest {
+            val conversation = Conversation(id = "1", title = "Old Title")
+            coEvery { conversationRepository.renameConversation(any(), any()) } just Runs
 
-        val todaySection = viewModel.uiState.value.sections
-            .firstOrNull { it.group == TimeGroup.TODAY }
-        assertEquals("Newer today", todaySection?.conversations?.first()?.title)
-    }
+            viewModel.rename(conversation, "New Title")
+            advanceUntilIdle()
+
+            coVerify { conversationRepository.renameConversation("1", "New Title") }
+        }
+
+    @Test
+    fun `rename ignores blank titles`() =
+        runTest {
+            val conversation = Conversation(id = "1", title = "Old Title")
+
+            viewModel.rename(conversation, "   ")
+            advanceUntilIdle()
+
+            coVerify(exactly = 0) { conversationRepository.renameConversation(any(), any()) }
+        }
+
+    @Test
+    fun `delete calls repository with conversation id`() =
+        runTest {
+            val conversation = Conversation(id = "1", title = "To Delete")
+            coEvery { conversationRepository.deleteConversation(any()) } just Runs
+
+            viewModel.delete(conversation)
+            advanceUntilIdle()
+
+            coVerify { conversationRepository.deleteConversation("1") }
+        }
+
+    @Test
+    fun `conversations within section are sorted by updatedAt descending`() =
+        runTest {
+            val now = System.currentTimeMillis()
+            val conversations =
+                listOf(
+                    Conversation(id = "1", title = "Older today", updatedAt = now - 3_600_000),
+                    Conversation(id = "2", title = "Newer today", updatedAt = now),
+                )
+            conversationsFlow.value = conversations
+            advanceUntilIdle()
+
+            val todaySection =
+                viewModel.uiState.value.sections
+                    .firstOrNull { it.group == TimeGroup.TODAY }
+            assertEquals("Newer today", todaySection?.conversations?.first()?.title)
+        }
 }

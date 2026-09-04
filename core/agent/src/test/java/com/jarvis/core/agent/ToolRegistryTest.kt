@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
 class ToolRegistryTest {
-
     private val battery = FakeTool("battery", PermissionTier.READ_ONLY)
 
     @Test

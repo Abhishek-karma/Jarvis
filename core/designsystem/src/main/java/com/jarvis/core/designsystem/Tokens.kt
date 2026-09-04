@@ -42,23 +42,33 @@ object TapTargets {
  * pulse 2s ease-in-out, cursor blink 300ms half-cycle, sheet rise 300ms spring.
  */
 object Motion {
-    const val sendPressMs = 200
-    const val messageEnterMs = 300
-    const val sheetRiseMs = 300
-    const val fadeInMs = 250
-    const val spherePulseMs = 2000
-    const val cursorBlinkHalfMs = 300
-    const val pressScale = 0.94f
+    const val SEND_PRESS_MS = 200
+    const val MESSAGE_ENTER_MS = 300
+    const val SHEET_RISE_MS = 300
+    const val FADE_IN_MS = 250
+    const val SPHERE_PULSE_MS = 2000
+    const val CURSOR_BLINK_HALF_MS = 300
+    const val PRESS_SCALE = 0.94f
 }
 
 /** Inter-based type scale; JetBrains Mono for code is handled by [JarvisText.Code]. */
 @Deprecated("Use [JarvisText] — the named type ramp.")
 object JarvisTypography {
-    val display = androidx.compose.ui.text.TextStyle(fontSize = 28.sp, lineHeight = 36.sp)
-    val title = androidx.compose.ui.text.TextStyle(fontSize = 20.sp, lineHeight = 28.sp)
-    val body = androidx.compose.ui.text.TextStyle(fontSize = 16.sp, lineHeight = 24.sp)
-    val caption = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, lineHeight = 18.sp)
-    val mono = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, lineHeight = 22.sp)
+    val display =
+        androidx.compose.ui.text
+            .TextStyle(fontSize = 28.sp, lineHeight = 36.sp)
+    val title =
+        androidx.compose.ui.text
+            .TextStyle(fontSize = 20.sp, lineHeight = 28.sp)
+    val body =
+        androidx.compose.ui.text
+            .TextStyle(fontSize = 16.sp, lineHeight = 24.sp)
+    val caption =
+        androidx.compose.ui.text
+            .TextStyle(fontSize = 13.sp, lineHeight = 18.sp)
+    val mono =
+        androidx.compose.ui.text
+            .TextStyle(fontSize = 14.sp, lineHeight = 22.sp)
 }
 
 /** Shape shortcuts used by bubbles, chips and code blocks. */

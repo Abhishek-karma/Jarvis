@@ -1,7 +1,6 @@
 package com.jarvis.core.network.gemini
 
 import com.jarvis.core.common.DispatcherProvider
-import com.jarvis.core.common.Message
 import com.jarvis.core.common.MessageRole
 import com.jarvis.core.common.ModelInfo
 import com.jarvis.core.network.ChatRequest
@@ -45,163 +44,180 @@ class GeminiProvider(
     private val moshi: Moshi,
     private val dispatchers: DispatcherProvider,
 ) : LlmProvider {
-
-    override val capabilities: ProviderCapabilities = ProviderCapabilities(
-        vision = true,
-        maxContext = 1_000_000,
-        supportsTools = true,
-        supportsReasoning = false,
-    )
+    override val capabilities: ProviderCapabilities =
+        ProviderCapabilities(
+            vision = true,
+            maxContext = 1_000_000,
+            supportsTools = true,
+            supportsReasoning = false,
+        )
 
     private val requestAdapter = moshi.adapter(GenerateContentRequest::class.java)
     private val chunkAdapter = moshi.adapter(GenerateContentResponse::class.java)
     private val modelsAdapter = moshi.adapter(ModelsListResponse::class.java)
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()
 
-    private fun streamClient(): OkHttpClient = client.newBuilder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
-        .writeTimeout(10, TimeUnit.SECONDS)
-        .build()
+    private fun streamClient(): OkHttpClient =
+        client
+            .newBuilder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
+            .build()
 
     private fun buildUrl(path: String): String = apiRoot(baseUrl) + path
 
-    override suspend fun listModels(): Result<List<ModelInfo>> = withRetries {
-        val request = Request.Builder()
-            .url(buildUrl("/v1/models?key=${apiKeyProvider() ?: ""}"))
-            .get()
-            .build()
+    override suspend fun listModels(): Result<List<ModelInfo>> =
+        withRetries {
+            val request =
+                Request
+                    .Builder()
+                    .url(buildUrl("/v1/models?key=${apiKeyProvider() ?: ""}"))
+                    .get()
+                    .build()
 
-        streamClient().newCall(request).awaitSuspending().use { response ->
-            if (!response.isSuccessful) {
-                throw HttpAdapterException(response.code, "HTTP ${response.code}")
+            streamClient().newCall(request).awaitSuspending().use { response ->
+                if (!response.isSuccessful) {
+                    throw HttpAdapterException(response.code, "HTTP ${response.code}")
+                }
+                val body = response.body?.string() ?: throw IOException("Empty body")
+                val parsed = modelsAdapter.fromJson(body) ?: throw IOException("Unparseable model list")
+                parsed.models
+                    .filter { it.supportedGenerationMethods.contains("generateContent") }
+                    .map { ModelInfo(id = it.name, displayName = it.displayName) }
             }
-            val body = response.body?.string() ?: throw IOException("Empty body")
-            val parsed = modelsAdapter.fromJson(body) ?: throw IOException("Unparseable model list")
-            parsed.models
-                .filter { it.supportedGenerationMethods.contains("generateContent") }
-                .map { ModelInfo(id = it.name, displayName = it.displayName) }
         }
-    }
 
-    override fun streamChat(request: ChatRequest): Flow<ChatStreamEvent> = callbackFlow {
-        val dto = GenerateContentRequest(
-            contents = buildWireContents(request),
-            systemInstruction = request.systemPrompt?.let { Content(parts = listOf(Part(text = it))) },
-            generationConfig = GenerationConfig(
-                responseMimeType = "text/plain",
-            ),
-            tools = request.toolsAvailable?.mapNotNull { definition ->
-                runCatching { parseArgs(definition.parametersSchemaJson) }
-                    .getOrNull()
-                    ?.let { schema ->
-                        Tool(
-                            functionDeclarations = listOf(
-                                FunctionDeclaration(
-                                    name = definition.name,
-                                    description = definition.description,
-                                    parameters = schema,
-                                ),
+    override fun streamChat(request: ChatRequest): Flow<ChatStreamEvent> =
+        callbackFlow {
+            val dto =
+                GenerateContentRequest(
+                    contents = buildWireContents(request),
+                    systemInstruction = request.systemPrompt?.let { Content(parts = listOf(Part(text = it))) },
+                    generationConfig =
+                        GenerationConfig(
+                            responseMimeType = "text/plain",
+                        ),
+                    tools =
+                        request.toolsAvailable
+                            ?.mapNotNull { definition ->
+                                runCatching { parseArgs(definition.parametersSchemaJson) }
+                                    .getOrNull()
+                                    ?.let { schema ->
+                                        Tool(
+                                            functionDeclarations =
+                                                listOf(
+                                                    FunctionDeclaration(
+                                                        name = definition.name,
+                                                        description = definition.description,
+                                                        parameters = schema,
+                                                    ),
+                                                ),
+                                        )
+                                    }
+                            }?.ifEmpty { null },
+                )
+
+            val modelId = request.model.ifEmpty { "gemini-2.0-flash" }
+            val httpRequest =
+                Request
+                    .Builder()
+                    .url(buildUrl("/v1/models/$modelId:streamGenerateContent?alt=sse&key=${apiKeyProvider() ?: ""}"))
+                    .header("Accept", "text/event-stream")
+                    .post(requestAdapter.toJson(dto).toRequestBody(jsonMedia))
+                    .build()
+
+            // Function calls arrive as parts; large args can span chunks, so merge by name and
+            // emit once the stream finishes (the engine consumes the full flow before acting).
+            val functionCalls = java.util.LinkedHashMap<String, MutableMap<String, Any>>()
+            var functionCallsFlushed = false
+
+            fun flushFunctionCalls() {
+                if (functionCallsFlushed) return
+                functionCallsFlushed = true
+                functionCalls.forEach { (name, args) ->
+                    if (args.isNotEmpty()) {
+                        trySend(
+                            ChatStreamEvent.ToolCallRequested(
+                                name = name,
+                                argsJson = compactJson(args),
                             ),
                         )
                     }
-            }?.ifEmpty { null },
-        )
-
-        val modelId = request.model.ifEmpty { "gemini-2.0-flash" }
-        val httpRequest = Request.Builder()
-            .url(buildUrl("/v1/models/${modelId}:streamGenerateContent?alt=sse&key=${apiKeyProvider() ?: ""}"))
-            .header("Accept", "text/event-stream")
-            .post(requestAdapter.toJson(dto).toRequestBody(jsonMedia))
-            .build()
-
-        // Function calls arrive as parts; large args can span chunks, so merge by name and
-        // emit once the stream finishes (the engine consumes the full flow before acting).
-        val functionCalls = java.util.LinkedHashMap<String, MutableMap<String, Any>>()
-        var functionCallsFlushed = false
-
-        fun flushFunctionCalls() {
-            if (functionCallsFlushed) return
-            functionCallsFlushed = true
-            functionCalls.forEach { (name, args) ->
-                if (args.isNotEmpty()) {
-                    trySend(
-                        ChatStreamEvent.ToolCallRequested(
-                            name = name,
-                            argsJson = compactJson(args),
-                        ),
-                    )
                 }
             }
-        }
 
-        val listener = object : EventSourceListener() {
-            override fun onOpen(eventSource: EventSource, response: Response) {
-                // stream established
-            }
+            val listener =
+                object : EventSourceListener() {
+                    override fun onOpen(
+                        eventSource: EventSource,
+                        response: Response,
+                    ) {
+                        // stream established
+                    }
 
-            override fun onEvent(
-                eventSource: EventSource,
-                id: String?,
-                type: String?,
-                data: String,
-            ) {
-                val chunk = runCatching { chunkAdapter.fromJson(data) }.getOrNull()
-                if (chunk == null) return
+                    override fun onEvent(
+                        eventSource: EventSource,
+                        id: String?,
+                        type: String?,
+                        data: String,
+                    ) {
+                        val chunk = runCatching { chunkAdapter.fromJson(data) }.getOrNull()
+                        if (chunk == null) return
 
-                // Extract text and function calls from candidates
-                chunk.candidates?.forEach { candidate ->
-                    candidate.content?.parts?.forEach { part ->
-                        part.text?.let { text ->
-                            trySend(ChatStreamEvent.TokenDelta(text))
+                        // Extract text and function calls from candidates
+                        chunk.candidates?.forEach { candidate ->
+                            candidate.content?.parts?.forEach { part ->
+                                part.text?.let { text ->
+                                    trySend(ChatStreamEvent.TokenDelta(text))
+                                }
+                                part.functionCall?.let { call ->
+                                    val merged = functionCalls.getOrPut(call.name) { java.util.LinkedHashMap() }
+                                    call.args.forEach { (key, value) -> merged[key] = value }
+                                }
+                            }
+
+                            // A STOP chunk signals the turn is done — flush any pending calls.
+                            candidate.finishReason?.takeIf { it == "STOP" }?.let { flushFunctionCalls() }
                         }
-                        part.functionCall?.let { call ->
-                            val merged = functionCalls.getOrPut(call.name) { java.util.LinkedHashMap() }
-                            call.args.forEach { (key, value) -> merged[key] = value }
+
+                        // Handle usage metadata
+                        chunk.usageMetadata?.let { usage ->
+                            if (usage.promptTokenCount > 0 || usage.candidatesTokenCount > 0) {
+                                trySend(ChatStreamEvent.Usage(usage.promptTokenCount, usage.candidatesTokenCount))
+                            }
+                        }
+
+                        // Handle errors
+                        chunk.promptFeedback?.blockReason?.let { reason ->
+                            trySend(ChatStreamEvent.Error(reason, "Prompt blocked: $reason", false))
                         }
                     }
 
-                    // A STOP chunk signals the turn is done — flush any pending calls.
-                    candidate.finishReason?.takeIf { it == "STOP" }?.let { flushFunctionCalls() }
-                }
+                    override fun onClosed(eventSource: EventSource) {
+                        flushFunctionCalls()
+                        trySend(ChatStreamEvent.Done)
+                        close()
+                    }
 
-                // Handle usage metadata
-                chunk.usageMetadata?.let { usage ->
-                    if (usage.promptTokenCount > 0 || usage.candidatesTokenCount > 0) {
-                        trySend(ChatStreamEvent.Usage(usage.promptTokenCount, usage.candidatesTokenCount))
+                    override fun onFailure(
+                        eventSource: EventSource,
+                        t: Throwable?,
+                        response: Response?,
+                    ) {
+                        val code = response?.code?.toString() ?: "network"
+                        val retryable = response?.code?.let { it == 429 || it in 500..599 } ?: true
+                        trySend(ChatStreamEvent.Error(code, t?.message ?: "Stream failed", retryable))
+                        close()
                     }
                 }
 
-                // Handle errors
-                chunk.promptFeedback?.blockReason?.let { reason ->
-                    trySend(ChatStreamEvent.Error(reason, "Prompt blocked: $reason", false))
-                }
+            val source = EventSources.createFactory(streamClient()).newEventSource(httpRequest, listener)
+
+            awaitClose {
+                source.cancel()
             }
-
-            override fun onClosed(eventSource: EventSource) {
-                flushFunctionCalls()
-                trySend(ChatStreamEvent.Done)
-                close()
-            }
-
-            override fun onFailure(
-                eventSource: EventSource,
-                t: Throwable?,
-                response: Response?,
-            ) {
-                val code = response?.code?.toString() ?: "network"
-                val retryable = response?.code?.let { it == 429 || it in 500..599 } ?: true
-                trySend(ChatStreamEvent.Error(code, t?.message ?: "Stream failed", retryable))
-                close()
-            }
-        }
-
-        val source = EventSources.createFactory(streamClient()).newEventSource(httpRequest, listener)
-
-        awaitClose {
-            source.cancel()
-        }
-    }.flowOn(dispatchers.io)
+        }.flowOn(dispatchers.io)
 
     override fun close() {
         // No per-stream state held
@@ -215,12 +231,13 @@ class GeminiProvider(
     private fun buildWireContents(request: ChatRequest): List<Content> {
         val contents = mutableListOf<Content>()
         request.conversationHistory.forEach { msg ->
-            val role = when (msg.role) {
-                MessageRole.USER -> "user"
-                MessageRole.ASSISTANT -> "model"
-                MessageRole.SYSTEM -> "user"
-                MessageRole.TOOL -> "user"
-            }
+            val role =
+                when (msg.role) {
+                    MessageRole.USER -> "user"
+                    MessageRole.ASSISTANT -> "model"
+                    MessageRole.SYSTEM -> "user"
+                    MessageRole.TOOL -> "user"
+                }
             val parts = mutableListOf<Part>()
             when (msg.role) {
                 MessageRole.ASSISTANT -> {
@@ -228,12 +245,14 @@ class GeminiProvider(
                     msg.toolCallArgsJson?.let { argsJson ->
                         val callId = msg.toolCallId
                         if (callId != null) {
-                            parts += Part(
-                                functionCall = FunctionCall(
-                                    name = msg.toolCallName.orEmpty(),
-                                    args = parseArgs(argsJson),
-                                ),
-                            )
+                            parts +=
+                                Part(
+                                    functionCall =
+                                        FunctionCall(
+                                            name = msg.toolCallName.orEmpty(),
+                                            args = parseArgs(argsJson),
+                                        ),
+                                )
                         }
                     }
                 }
@@ -241,12 +260,14 @@ class GeminiProvider(
                     val callId = msg.toolCallId
                     if (callId != null) {
                         // Gemini wraps the observation in a response object keyed by the function name.
-                        parts += Part(
-                            functionResponse = FunctionResponse(
-                                name = msg.toolCallName.orEmpty(),
-                                response = mapOf("result" to msg.content),
-                            ),
-                        )
+                        parts +=
+                            Part(
+                                functionResponse =
+                                    FunctionResponse(
+                                        name = msg.toolCallName.orEmpty(),
+                                        response = mapOf("result" to msg.content),
+                                    ),
+                            )
                     }
                     // A TOOL message without a paired call id can't be expressed here — the
                     // engine routes those notes as USER turns instead.
@@ -259,14 +280,15 @@ class GeminiProvider(
     }
 
     /** Parse a JSON string into a plain object tree for DTOs that take Map values. */
-    private fun parseArgs(json: String?): Map<String, Any> = runCatching {
-        val any = moshi.adapter(Any::class.java).fromJson(json.orEmpty())
-        if (any is Map<*, *>) {
-            any.entries.associate { (key, value) -> key.toString() to (value as Any) }
-        } else {
-            emptyMap()
-        }
-    }.getOrDefault(emptyMap())
+    private fun parseArgs(json: String?): Map<String, Any> =
+        runCatching {
+            val any = moshi.adapter(Any::class.java).fromJson(json.orEmpty())
+            if (any is Map<*, *>) {
+                any.entries.associate { (key, value) -> key.toString() to (value as Any) }
+            } else {
+                emptyMap()
+            }
+        }.getOrDefault(emptyMap())
 
     /** Serialize a plain object tree back to a compact JSON string (for ToolCallRequested). */
     private fun compactJson(value: Any): String = moshi.adapter(Any::class.java).toJson(value)
@@ -286,7 +308,10 @@ class GeminiProvider(
         }
     }
 
-    class HttpAdapterException(val code: Int, override val message: String) : Exception(message) {
+    class HttpAdapterException(
+        val code: Int,
+        override val message: String,
+    ) : Exception(message) {
         val isRetryable: Boolean get() = code == 429 || code in 500..599
     }
 }
@@ -421,15 +446,24 @@ data class GeminiModel(
     val supportedGenerationMethods: List<String> = emptyList(),
 )
 
-private suspend fun Call.awaitSuspending(): Response = suspendCancellableCoroutine { cont ->
-    enqueue(object : Callback {
-        override fun onFailure(call: Call, e: IOException) {
-            if (cont.isActive) cont.resumeWithException(e)
-        }
+private suspend fun Call.awaitSuspending(): Response =
+    suspendCancellableCoroutine { cont ->
+        enqueue(
+            object : Callback {
+                override fun onFailure(
+                    call: Call,
+                    e: IOException,
+                ) {
+                    if (cont.isActive) cont.resumeWithException(e)
+                }
 
-        override fun onResponse(call: Call, response: Response) {
-            if (cont.isActive) cont.resume(response)
-        }
-    })
-    cont.invokeOnCancellation { cancel() }
-}
+                override fun onResponse(
+                    call: Call,
+                    response: Response,
+                ) {
+                    if (cont.isActive) cont.resume(response)
+                }
+            },
+        )
+        cont.invokeOnCancellation { cancel() }
+    }

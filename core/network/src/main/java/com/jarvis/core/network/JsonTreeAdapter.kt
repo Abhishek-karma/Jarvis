@@ -10,9 +10,8 @@ import com.squareup.moshi.JsonWriter
  * types (Map/List/String/Double/Boolean/null) and writes them back verbatim.
  */
 object JsonTreeAdapter : JsonAdapter<Any?>() {
-
-    override fun fromJson(reader: JsonReader): Any? {
-        return when (reader.peek()) {
+    override fun fromJson(reader: JsonReader): Any? =
+        when (reader.peek()) {
             JsonReader.Token.BEGIN_OBJECT -> {
                 val result = LinkedHashMap<String, Any?>()
                 reader.beginObject()
@@ -36,9 +35,11 @@ object JsonTreeAdapter : JsonAdapter<Any?>() {
             }
             else -> throw IllegalStateException("Unexpected JSON token ${reader.peek()}")
         }
-    }
 
-    override fun toJson(writer: JsonWriter, value: Any?) {
+    override fun toJson(
+        writer: JsonWriter,
+        value: Any?,
+    ) {
         when (value) {
             null -> writer.nullValue()
             is String -> writer.value(value)
@@ -50,7 +51,10 @@ object JsonTreeAdapter : JsonAdapter<Any?>() {
             is Number -> writer.value(value.toDouble())
             is Map<*, *> -> {
                 writer.beginObject()
-                value.forEach { (key, item) -> writer.name(key.toString()); toJson(writer, item) }
+                value.forEach { (key, item) ->
+                    writer.name(key.toString())
+                    toJson(writer, item)
+                }
                 writer.endObject()
             }
             is List<*> -> {

@@ -1,7 +1,6 @@
 package com.jarvis.core.network.sse
 
 import com.jarvis.core.common.DispatcherProvider
-import com.jarvis.core.common.Message
 import com.jarvis.core.common.MessageRole
 import com.jarvis.core.common.ModelInfo
 import com.jarvis.core.network.ChatRequest
@@ -52,145 +51,162 @@ class OpenAiCompatibleProvider(
     private val moshi: Moshi,
     private val dispatchers: DispatcherProvider,
 ) : LlmProvider {
-
-    override val capabilities: ProviderCapabilities = ProviderCapabilities(
-        vision = false,
-        maxContext = 128_000,
-        supportsTools = true,
-        supportsReasoning = true, // reasoning_content delta support (DeepSeek-style)
-    )
+    override val capabilities: ProviderCapabilities =
+        ProviderCapabilities(
+            vision = false,
+            maxContext = 128_000,
+            supportsTools = true,
+            supportsReasoning = true, // reasoning_content delta support (DeepSeek-style)
+        )
 
     private val chatAdapter = moshi.adapter(ChatCompletionRequestDto::class.java)
     private val chunkAdapter = moshi.adapter(ChatStreamChunkDto::class.java)
     private val modelsAdapter = moshi.adapter(ModelListResponseDto::class.java)
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()
 
-    private fun streamClient(): OkHttpClient = client.newBuilder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS) // long generations can pause between chunks
-        .writeTimeout(10, TimeUnit.SECONDS)
-        .build()
+    private fun streamClient(): OkHttpClient =
+        client
+            .newBuilder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS) // long generations can pause between chunks
+            .writeTimeout(10, TimeUnit.SECONDS)
+            .build()
 
     private fun buildUrl(path: String): String = apiRoot(baseUrl) + path
 
-    override suspend fun listModels(): Result<List<ModelInfo>> = withRetries {
-        val request = Request.Builder()
-            .url(buildUrl("/v1/models"))
-            .header("Authorization", "Bearer ${apiKeyProvider() ?: ""}")
-            .get()
-            .build()
+    override suspend fun listModels(): Result<List<ModelInfo>> =
+        withRetries {
+            val request =
+                Request
+                    .Builder()
+                    .url(buildUrl("/v1/models"))
+                    .header("Authorization", "Bearer ${apiKeyProvider() ?: ""}")
+                    .get()
+                    .build()
 
-        streamClient().newCall(request).awaitSuspending().use { response ->
-            if (!response.isSuccessful) {
-                throw HttpAdapterException(response.code, "HTTP ${response.code}")
+            streamClient().newCall(request).awaitSuspending().use { response ->
+                if (!response.isSuccessful) {
+                    throw HttpAdapterException(response.code, "HTTP ${response.code}")
+                }
+                val body = response.body?.string() ?: throw IOException("Empty body")
+                val parsed = modelsAdapter.fromJson(body) ?: throw IOException("Unparseable model list")
+                parsed.data.map { ModelInfo(id = it.id, displayName = it.id) }
             }
-            val body = response.body?.string() ?: throw IOException("Empty body")
-            val parsed = modelsAdapter.fromJson(body) ?: throw IOException("Unparseable model list")
-            parsed.data.map { ModelInfo(id = it.id, displayName = it.id) }
         }
-    }
 
-    override fun streamChat(request: ChatRequest): Flow<ChatStreamEvent> = callbackFlow {
-        val dto = ChatCompletionRequestDto(
-            model = request.model,
-            messages = buildWireMessages(request),
-            tools = request.toolsAvailable?.mapNotNull { definition ->
-                val parameters = runCatching {
-                    moshi.adapter(Any::class.java).fromJson(definition.parametersSchemaJson)
-                }.getOrNull()
-                ChatCompletionToolDto(
-                    function = ChatCompletionFunctionDefinitionDto(
-                        name = definition.name,
-                        description = definition.description,
-                        parameters = parameters,
-                    ),
+    override fun streamChat(request: ChatRequest): Flow<ChatStreamEvent> =
+        callbackFlow {
+            val dto =
+                ChatCompletionRequestDto(
+                    model = request.model,
+                    messages = buildWireMessages(request),
+                    tools =
+                        request.toolsAvailable
+                            ?.mapNotNull { definition ->
+                                val parameters =
+                                    runCatching {
+                                        moshi.adapter(Any::class.java).fromJson(definition.parametersSchemaJson)
+                                    }.getOrNull()
+                                ChatCompletionToolDto(
+                                    function =
+                                        ChatCompletionFunctionDefinitionDto(
+                                            name = definition.name,
+                                            description = definition.description,
+                                            parameters = parameters,
+                                        ),
+                                )
+                            }?.ifEmpty { null },
                 )
-            }?.ifEmpty { null },
-        )
-        val httpRequest = Request.Builder()
-            .url(buildUrl("/v1/chat/completions"))
-            .header("Authorization", "Bearer ${apiKeyProvider() ?: ""}")
-            .header("Accept", "text/event-stream")
-            .post(chatAdapter.toJson(dto).toRequestBody(jsonMedia))
-            .build()
+            val httpRequest =
+                Request
+                    .Builder()
+                    .url(buildUrl("/v1/chat/completions"))
+                    .header("Authorization", "Bearer ${apiKeyProvider() ?: ""}")
+                    .header("Accept", "text/event-stream")
+                    .post(chatAdapter.toJson(dto).toRequestBody(jsonMedia))
+                    .build()
 
-        // Streaming tool_calls arrive as index-keyed fragments: id + name in the first chunk
-        // for that index, arguments appended piecewise. Emitted once the stream completes.
-        val toolCalls = LinkedHashMap<Int, ToolCallBuffer>()
-        var toolCallsFlushed = false
+            // Streaming tool_calls arrive as index-keyed fragments: id + name in the first chunk
+            // for that index, arguments appended piecewise. Emitted once the stream completes.
+            val toolCalls = LinkedHashMap<Int, ToolCallBuffer>()
+            var toolCallsFlushed = false
 
-        fun flushToolCalls() {
-            if (toolCallsFlushed) return
-            toolCallsFlushed = true
-            toolCalls.values.forEach { buffer ->
-                if (buffer.name.isNotBlank()) {
-                    trySend(ChatStreamEvent.ToolCallRequested(buffer.name.toString(), buffer.args.toString()))
+            fun flushToolCalls() {
+                if (toolCallsFlushed) return
+                toolCallsFlushed = true
+                toolCalls.values.forEach { buffer ->
+                    if (buffer.name.isNotBlank()) {
+                        trySend(ChatStreamEvent.ToolCallRequested(buffer.name.toString(), buffer.args.toString()))
+                    }
                 }
             }
-        }
 
-        val listener = object : EventSourceListener() {
-            override fun onOpen(eventSource: EventSource, response: Response) {
-                // stream established
-            }
+            val listener =
+                object : EventSourceListener() {
+                    override fun onOpen(
+                        eventSource: EventSource,
+                        response: Response,
+                    ) {
+                        // stream established
+                    }
 
-            override fun onEvent(
-                eventSource: EventSource,
-                id: String?,
-                type: String?,
-                data: String,
-            ) {
-                val chunk = runCatching { chunkAdapter.fromJson(data) }.getOrNull()
-                if (chunk == null) {
-                    // Skip malformed keep-alive/heartbeat chunks rather than killing the stream.
-                    if (data == DONE_MARKER) {
+                    override fun onEvent(
+                        eventSource: EventSource,
+                        id: String?,
+                        type: String?,
+                        data: String,
+                    ) {
+                        val chunk = runCatching { chunkAdapter.fromJson(data) }.getOrNull()
+                        if (chunk == null) {
+                            // Skip malformed keep-alive/heartbeat chunks rather than killing the stream.
+                            if (data == DONE_MARKER) {
+                                flushToolCalls()
+                                trySend(ChatStreamEvent.Done)
+                            }
+                            return
+                        }
+                        chunk.choices.forEach { choice ->
+                            choice.delta?.reasoning_content?.let {
+                                trySend(ChatStreamEvent.ReasoningDelta(it))
+                            }
+                            choice.delta?.content?.let { trySend(ChatStreamEvent.TokenDelta(it)) }
+                            choice.delta?.tool_calls?.forEach { deltaCall ->
+                                val buffer = toolCalls.getOrPut(deltaCall.index) { ToolCallBuffer() }
+                                deltaCall.function?.name?.let { buffer.name.append(it) }
+                                deltaCall.function?.arguments?.let { buffer.args.append(it) }
+                            }
+                        }
+                        chunk.usage?.let {
+                            trySend(ChatStreamEvent.Usage(it.prompt_tokens ?: 0, it.completion_tokens ?: 0))
+                        }
+                    }
+
+                    override fun onClosed(eventSource: EventSource) {
                         flushToolCalls()
                         trySend(ChatStreamEvent.Done)
+                        close()
                     }
-                    return
-                }
-                chunk.choices.forEach { choice ->
-                    choice.delta?.reasoning_content?.let {
-                        trySend(ChatStreamEvent.ReasoningDelta(it))
+
+                    override fun onFailure(
+                        eventSource: EventSource,
+                        t: Throwable?,
+                        response: Response?,
+                    ) {
+                        val code = response?.code?.toString() ?: "network"
+                        val retryable = response?.code?.let { it == 429 || it in 500..599 } ?: true
+                        trySend(ChatStreamEvent.Error(code, t?.message ?: "Stream failed", retryable))
+                        close()
                     }
-                    choice.delta?.content?.let { trySend(ChatStreamEvent.TokenDelta(it)) }
-                    choice.delta?.tool_calls?.forEach { deltaCall ->
-                        val buffer = toolCalls.getOrPut(deltaCall.index) { ToolCallBuffer() }
-                        deltaCall.function?.name?.let { buffer.name.append(it) }
-                        deltaCall.function?.arguments?.let { buffer.args.append(it) }
-                    }
                 }
-                chunk.usage?.let {
-                    trySend(ChatStreamEvent.Usage(it.prompt_tokens ?: 0, it.completion_tokens ?: 0))
-                }
+
+            // EventSources.createFactory creates and manages its own call from the Request.
+            val source = EventSources.createFactory(streamClient()).newEventSource(httpRequest, listener)
+
+            awaitClose {
+                // Cancellation: genuinely abort the socket.
+                source.cancel()
             }
-
-            override fun onClosed(eventSource: EventSource) {
-                flushToolCalls()
-                trySend(ChatStreamEvent.Done)
-                close()
-            }
-
-            override fun onFailure(
-                eventSource: EventSource,
-                t: Throwable?,
-                response: Response?,
-            ) {
-                val code = response?.code?.toString() ?: "network"
-                val retryable = response?.code?.let { it == 429 || it in 500..599 } ?: true
-                trySend(ChatStreamEvent.Error(code, t?.message ?: "Stream failed", retryable))
-                close()
-            }
-        }
-
-        // EventSources.createFactory creates and manages its own call from the Request.
-        val source = EventSources.createFactory(streamClient()).newEventSource(httpRequest, listener)
-
-        awaitClose {
-            // Cancellation: genuinely abort the socket.
-            source.cancel()
-        }
-    }.flowOn(dispatchers.io)
+        }.flowOn(dispatchers.io)
 
     override fun close() {
         // This adapter holds no per-stream state; per-stream cleanup happens in awaitClose.
@@ -213,15 +229,17 @@ class OpenAiCompatibleProvider(
                             ChatMessageDto(
                                 role = "assistant",
                                 content = null,
-                                tool_calls = listOf(
-                                    ChatCompletionRequestToolCallDto(
-                                        id = msg.toolCallId.orEmpty(),
-                                        function = ChatCompletionRequestFunctionDto(
-                                            name = msg.toolCallName.orEmpty(),
-                                            arguments = toolCallArgs,
+                                tool_calls =
+                                    listOf(
+                                        ChatCompletionRequestToolCallDto(
+                                            id = msg.toolCallId.orEmpty(),
+                                            function =
+                                                ChatCompletionRequestFunctionDto(
+                                                    name = msg.toolCallName.orEmpty(),
+                                                    arguments = toolCallArgs,
+                                                ),
                                         ),
                                     ),
-                                ),
                             ),
                         )
                     } else {
@@ -264,7 +282,10 @@ class OpenAiCompatibleProvider(
     }
 
     /** HTTP-level failure carrying a classifiable status code. */
-    class HttpAdapterException(val code: Int, override val message: String) : Exception(message) {
+    class HttpAdapterException(
+        val code: Int,
+        override val message: String,
+    ) : Exception(message) {
         val isRetryable: Boolean get() = code == 429 || code in 500..599
     }
 
@@ -279,15 +300,24 @@ private class ToolCallBuffer {
     val args = StringBuilder()
 }
 
-private suspend fun Call.awaitSuspending(): Response = suspendCancellableCoroutine { cont ->
-    enqueue(object : Callback {
-        override fun onFailure(call: Call, e: IOException) {
-            if (cont.isActive) cont.resumeWithException(e)
-        }
+private suspend fun Call.awaitSuspending(): Response =
+    suspendCancellableCoroutine { cont ->
+        enqueue(
+            object : Callback {
+                override fun onFailure(
+                    call: Call,
+                    e: IOException,
+                ) {
+                    if (cont.isActive) cont.resumeWithException(e)
+                }
 
-        override fun onResponse(call: Call, response: Response) {
-            if (cont.isActive) cont.resume(response)
-        }
-    })
-    cont.invokeOnCancellation { cancel() }
-}
+                override fun onResponse(
+                    call: Call,
+                    response: Response,
+                ) {
+                    if (cont.isActive) cont.resume(response)
+                }
+            },
+        )
+        cont.invokeOnCancellation { cancel() }
+    }

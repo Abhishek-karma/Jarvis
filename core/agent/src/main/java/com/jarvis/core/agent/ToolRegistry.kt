@@ -19,11 +19,12 @@ class ToolRegistry {
     fun all(): List<Tool> = tools.values.toList()
 
     /** Wire definitions sent to the LLM as available functions. */
-    fun definitions(): List<ToolDefinition> = tools.values.map { tool ->
-        ToolDefinition(
-            name = tool.name,
-            description = tool.description,
-            parametersSchemaJson = tool.parametersSchemaJson,
-        )
-    }
+    fun definitions(): List<ToolDefinition> =
+        tools.values.map { tool ->
+            ToolDefinition(
+                name = tool.name,
+                description = tool.description,
+                parametersSchemaJson = tool.parametersSchemaJson,
+            )
+        }
 }

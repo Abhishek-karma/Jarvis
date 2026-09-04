@@ -23,6 +23,7 @@ captures/
 
 # ── Local agent/tool state (never commit) ──
 .freebuff/
-
+.agents/
+.claude/
 # ── Runtime models (downloaded on demand, not vendored) ──
 app/src/debug/assets/models-dev/

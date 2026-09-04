@@ -35,25 +35,41 @@ fun interface AuditLogger {
  * are walked so e.g. message bodies inside a `messages` list are caught too.
  */
 object AuditRedaction {
-    private val sensitiveKeyParts = listOf(
-        "message", "body", "content", "text", "password", "passphrase",
-        "secret", "token", "apikey", "api_key", "key", "code",
-    )
+    private val sensitiveKeyParts =
+        listOf(
+            "message",
+            "body",
+            "content",
+            "text",
+            "password",
+            "passphrase",
+            "secret",
+            "token",
+            "apikey",
+            "api_key",
+            "key",
+            "code",
+        )
     private val sha256 = MessageDigest.getInstance("SHA-256")
 
     fun redact(argsJson: String): String {
-        val root = runCatching { Json.parseToJsonElement(argsJson) }.getOrNull()
-            ?: return argsJson
+        val root =
+            runCatching { Json.parseToJsonElement(argsJson) }.getOrNull()
+                ?: return argsJson
         return redactElement(root).toString()
     }
 
-    private fun redactElement(element: JsonElement): JsonElement = when (element) {
-        is JsonObject -> JsonObject(element.map { (key, value) -> key to redactEntry(key, value) }.toMap())
-        is JsonArray -> JsonArray(element.map { redactElement(it) })
-        else -> element
-    }
+    private fun redactElement(element: JsonElement): JsonElement =
+        when (element) {
+            is JsonObject -> JsonObject(element.map { (key, value) -> key to redactEntry(key, value) }.toMap())
+            is JsonArray -> JsonArray(element.map { redactElement(it) })
+            else -> element
+        }
 
-    private fun redactEntry(key: String, value: JsonElement): JsonElement {
+    private fun redactEntry(
+        key: String,
+        value: JsonElement,
+    ): JsonElement {
         if (value is JsonPrimitive && sensitiveKeyParts.any { key.lowercase().contains(it) }) {
             return JsonPrimitive(marker(value.content))
         }

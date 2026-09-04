@@ -7,17 +7,18 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import java.io.File
 import okhttp3.OkHttpClient
+import java.io.File
 import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
 object LocalMlModule {
-
     @Provides
     @Singleton
-    fun provideCatalog(@ApplicationContext context: Context): LocalModelCatalog =
+    fun provideCatalog(
+        @ApplicationContext context: Context,
+    ): LocalModelCatalog =
         LocalModelCatalog(
             source = { runCatching { context.assets.open(CATALOG_ASSET) }.getOrNull() },
         )
@@ -29,18 +30,20 @@ object LocalMlModule {
         @ApplicationContext context: Context,
         okHttpClient: OkHttpClient,
         dispatchers: DispatcherProvider,
-    ): LocalModelStore = LocalModelStore(
-        catalog = catalog,
-        modelsDir = File(context.filesDir, MODELS_DIR),
-        openAsset = { name -> runCatching { context.assets.open("$DEV_ASSETS_DIR/$name") }.getOrNull() },
-        okHttpClient = okHttpClient,
-        dispatchers = dispatchers,
-    )
+    ): LocalModelStore =
+        LocalModelStore(
+            catalog = catalog,
+            modelsDir = File(context.filesDir, MODELS_DIR),
+            openAsset = { name -> runCatching { context.assets.open("$DEV_ASSETS_DIR/$name") }.getOrNull() },
+            okHttpClient = okHttpClient,
+            dispatchers = dispatchers,
+        )
 
     @Provides
     @Singleton
-    fun provideLocalConnectivity(@ApplicationContext context: Context): LocalConnectivity =
-        AndroidLocalConnectivity(context)
+    fun provideLocalConnectivity(
+        @ApplicationContext context: Context,
+    ): LocalConnectivity = AndroidLocalConnectivity(context)
 
     @Provides
     @Singleton
@@ -48,11 +51,12 @@ object LocalMlModule {
         @ApplicationContext context: Context,
         store: LocalModelStore,
         dispatchers: DispatcherProvider,
-    ): LocalLlmRuntime = LocalLlmRuntime(
-        appContext = context,
-        store = store,
-        dispatchers = dispatchers,
-    )
+    ): LocalLlmRuntime =
+        LocalLlmRuntime(
+            appContext = context,
+            store = store,
+            dispatchers = dispatchers,
+        )
 
     private const val CATALOG_ASSET = "local-models.json"
     private const val MODELS_DIR = "local-llm"

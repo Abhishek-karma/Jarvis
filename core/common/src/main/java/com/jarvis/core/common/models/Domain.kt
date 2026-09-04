@@ -48,7 +48,7 @@ data class Conversation(
 enum class RoutingOverride { AUTO, LOCAL, CLOUD }
 
 /** Provider types the settings screen can create; v0.1 ships OpenAI-compatible only. */
-enum class ProviderType { OPENAI_COMPATIBLE }
+enum class ProviderType { OPENAI_COMPATIBLE, }
 
 /** User-configured provider instance (credentials live in EncryptedSharedPreferences, never here). */
 data class ProviderConfig(

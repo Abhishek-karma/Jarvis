@@ -36,10 +36,11 @@ class FakeLlmProvider(
     override val id: String = "fake"
     val requests = mutableListOf<ChatRequest>()
 
-    override fun streamChat(request: ChatRequest): Flow<ChatStreamEvent> = flow {
-        requests += request
-        script(request).forEach { emit(it) }
-    }
+    override fun streamChat(request: ChatRequest): Flow<ChatStreamEvent> =
+        flow {
+            requests += request
+            script(request).forEach { emit(it) }
+        }
 
     override suspend fun listModels(): Result<List<ModelInfo>> = Result.success(emptyList())
 
@@ -48,21 +49,29 @@ class FakeLlmProvider(
 
 class RecordingAudit : AuditLogger {
     val records = mutableListOf<AuditRecord>()
+
     override suspend fun record(entry: AuditRecord) {
         records += entry
     }
 }
 
-class RecordingGate(var allow: Boolean = true) : ConfirmationGate {
+class RecordingGate(
+    var allow: Boolean = true,
+) : ConfirmationGate {
     val asked = mutableListOf<Pair<String, String>>()
-    override suspend fun confirm(toolName: String, argsJson: String): Boolean {
+
+    override suspend fun confirm(
+        toolName: String,
+        argsJson: String,
+    ): Boolean {
         asked += toolName to argsJson
         return allow
     }
 }
 
-fun userRequest(text: String) = Message(
-    conversationId = "c1",
-    role = MessageRole.USER,
-    content = text,
-)
+fun userRequest(text: String) =
+    Message(
+        conversationId = "c1",
+        role = MessageRole.USER,
+        content = text,
+    )

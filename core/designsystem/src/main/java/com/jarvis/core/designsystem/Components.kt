@@ -1,5 +1,12 @@
 package com.jarvis.core.designsystem
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -12,17 +19,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -60,9 +64,10 @@ fun JarvisHeader(
         },
         navigationIcon = { navigationIcon?.invoke() },
         actions = actions,
-        colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
-            containerColor = androidx.compose.material3.MaterialTheme.colorScheme.background,
-        ),
+        colors =
+            androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+                containerColor = androidx.compose.material3.MaterialTheme.colorScheme.background,
+            ),
         modifier = modifier,
     )
 }
@@ -108,10 +113,11 @@ fun StreamingCursor(modifier: Modifier = Modifier) {
     val alpha by transition.animateFloat(
         initialValue = 1f,
         targetValue = 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(Motion.cursorBlinkHalfMs, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
+        animationSpec =
+            infiniteRepeatable(
+                animation = tween(Motion.CURSOR_BLINK_HALF_MS, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
         label = "blink",
     )
     Box(
@@ -123,7 +129,6 @@ fun StreamingCursor(modifier: Modifier = Modifier) {
             .semantics { contentDescription = "Jarvis is responding" },
     )
 }
-
 
 /**
  * The circular send button — 40dp accent circle with a white up-arrow.
@@ -139,12 +144,14 @@ fun JarvisSendButton(
     modifier: Modifier = Modifier,
 ) {
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
-    val interaction = androidx.compose.runtime.remember {
-        androidx.compose.foundation.interaction.MutableInteractionSource()
-    }
+    val interaction =
+        androidx.compose.runtime.remember {
+            androidx.compose.foundation.interaction
+                .MutableInteractionSource()
+        }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed) Motion.pressScale else 1f,
+        targetValue = if (pressed) Motion.PRESS_SCALE else 1f,
         label = "sendPress",
     )
     val canAct = if (isStreaming) true else enabled
@@ -161,8 +168,7 @@ fun JarvisSendButton(
                     pressed -> JarvisColors.Accent.orangePressed
                     else -> JarvisColors.Accent.orange
                 },
-            )
-            .clickable(
+            ).clickable(
                 interactionSource = interaction,
                 indication = null,
                 enabled = canAct,
@@ -175,12 +181,80 @@ fun JarvisSendButton(
         Icon(
             imageVector = if (isStreaming) Icons.Filled.Stop else Icons.Filled.ArrowUpward,
             contentDescription = if (isStreaming) "Stop generating" else "Send",
-            tint = if (enabled || isStreaming) {
-                JarvisColors.Accent.onOrange
-            } else {
-                androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
-            },
+            tint =
+                if (enabled || isStreaming) {
+                    JarvisColors.Accent.onOrange
+                } else {
+                    androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
+                },
             modifier = Modifier.size(20.dp),
         )
+    }
+}
+
+/**
+ * Brand-styled snackbar host: dark slate pill, white text, accent action — matches the
+ * monochrome canvas in both themes. Drop into any Scaffold's snackbarHost slot.
+ */
+@Composable
+fun JarvisSnackbarHost(
+    hostState: SnackbarHostState,
+    modifier: Modifier = Modifier,
+) {
+    SnackbarHost(hostState = hostState, modifier = modifier) { data ->
+        Snackbar(
+            snackbarData = data,
+            containerColor = JarvisColors.Dark.surface,
+            contentColor = JarvisColors.Dark.textPrimary,
+            actionColor = JarvisColors.Accent.orangeSoft,
+            dismissActionContentColor = JarvisColors.Dark.textSecondary,
+            shape = JarvisShapes.chip,
+        )
+    }
+}
+
+/**
+ * The brand loader — a small accent spinner. Use inline (buttons, rows) wherever a
+ * stock CircularProgressIndicator would otherwise appear.
+ */
+@Composable
+fun JarvisLoader(
+    modifier: Modifier = Modifier,
+    size: Dp = 18.dp,
+    strokeWidth: Dp = 2.dp,
+    color: Color = JarvisColors.Accent.orange,
+) {
+    CircularProgressIndicator(
+        modifier = modifier.size(size),
+        strokeWidth = strokeWidth,
+        color = color,
+    )
+}
+
+/**
+ * Full-screen loading state: centered Jarvis mark, spinner, and an optional label.
+ * For screen-level waits (provider list, conversation open) — not for inline rows.
+ */
+@Composable
+fun JarvisScreenLoader(
+    modifier: Modifier = Modifier,
+    label: String? = null,
+) {
+    androidx.compose.foundation.layout.Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement =
+            androidx.compose.foundation.layout.Arrangement
+                .spacedBy(Spacing.md),
+    ) {
+        JarvisMark(size = 32.dp)
+        JarvisLoader(size = 24.dp)
+        if (!label.isNullOrBlank()) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }

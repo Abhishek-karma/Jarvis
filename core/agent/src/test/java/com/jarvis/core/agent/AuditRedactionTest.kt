@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class AuditRedactionTest {
-
     @Test
     fun `values under sensitive keys become length plus hash markers`() {
         val redacted = AuditRedaction.redact("""{"to": "a@b.c", "body": "hello world"}""")

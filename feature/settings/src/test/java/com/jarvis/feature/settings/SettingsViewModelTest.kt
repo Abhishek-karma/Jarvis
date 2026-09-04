@@ -32,7 +32,6 @@ import org.junit.jupiter.api.TestInstance
 @OptIn(ExperimentalCoroutinesApi::class)
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 class SettingsViewModelTest {
-
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var viewModel: SettingsViewModel
     private lateinit var providerRepository: ProviderRepository
@@ -42,11 +41,12 @@ class SettingsViewModelTest {
     private lateinit var providersFlow: MutableStateFlow<List<ProviderConfig>>
     private lateinit var localModelStateFlow: MutableStateFlow<LocalModelState>
 
-    private val testDispatchers = mockk<com.jarvis.core.common.DispatcherProvider>().apply {
-        every { main } returns testDispatcher
-        every { io } returns testDispatcher
-        every { default } returns testDispatcher
-    }
+    private val testDispatchers =
+        mockk<com.jarvis.core.common.DispatcherProvider>().apply {
+            every { main } returns testDispatcher
+            every { io } returns testDispatcher
+            every { default } returns testDispatcher
+        }
 
     @BeforeEach
     fun setUp() {
@@ -62,14 +62,15 @@ class SettingsViewModelTest {
 
         coEvery { providerRepository.observeProviders() } returns providersFlow
 
-        viewModel = SettingsViewModel(
-            providerRepository = providerRepository,
-            providerManager = providerManager,
-            apiKeyStore = apiKeyStore,
-            localModelStore = localModelStore,
-            context = mockk(relaxed = true),
-            dispatchers = testDispatchers,
-        )
+        viewModel =
+            SettingsViewModel(
+                providerRepository = providerRepository,
+                providerManager = providerManager,
+                apiKeyStore = apiKeyStore,
+                localModelStore = localModelStore,
+                context = mockk(relaxed = true),
+                dispatchers = testDispatchers,
+            )
     }
 
     @AfterEach
@@ -78,26 +79,28 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `deleteProvider removes from repository and key store`() = runTest {
-        coEvery { providerRepository.delete(any()) } just Runs
-        coEvery { apiKeyStore.removeKey(any()) } just Runs
+    fun `deleteProvider removes from repository and key store`() =
+        runTest {
+            coEvery { providerRepository.delete(any()) } just Runs
+            coEvery { apiKeyStore.removeKey(any()) } just Runs
 
-        viewModel.deleteProvider("p1")
-        advanceUntilIdle()
+            viewModel.deleteProvider("p1")
+            advanceUntilIdle()
 
-        coVerify { providerRepository.delete("p1") }
-        coVerify { apiKeyStore.removeKey("p1") }
-    }
+            coVerify { providerRepository.delete("p1") }
+            coVerify { apiKeyStore.removeKey("p1") }
+        }
 
     @Test
-    fun `setDefault calls repository`() = runTest {
-        coEvery { providerRepository.setDefault(any()) } just Runs
+    fun `setDefault calls repository`() =
+        runTest {
+            coEvery { providerRepository.setDefault(any()) } just Runs
 
-        viewModel.setDefault("p1")
-        advanceUntilIdle()
+            viewModel.setDefault("p1")
+            advanceUntilIdle()
 
-        coVerify { providerRepository.setDefault("p1") }
-    }
+            coVerify { providerRepository.setDefault("p1") }
+        }
 
     @Test
     fun `resetForNew clears edit state`() {
@@ -176,105 +179,114 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `verifyAndSave fails when name is empty`() = runTest {
-        viewModel.onNameChange("")
-        viewModel.onApiKeyChange("sk-test")
+    fun `verifyAndSave fails when name is empty`() =
+        runTest {
+            viewModel.onNameChange("")
+            viewModel.onApiKeyChange("sk-test")
 
-        viewModel.verifyAndSave()
-        advanceUntilIdle()
+            viewModel.verifyAndSave()
+            advanceUntilIdle()
 
-        assertEquals("Name is required", viewModel.editState.value.verificationError)
-    }
-
-    @Test
-    fun `verifyAndSave allows empty API key for keyless local servers`() = runTest {
-        val mockAdapter = mockk<OpenAiCompatibleProvider>(relaxed = true)
-        coEvery { providerManager.adapterFor(any()) } returns mockAdapter
-        coEvery { mockAdapter.listModels() } returns Result.success(emptyList())
-        coEvery { providerRepository.upsert(any()) } just Runs
-        coEvery { providerManager.dropAdapter(any()) } just Runs
-        coEvery { apiKeyStore.removeKey(any()) } just Runs
-
-        viewModel.onNameChange("Ollama")
-        viewModel.onBaseUrlChange("http://10.0.2.2:11434")
-        viewModel.onApiKeyChange("")
-        viewModel.verifyAndSave()
-        advanceUntilIdle()
-
-        coVerify { providerRepository.upsert(match { it.name == "Ollama" }) }
-        coVerify { apiKeyStore.removeKey(any()) }
-        assertTrue(viewModel.editState.value.verificationSuccess)
-        assertEquals(null, viewModel.editState.value.verificationError)
-    }
+            assertEquals("Name is required", viewModel.editState.value.verificationError)
+        }
 
     @Test
-    fun `verifyAndSave persists provider on successful verification`() = runTest {
-        val mockAdapter = mockk<OpenAiCompatibleProvider>(relaxed = true)
-        coEvery { providerManager.adapterFor(any()) } returns mockAdapter
-        coEvery { mockAdapter.listModels() } returns Result.success(emptyList())
-        coEvery { providerRepository.upsert(any()) } just Runs
-        coEvery { providerRepository.setDefault(any()) } just Runs
-        coEvery { providerManager.dropAdapter(any()) } just Runs
-        coEvery { apiKeyStore.putKey(any(), any()) } just Runs
+    fun `verifyAndSave allows empty API key for keyless local servers`() =
+        runTest {
+            val mockAdapter = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            coEvery { providerManager.adapterFor(any()) } returns mockAdapter
+            coEvery { mockAdapter.listModels() } returns Result.success(emptyList())
+            coEvery { providerRepository.upsert(any()) } just Runs
+            coEvery { providerManager.dropAdapter(any()) } just Runs
+            coEvery { apiKeyStore.removeKey(any()) } just Runs
 
-        viewModel.onNameChange("Test Provider")
-        // /v1 typed by the user is normalized to the API root on save.
-        viewModel.onBaseUrlChange("https://api.openai.com/v1")
-        viewModel.onModelChange("gpt-4o-mini")
-        viewModel.onApiKeyChange("sk-test-123")
-        viewModel.verifyAndSave()
-        advanceUntilIdle()
+            viewModel.onNameChange("Ollama")
+            viewModel.onBaseUrlChange("http://10.0.2.2:11434")
+            viewModel.onApiKeyChange("")
+            viewModel.verifyAndSave()
+            advanceUntilIdle()
 
-        coVerify {
-            providerRepository.upsert(
-                match {
-                    it.name == "Test Provider" &&
-                        it.baseUrl == "https://api.openai.com" &&
-                        it.model == "gpt-4o-mini"
-                },
+            coVerify { providerRepository.upsert(match { it.name == "Ollama" }) }
+            coVerify { apiKeyStore.removeKey(any()) }
+            assertTrue(viewModel.editState.value.verificationSuccess)
+            assertEquals(null, viewModel.editState.value.verificationError)
+        }
+
+    @Test
+    fun `verifyAndSave persists provider on successful verification`() =
+        runTest {
+            val mockAdapter = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            coEvery { providerManager.adapterFor(any()) } returns mockAdapter
+            coEvery { mockAdapter.listModels() } returns Result.success(emptyList())
+            coEvery { providerRepository.upsert(any()) } just Runs
+            coEvery { providerRepository.setDefault(any()) } just Runs
+            coEvery { providerManager.dropAdapter(any()) } just Runs
+            coEvery { apiKeyStore.putKey(any(), any()) } just Runs
+
+            viewModel.onNameChange("Test Provider")
+            // /v1 typed by the user is normalized to the API root on save.
+            viewModel.onBaseUrlChange("https://api.openai.com/v1")
+            viewModel.onModelChange("gpt-4o-mini")
+            viewModel.onApiKeyChange("sk-test-123")
+            viewModel.verifyAndSave()
+            advanceUntilIdle()
+
+            coVerify {
+                providerRepository.upsert(
+                    match {
+                        it.name == "Test Provider" &&
+                            it.baseUrl == "https://api.openai.com" &&
+                            it.model == "gpt-4o-mini"
+                    },
+                )
+            }
+            assertTrue(viewModel.editState.value.verificationSuccess)
+        }
+
+    @Test
+    fun `verifyAndSave shows error on failed verification`() =
+        runTest {
+            val mockAdapter = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            coEvery { providerManager.adapterFor(any()) } returns mockAdapter
+            coEvery { mockAdapter.listModels() } returns Result.failure(Exception("401 Unauthorized"))
+            coEvery { providerManager.dropAdapter(any()) } just Runs
+            coEvery { apiKeyStore.removeKey(any()) } just Runs
+
+            viewModel.onNameChange("Test Provider")
+            viewModel.onApiKeyChange("bad-key")
+            viewModel.verifyAndSave()
+            advanceUntilIdle()
+
+            assertFalse(viewModel.editState.value.verificationSuccess)
+            assertTrue(
+                viewModel.editState.value.verificationError
+                    ?.contains("401") == true,
             )
         }
-        assertTrue(viewModel.editState.value.verificationSuccess)
-    }
 
     @Test
-    fun `verifyAndSave shows error on failed verification`() = runTest {
-        val mockAdapter = mockk<OpenAiCompatibleProvider>(relaxed = true)
-        coEvery { providerManager.adapterFor(any()) } returns mockAdapter
-        coEvery { mockAdapter.listModels() } returns Result.failure(Exception("401 Unauthorized"))
-        coEvery { providerManager.dropAdapter(any()) } just Runs
-        coEvery { apiKeyStore.removeKey(any()) } just Runs
+    fun `loadProvider populates edit state from repository`() =
+        runTest {
+            val provider =
+                ProviderConfig(
+                    id = "p1",
+                    name = "OpenAI",
+                    baseUrl = "https://api.openai.com",
+                    model = "gpt-4o-mini",
+                )
+            coEvery { providerRepository.getProvider("p1") } returns provider
+            coEvery { apiKeyStore.getKey("p1") } returns "sk-existing"
 
-        viewModel.onNameChange("Test Provider")
-        viewModel.onApiKeyChange("bad-key")
-        viewModel.verifyAndSave()
-        advanceUntilIdle()
+            viewModel.loadProvider("p1")
+            advanceUntilIdle()
 
-        assertFalse(viewModel.editState.value.verificationSuccess)
-        assertTrue(viewModel.editState.value.verificationError?.contains("401") == true)
-    }
-
-    @Test
-    fun `loadProvider populates edit state from repository`() = runTest {
-        val provider = ProviderConfig(
-            id = "p1",
-            name = "OpenAI",
-            baseUrl = "https://api.openai.com",
-            model = "gpt-4o-mini",
-        )
-        coEvery { providerRepository.getProvider("p1") } returns provider
-        coEvery { apiKeyStore.getKey("p1") } returns "sk-existing"
-
-        viewModel.loadProvider("p1")
-        advanceUntilIdle()
-
-        val state = viewModel.editState.value
-        assertEquals("p1", state.providerId)
-        assertEquals("OpenAI", state.name)
-        assertEquals("gpt-4o-mini", state.model)
-        assertEquals("sk-existing", state.apiKey)
-        assertFalse(state.isNew)
-    }
+            val state = viewModel.editState.value
+            assertEquals("p1", state.providerId)
+            assertEquals("OpenAI", state.name)
+            assertEquals("gpt-4o-mini", state.model)
+            assertEquals("sk-existing", state.apiKey)
+            assertFalse(state.isNew)
+        }
 
     private fun assertNull(value: Any?) {
         assertEquals(null, value)

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -21,14 +22,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jarvis.core.designsystem.JarvisHeader
 import com.jarvis.core.designsystem.JarvisText
@@ -55,10 +51,11 @@ fun SettingsScreen(
         },
     ) { padding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState()),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .verticalScroll(rememberScrollState()),
         ) {
             SettingsSection(title = "Models") {
                 SettingsItem(
@@ -121,9 +118,10 @@ private fun SettingsSection(
         Surface(
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             shape = RoundedCornerShape(Radius.chip),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Spacing.lg),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Spacing.lg),
         ) {
             Column { content() }
         }
@@ -137,24 +135,30 @@ private fun SettingsItem(
     enabled: Boolean = true,
     onClick: (() -> Unit)? = null,
 ) {
-    val modifier = if (enabled && onClick != null) {
-        Modifier.clickable(onClick = onClick)
-    } else {
-        Modifier
-    }
+    val modifier =
+        if (enabled && onClick != null) {
+            Modifier.clickable(onClick = onClick)
+        } else {
+            Modifier
+        }
 
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(start = Spacing.lg, end = Spacing.lg, top = 14.dp, bottom = 14.dp),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .padding(start = Spacing.lg, end = Spacing.lg, top = 14.dp, bottom = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
                 style = JarvisText.Body,
-                color = if (enabled) MaterialTheme.colorScheme.onSurface
-                else MaterialTheme.colorScheme.onSurfaceVariant,
+                color =
+                    if (enabled) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(

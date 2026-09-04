@@ -20,27 +20,32 @@ class OpenAiSttProvider(
     private val moshi: Moshi,
     private val dispatchers: DispatcherProvider,
 ) : SttProvider {
-
     @Suppress("UNCHECKED_CAST")
-    override suspend fun transcribe(audioData: ByteArray, format: AudioFormat): Result<TranscriptionResult> =
+    override suspend fun transcribe(
+        audioData: ByteArray,
+        format: AudioFormat,
+    ): Result<TranscriptionResult> =
         withContext(dispatchers.io) {
             try {
-                val body = MultipartBody.Builder()
-                    .setType(MultipartBody.FORM)
-                    .addFormDataPart(
-                        "file",
-                        "audio.${format.extension}",
-                        audioData.toRequestBody(format.mimeType.toMediaType()),
-                    )
-                    .addFormDataPart("model", "whisper-1")
-                    .addFormDataPart("response_format", "verbose_json")
-                    .build()
+                val body =
+                    MultipartBody
+                        .Builder()
+                        .setType(MultipartBody.FORM)
+                        .addFormDataPart(
+                            "file",
+                            "audio.${format.extension}",
+                            audioData.toRequestBody(format.mimeType.toMediaType()),
+                        ).addFormDataPart("model", "whisper-1")
+                        .addFormDataPart("response_format", "verbose_json")
+                        .build()
 
-                val request = Request.Builder()
-                    .url("${baseUrl.trimEnd('/')}/audio/transcriptions")
-                    .header("Authorization", "Bearer ${apiKeyProvider()}")
-                    .post(body)
-                    .build()
+                val request =
+                    Request
+                        .Builder()
+                        .url("${baseUrl.trimEnd('/')}/audio/transcriptions")
+                        .header("Authorization", "Bearer ${apiKeyProvider()}")
+                        .post(body)
+                        .build()
 
                 val response = client.newCall(request).execute()
                 if (response.isSuccessful) {
@@ -61,5 +66,3 @@ class OpenAiSttProvider(
             }
         }
 }
-
-class SttException(message: String, val code: Int = 0, cause: Throwable? = null) : Exception(message, cause)

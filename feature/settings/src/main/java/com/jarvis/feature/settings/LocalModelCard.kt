@@ -27,9 +27,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jarvis.core.designsystem.JarvisText
-import com.jarvis.core.ml.LocalModelState
 import com.jarvis.core.ml.LocalModelSpec
-import java.util.Locale
+import com.jarvis.core.ml.LocalModelState
 
 /**
  * On-device model management card shown atop the Providers screen: status, one-tap download
@@ -47,9 +46,10 @@ fun LocalModelCard(
     val spec = models.firstOrNull() ?: return
 
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
@@ -69,7 +69,7 @@ fun LocalModelCard(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        "Runs offline on this phone — used by the Local route",
+                        "Runs offline on this phone for the Local route",
                         style = JarvisText.Metadata,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -105,7 +105,7 @@ fun LocalModelCard(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            "Installed — Local routing available",
+                            "Installed. Local routing is available.",
                             style = JarvisText.Body,
                             color = MaterialTheme.colorScheme.primary,
                         )
@@ -139,30 +139,62 @@ fun LocalModelCard(
                     }
                 }
 
+                is LocalModelState.Importing -> {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        "Importing ${state.model.displayName}…",
+                        style = JarvisText.Body,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Copying from storage. A multi-GB model can take a few minutes, so keep " +
+                            "the app open until it finishes.",
+                        style = JarvisText.Metadata,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
                 is LocalModelState.Error -> {
                     Text(
                         text = state.message,
                         style = JarvisText.Body,
                         color = MaterialTheme.colorScheme.error,
                     )
-                    Row(
+                    Spacer(modifier = Modifier.height(12.dp))
+                    // A failed import must not dead-end: offer the picker again alongside
+                    // retrying the download, like the not-downloaded state.
+                    Button(
+                        onClick = onImport,
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
                     ) {
-                        TextButton(onClick = onDownload) {
-                            Text("Retry")
-                        }
+                        Icon(
+                            Icons.Default.FolderOpen,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Import from storage")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = onDownload,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Download ${spec.displayName}")
                     }
                 }
 
                 else -> {
                     // NotDownloaded / None
                     Text(
-                        text = if (spec.license.isNotBlank()) {
-                            "${spec.license.replaceFirstChar { it.uppercase(Locale.ROOT) }} — large download over Wi-Fi."
-                        } else {
-                            "Large download — start over Wi-Fi."
-                        },
+                        text =
+                            if (spec.license.isNotBlank()) {
+                                "Accept ${spec.license} to download. This is a large download, so use Wi-Fi."
+                            } else {
+                                "This is a large download, so use Wi-Fi."
+                            },
                         style = JarvisText.Metadata,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

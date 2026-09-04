@@ -9,11 +9,12 @@ enum class PermissionTier {
 
     /** Stable wire/storage name. */
     val wireName: String
-        get() = when (this) {
-            READ_ONLY -> "read_only"
-            REVERSIBLE_WRITE -> "reversible_write"
-            SENSITIVE -> "sensitive"
-        }
+        get() =
+            when (this) {
+                READ_ONLY -> "read_only"
+                REVERSIBLE_WRITE -> "reversible_write"
+                SENSITIVE -> "sensitive"
+            }
 }
 
 /**

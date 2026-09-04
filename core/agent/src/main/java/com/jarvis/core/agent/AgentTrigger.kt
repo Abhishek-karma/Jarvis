@@ -5,12 +5,32 @@ package com.jarvis.core.agent
  * AgentEngine when this fires (and the provider supports tools).
  */
 object AgentTrigger {
-
-    private val actionVerbs = listOf(
-        "send", "create", "make", "delete", "remove", "find", "set up", "setup", "schedule",
-        "book", "call", "turn on", "turn off", "adjust", "open", "check the battery", "storage",
-        "network state", "what time", "rename", "move", "download", "search for",
-    )
+    private val actionVerbs =
+        listOf(
+            "send",
+            "create",
+            "make",
+            "delete",
+            "remove",
+            "find",
+            "set up",
+            "setup",
+            "schedule",
+            "book",
+            "call",
+            "turn on",
+            "turn off",
+            "adjust",
+            "open",
+            "check the battery",
+            "storage",
+            "network state",
+            "what time",
+            "rename",
+            "move",
+            "download",
+            "search for",
+        )
 
     fun shouldUseAgent(text: String): Boolean {
         val trimmed = text.trim()

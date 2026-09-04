@@ -8,12 +8,32 @@ package com.jarvis.feature.chat
  * links and thematic breaks. Kept dependency-free so it runs on the JVM for unit tests.
  */
 sealed interface MdBlock {
-    data class Paragraph(val spans: List<MdSpan>) : MdBlock
-    data class Heading(val level: Int, val spans: List<MdSpan>) : MdBlock
-    data class CodeBlock(val language: String?, val code: String) : MdBlock
-    data class BulletList(val items: List<List<MdSpan>>) : MdBlock
-    data class NumberedList(val items: List<List<MdSpan>>) : MdBlock
-    data class Quote(val spans: List<MdSpan>) : MdBlock
+    data class Paragraph(
+        val spans: List<MdSpan>,
+    ) : MdBlock
+
+    data class Heading(
+        val level: Int,
+        val spans: List<MdSpan>,
+    ) : MdBlock
+
+    data class CodeBlock(
+        val language: String?,
+        val code: String,
+    ) : MdBlock
+
+    data class BulletList(
+        val items: List<List<MdSpan>>,
+    ) : MdBlock
+
+    data class NumberedList(
+        val items: List<List<MdSpan>>,
+    ) : MdBlock
+
+    data class Quote(
+        val spans: List<MdSpan>,
+    ) : MdBlock
+
     data object Divider : MdBlock
 }
 
@@ -105,7 +125,8 @@ fun parseMarkdown(source: String): List<MdBlock> {
         // Paragraph (accumulate until blank line or block start)
         val paraLines = mutableListOf(line)
         i++
-        while (i < lines.size && lines[i].isNotBlank() &&
+        while (i < lines.size &&
+            lines[i].isNotBlank() &&
             !lines[i].trimStart().startsWith(">") &&
             !Regex("^\\s{0,3}#{1,6}\\s").matches(lines[i]) &&
             !Regex("^\\s*(```+|~~~+)").matches(lines[i])
