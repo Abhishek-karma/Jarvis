@@ -97,10 +97,15 @@ fun parseMarkdown(source: String): List<MdBlock> {
         }
 
         // Lists
-        if (Regex("^\\s*[-+*]\\s+").containsMatchIn(line)) {
+        val bulletMarker = Regex("^\\s*([-+*])\\s+").find(line)
+        if (bulletMarker != null) {
+            // Strip the same marker shape from every continuation line so the item text is
+            // extracted uniformly (never via a second regex match that could disagree).
+            val markerRegex = Regex("^\\s*[-+]\\s+|^\\s*\\*\\s+")
             val items = mutableListOf<List<MdSpan>>()
-            while (i < lines.size && Regex("^\\s*[-+*]\\s+").containsMatchIn(lines[i])) {
-                items.add(parseInline(lines[i].trim().removePrefix(Regex("^[-+*]\\s+").find(lines[i].trim())!!.value)))
+            while (i < lines.size) {
+                val m = markerRegex.find(lines[i]) ?: break
+                items.add(parseInline(lines[i].removePrefix(m.value)))
                 i++
             }
             blocks.add(MdBlock.BulletList(items))
@@ -108,8 +113,9 @@ fun parseMarkdown(source: String): List<MdBlock> {
         }
         if (Regex("^\\s*\\d+\\.\\s+").containsMatchIn(line)) {
             val items = mutableListOf<List<MdSpan>>()
-            while (i < lines.size && Regex("^\\s*\\d+\\.\\s+").containsMatchIn(lines[i])) {
-                items.add(parseInline(lines[i].trim().replaceFirst(Regex("^\\d+\\.\\s+"), "")))
+            while (i < lines.size) {
+                val m = Regex("^\\s*\\d+\\.\\s+").find(lines[i]) ?: break
+                items.add(parseInline(lines[i].removePrefix(m.value)))
                 i++
             }
             blocks.add(MdBlock.NumberedList(items))

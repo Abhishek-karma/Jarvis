@@ -25,8 +25,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
+import com.jarvis.core.designsystem.JarvisShapes
 import com.jarvis.core.designsystem.JarvisText
+import com.jarvis.core.designsystem.Spacing
 import com.jarvis.core.ml.LocalModelSpec
 import com.jarvis.core.ml.LocalModelState
 
@@ -49,23 +50,23 @@ fun LocalModelCard(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-        shape = MaterialTheme.shapes.large,
+                .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
+        shape = JarvisShapes.card,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(Spacing.lg)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Default.SmartToy,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(Spacing.xl),
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(Spacing.sm))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         "On-device model",
-                        style = JarvisText.Body.copy(fontWeight = FontWeight.Medium),
+                        style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.Medium),
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
@@ -76,11 +77,11 @@ fun LocalModelCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(Spacing.md))
 
             Text(
                 text = spec.displayName,
-                style = MaterialTheme.typography.titleSmall,
+                style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
                 color = MaterialTheme.colorScheme.onSurface,
             )
             val meta = listOfNotNull(spec.approxSizeLabel, spec.ramNote).joinToString(" · ")
@@ -92,7 +93,7 @@ fun LocalModelCard(
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(Spacing.md))
 
             when (state) {
                 is LocalModelState.Ready -> {
@@ -101,12 +102,12 @@ fun LocalModelCard(
                             Icons.Default.DownloadDone,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(Spacing.xl),
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(Spacing.xs))
                         Text(
                             "Installed. Local routing is available.",
-                            style = JarvisText.Body,
+                            style = JarvisText.BodyMedium,
                             color = MaterialTheme.colorScheme.primary,
                         )
                     }
@@ -125,7 +126,7 @@ fun LocalModelCard(
                         progress = { state.progress },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(Spacing.xs))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             "${(state.progress * 100).toInt()}% downloaded",
@@ -141,13 +142,13 @@ fun LocalModelCard(
 
                 is LocalModelState.Importing -> {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(Spacing.xs))
                     Text(
                         "Importing ${state.model.displayName}…",
-                        style = JarvisText.Body,
+                        style = JarvisText.BodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(Spacing.xs))
                     Text(
                         "Copying from storage. A multi-GB model can take a few minutes, so keep " +
                             "the app open until it finishes.",
@@ -159,10 +160,10 @@ fun LocalModelCard(
                 is LocalModelState.Error -> {
                     Text(
                         text = state.message,
-                        style = JarvisText.Body,
+                        style = JarvisText.BodyMedium,
                         color = MaterialTheme.colorScheme.error,
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(Spacing.md))
                     // A failed import must not dead-end: offer the picker again alongside
                     // retrying the download, like the not-downloaded state.
                     Button(
@@ -172,12 +173,12 @@ fun LocalModelCard(
                         Icon(
                             Icons.Default.FolderOpen,
                             contentDescription = null,
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(Spacing.xl),
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(Spacing.xs))
                         Text("Import from storage")
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(Spacing.sm))
                     OutlinedButton(
                         onClick = onDownload,
                         modifier = Modifier.fillMaxWidth(),
@@ -204,7 +205,7 @@ fun LocalModelCard(
                     ) {
                         Text("Download ${spec.displayName}")
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(Spacing.sm))
                     OutlinedButton(
                         onClick = onImport,
                         modifier = Modifier.fillMaxWidth(),
@@ -212,9 +213,9 @@ fun LocalModelCard(
                         Icon(
                             Icons.Default.FolderOpen,
                             contentDescription = null,
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(Spacing.xl),
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(Spacing.xs))
                         Text("Import from storage")
                     }
                 }

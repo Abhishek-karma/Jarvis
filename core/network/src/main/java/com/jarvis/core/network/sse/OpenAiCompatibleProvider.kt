@@ -194,7 +194,27 @@ class OpenAiCompatibleProvider(
                     ) {
                         val code = response?.code?.toString() ?: "network"
                         val retryable = response?.code?.let { it == 429 || it in 500..599 } ?: true
-                        trySend(ChatStreamEvent.Error(code, t?.message ?: "Stream failed", retryable))
+
+                        // Extract the actual error message from the response body if available
+                        val errorMessage = when {
+                            response != null -> {
+                                val bodyText = runCatching { response.body?.string() }.getOrNull()
+                                response.close()
+                                when (response.code) {
+                                    401 -> "Authentication failed — check your API key"
+                                    403 -> "Access denied — your key may lack permissions"
+                                    429 -> "Rate limited — too many requests, try again later"
+                                    500 -> "Server error — the provider's service is having issues"
+                                    502 -> "Bad gateway — the provider's service is temporarily unavailable"
+                                    503 -> "Service unavailable — the provider is overloaded or maintenance"
+                                    else -> bodyText?.takeIf { it.isNotBlank() } ?: response.message
+                                }
+                            }
+                            t is IOException -> "Network error — check your connection: ${t.message}"
+                            else -> t?.message ?: "Stream failed"
+                        }
+
+                        trySend(ChatStreamEvent.Error(code, errorMessage, retryable))
                         close()
                     }
                 }

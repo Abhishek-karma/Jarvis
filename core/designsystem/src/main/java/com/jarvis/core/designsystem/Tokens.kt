@@ -2,11 +2,10 @@ package com.jarvis.core.designsystem
 
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
 /**
- * Spacing on the 8dp grid with the extended thread/list/editor margins: 12dp thread
- * insets, 16dp list insets, 20dp editor margins.
+ * Spacing on the 8dp grid — mobile-optimized from the web design's 96px section rhythm
+ * (scaled to 56dp on mobile) and generous internal card padding (24dp mobile).
  */
 object Spacing {
     val xs = 4.dp
@@ -19,63 +18,44 @@ object Spacing {
     val massive = 48.dp
 }
 
-/** Corner radii from the source specs: 4 inline-code, 12 code block, 18 bubble, 24 composer/sheet. */
+/**
+ * Corner radii — hierarchical, one corner language app-wide:
+ *  4dp inline code · 8dp buttons/inputs · 12dp cards & code blocks · 16dp chips ·
+ *  18dp message bubbles · 24dp composer/sheets · pill badges.
+ */
 object Radius {
     val codeInline = 4.dp
-    val small = 10.dp
+    val small = 8.dp // buttons, inputs
     val codeBlock = 12.dp
+    val card = 12.dp // content cards
     val chip = 16.dp
     val bubble = 18.dp
-    val input = 20.dp
     val composer = 24.dp
     val sheet = 24.dp
     val pill = 100.dp
 }
 
-/** Minimum tap target floor, independent of visual size. */
+/** Minimum tap target floor — 44dp iOS HIG / 48dp Android. */
 object TapTargets {
     val min = 48.dp
 }
 
 /**
- * Motion spec: send press 200ms scale, message slide-up 300ms ease-out, voice sphere
- * pulse 2s ease-in-out, cursor blink 300ms half-cycle, sheet rise 300ms spring.
+ * Motion spec: cursor blink 300ms half-cycle, voice sphere pulse 2s ease-in-out,
+ * send press scale 0.94.
  */
 object Motion {
-    const val SEND_PRESS_MS = 200
-    const val MESSAGE_ENTER_MS = 300
-    const val SHEET_RISE_MS = 300
-    const val FADE_IN_MS = 250
     const val SPHERE_PULSE_MS = 2000
     const val CURSOR_BLINK_HALF_MS = 300
     const val PRESS_SCALE = 0.94f
 }
 
-/** Inter-based type scale; JetBrains Mono for code is handled by [JarvisText.Code]. */
-@Deprecated("Use [JarvisText] — the named type ramp.")
-object JarvisTypography {
-    val display =
-        androidx.compose.ui.text
-            .TextStyle(fontSize = 28.sp, lineHeight = 36.sp)
-    val title =
-        androidx.compose.ui.text
-            .TextStyle(fontSize = 20.sp, lineHeight = 28.sp)
-    val body =
-        androidx.compose.ui.text
-            .TextStyle(fontSize = 16.sp, lineHeight = 24.sp)
-    val caption =
-        androidx.compose.ui.text
-            .TextStyle(fontSize = 13.sp, lineHeight = 18.sp)
-    val mono =
-        androidx.compose.ui.text
-            .TextStyle(fontSize = 14.sp, lineHeight = 22.sp)
-}
-
-/** Shape shortcuts used by bubbles, chips and code blocks. */
+/** Shape shortcuts used by bubbles, chips, cards and code blocks. */
 object JarvisShapes {
     val chip = RoundedCornerShape(Radius.chip)
     val codeBlock = RoundedCornerShape(Radius.codeBlock)
     val composer = RoundedCornerShape(Radius.composer)
     val pill = RoundedCornerShape(Radius.pill)
-    val medium = RoundedCornerShape(Radius.codeBlock)
+    val card = RoundedCornerShape(Radius.card)
+    val input = RoundedCornerShape(Radius.small) // text fields, inputs
 }

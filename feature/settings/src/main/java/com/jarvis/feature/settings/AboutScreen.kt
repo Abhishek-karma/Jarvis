@@ -4,12 +4,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -18,21 +16,20 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.jarvis.core.designsystem.JarvisHeader
+import com.jarvis.core.designsystem.JarvisListSection
 import com.jarvis.core.designsystem.JarvisMark
 import com.jarvis.core.designsystem.JarvisText
-import com.jarvis.core.designsystem.Radius
 import com.jarvis.core.designsystem.Spacing
 
 /**
  * About page — the calm, typographic credits/privacy screen. Serif display per the
- * Claude identity layer; grouped cards per the ChatGPT settings treatment.
+ * Claude identity layer; grouped cards shared with Settings via [JarvisListSection].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,32 +73,31 @@ fun AboutScreen(onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(Spacing.huge))
 
-            AboutSection(title = "What this is") {
-                Text(
+            JarvisListSection(title = "What this is") {
+                AboutBody(
+                    modifier = Modifier.padding(Spacing.lg),
                     text =
                         "A local-first personal AI assistant for Android. Multi-provider " +
                             "LLM chat with streaming responses, markdown rendering, conversation " +
                             "history, and push-to-talk voice — all stored on your device.",
-                    style = JarvisText.BodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
-            AboutSection(title = "Privacy") {
-                AboutRow("API keys are stored in EncryptedSharedPreferences (AES-256-GCM, Keystore-backed)")
-                AboutRow("Keys are sent only to their own provider endpoint over TLS")
-                AboutRow("No analytics on message content, ever")
-                AboutRow("No permission is requested before the screen that needs it")
+            JarvisListSection(title = "Privacy") {
+                Column(modifier = Modifier.padding(Spacing.lg)) {
+                    AboutRow("API keys are stored in EncryptedSharedPreferences (AES-256-GCM, Keystore-backed)")
+                    AboutRow("Keys are sent only to their own provider endpoint over TLS")
+                    AboutRow("No analytics on message content, ever")
+                    AboutRow("No permission is requested before the screen that needs it")
+                }
             }
-
-            AboutSection(title = "Design") {
-                Text(
+            JarvisListSection(title = "Design") {
+                AboutBody(
+                    modifier = Modifier.padding(Spacing.lg),
                     text =
                         "The interface follows the ChatGPT and Claude design systems from " +
                             "awesome-ios-design-md (Meliwat), ported to Jetpack Compose: a " +
                             "monochrome canvas, a single terracotta accent, and serif assistant " +
                             "prose.",
-                    style = JarvisText.BodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
             Spacer(modifier = Modifier.height(Spacing.huge))
@@ -110,44 +106,26 @@ fun AboutScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun AboutSection(
-    title: String,
-    content: @Composable () -> Unit,
+private fun AboutBody(
+    text: String,
+    modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(top = Spacing.lg),
-    ) {
-        Text(
-            text = title,
-            style = JarvisText.SectionHeader,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = Spacing.huge),
-        )
-        Spacer(modifier = Modifier.height(Spacing.sm))
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-            shape = RoundedCornerShape(Radius.chip),
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = Spacing.lg),
-        ) {
-            Column(modifier = Modifier.padding(Spacing.lg)) { content() }
-        }
-    }
+    Text(
+        text = text,
+        style = JarvisText.BodyMedium,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = modifier,
+    )
 }
 
 @Composable
 private fun AboutRow(text: String) {
     Row(
-        modifier = Modifier.padding(vertical = 6.dp),
+        modifier = Modifier.padding(vertical = Spacing.xs),
         verticalAlignment = Alignment.Top,
     ) {
         JarvisMark(size = 14.dp, modifier = Modifier.padding(top = 2.dp))
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(Spacing.sm))
         Text(
             text = text,
             style = JarvisText.BodyMedium,

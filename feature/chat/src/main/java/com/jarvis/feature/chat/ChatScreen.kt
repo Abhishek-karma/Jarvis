@@ -25,8 +25,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -40,20 +42,22 @@ import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.PriorityHigh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -66,6 +70,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -76,8 +81,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -91,13 +95,16 @@ import com.jarvis.core.common.RoutingOverride
 import com.jarvis.core.designsystem.JarvisBubbleShapes
 import com.jarvis.core.designsystem.JarvisColors
 import com.jarvis.core.designsystem.JarvisHeader
+import com.jarvis.core.designsystem.JarvisLoader
 import com.jarvis.core.designsystem.JarvisMark
 import com.jarvis.core.designsystem.JarvisScreenLoader
 import com.jarvis.core.designsystem.JarvisSendButton
 import com.jarvis.core.designsystem.JarvisShapes
 import com.jarvis.core.designsystem.JarvisSnackbarHost
 import com.jarvis.core.designsystem.JarvisText
+import com.jarvis.core.designsystem.Radius
 import com.jarvis.core.designsystem.Spacing
+import com.jarvis.core.designsystem.TapTargets
 import com.jarvis.core.designsystem.StreamingCursor
 import kotlinx.coroutines.launch
 
@@ -237,23 +244,55 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val lastMessageCount = uiState.messages.size
 
-    // Auto-scroll to the newest message as it arrives. Also follows the last message while
-    // it grows (streaming tokens don't change the count), so long replies stay on screen.
-    LaunchedEffect(lastMessageCount, uiState.isStreaming) {
-        if (lastMessageCount > 0) {
-            listState.animateScrollToItem(lastMessageCount - 1)
+    // Follow-the-latest scroll. One mechanic for all cases:
+    //  - New message arrives (count changes) → jump to it.
+    //  - Last message grows while streaming (content length changes) → keep it in view.
+    //  - A different conversation was opened → land at its latest message, unanimated.
+    //
+    // The follow only runs while the user is at (or near) the bottom. Once they scroll up
+    // to read history, nothing yanks them back down for the rest of the turn — the exact
+    // behavior that made streaming unreadable before.
+    val isAtBottom by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf true
+            // Following counts when one of the last two items is resting at the viewport
+            // bottom (within a small tolerance), so ripples/padding don't flip it.
+            lastVisible.index >= info.totalItemsCount - 2 &&
+                lastVisible.offset + lastVisible.size >= info.viewportEndOffset - BEHAVIOR_BOTTOM_TOLERANCE
         }
     }
+
+    // Conversation switch: an instant reposition, not an animation across recycled rows.
+    LaunchedEffect(uiState.conversationId) {
+        if (lastMessageCount > 0) {
+            // Scroll past the last real item so the list rests fully at the bottom; the
+            // LazyColumn clamps to its true max.
+            listState.scrollToItem(lastMessageCount)
+        }
+    }
+
+    // New messages: animated follow. The user's own message always scrolls into view (they
+    // just sent it — even if they were scrolled up reading history); anything else only
+    // follows while pinned to the bottom.
+    LaunchedEffect(lastMessageCount) {
+        val last = uiState.messages.lastOrNull() ?: return@LaunchedEffect
+        if (last.role == MessageRole.USER || isAtBottom) {
+            // Index + 1 clamps to the end of the list, so the newest bubble's bottom rests
+            // near the viewport bottom and streaming growth stays visible.
+            listState.animateScrollToItem(lastMessageCount)
+        }
+    }
+
+    // Streaming growth: the bubble's height increases as tokens arrive. animateScrollToItem
+    // re-anchors every frame the content changes, which is what keeps long replies on screen.
     LaunchedEffect(
-        uiState.messages
-            .lastOrNull()
-            ?.content
-            ?.length,
+        uiState.messages.lastOrNull()?.content?.length,
         uiState.isStreaming,
     ) {
         val last = uiState.messages.lastOrNull() ?: return@LaunchedEffect
-        if (uiState.isStreaming && last.content.isNotEmpty()) {
-            listState.animateScrollToItem(lastMessageCount - 1)
+        if (uiState.isStreaming && last.content.isNotEmpty() && isAtBottom) {
+            listState.animateScrollToItem(lastMessageCount)
         }
     }
 
@@ -275,7 +314,7 @@ fun ChatScreen(
         contentWindowInsets = WindowInsets(0.dp),
         topBar = {
             JarvisHeader(
-                title = uiState.conversationTitle,
+                title = if (uiState.conversationTitle == "New chat") "" else uiState.conversationTitle,
                 navigationIcon = {
                     IconButton(onClick = onOpenDrawer) {
                         Icon(Icons.Default.Menu, contentDescription = "History")
@@ -379,11 +418,12 @@ fun ChatScreen(
         ModalBottomSheet(
             onDismissRequest = { agentSheetOpen = false },
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            shape = RoundedCornerShape(topStart = Radius.sheet, topEnd = Radius.sheet),
         ) {
             AgentCanvasContent(
                 steps = uiState.agentSteps,
                 pending = pending,
+                planName = uiState.agentPlanName,
                 onAllow = { onRespondToConfirmation(true) },
                 onDeny = { onRespondToConfirmation(false) },
                 onHide = { agentSheetOpen = false },
@@ -392,6 +432,13 @@ fun ChatScreen(
         }
     }
 }
+
+/**
+ * How far above the true bottom (px) the list may rest while still counting as "the user
+ * is following the latest". Small enough that a one-finger misdrag doesn't disable
+ * following; large enough that content padding and ripple margins don't flip it randomly.
+ */
+private const val BEHAVIOR_BOTTOM_TOLERANCE = 128
 
 /**
  * Collapsed agent pill shown while the canvas is hidden but the run continues. Placed by
@@ -406,17 +453,15 @@ private fun AgentProgressPill(onClick: () -> Unit) {
         modifier =
             Modifier
                 .clip(JarvisShapes.chip)
-                .clickable(onClick = onClick),
+                .sizeIn(minHeight = TapTargets.min)
+                .clickable(role = Role.Button, onClick = onClick),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
             modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
         ) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(14.dp),
-                strokeWidth = 2.dp,
-            )
+            JarvisLoader()
             Text(
                 text = "Agent working",
                 style = MaterialTheme.typography.labelLarge,
@@ -427,19 +472,21 @@ private fun AgentProgressPill(onClick: () -> Unit) {
 }
 
 /**
- * Agent Canvas bottom sheet: step list with checkmarks, the running row highlighted inline,
- * and a non-blocking progress feel. When a Sensitive-tier tool parks the run, the sheet
- * becomes the confirmation sheet and shows the pending action's full parameters with Allow/Deny.
+ * Agent Canvas bottom sheet: run header (task count, plan chip, progress summary), step
+ * rows with status icons and pills, and — when a Sensitive-tier tool parks the run — an
+ * inline approval row with Reject/Approve. Hide collapses to the pill; Stop ends the run.
  */
 @Composable
 private fun AgentCanvasContent(
     steps: List<AgentStep>,
     pending: AgentConfirmation?,
+    planName: String?,
     onAllow: () -> Unit,
     onDeny: () -> Unit,
     onHide: () -> Unit,
     onStop: () -> Unit,
 ) {
+    val doneCount = steps.count { it.state == AgentStepState.DONE }
     Column(
         modifier =
             Modifier
@@ -447,41 +494,76 @@ private fun AgentCanvasContent(
                 .padding(horizontal = Spacing.lg)
                 .padding(bottom = Spacing.lg),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            JarvisMark(size = 18.dp)
-            Spacer(modifier = Modifier.width(Spacing.sm))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            AgentCountBadge(count = steps.size)
             Text(
                 text = if (pending != null) "Agent needs your input" else "Agent working",
                 style = JarvisText.ConvTitle,
                 color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
+            if (planName != null) {
+                PlanNameChip(planName = planName)
+            }
+            IconButton(onClick = onHide) {
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowUp,
+                    contentDescription = "Collapse agent panel",
+                )
+            }
         }
+
+        Spacer(modifier = Modifier.height(Spacing.xs))
+        Text(
+            text =
+                if (steps.isEmpty()) {
+                    "Starting run…"
+                } else {
+                    buildString {
+                        append("$doneCount of ${steps.size} tasks finished")
+                        if (pending != null) append(" • 1 action requires approval")
+                    }
+                },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
         if (pending != null) {
             Spacer(modifier = Modifier.height(Spacing.md))
             ConfirmationCard(confirmation = pending)
         }
 
-        Spacer(modifier = Modifier.height(Spacing.md))
-        HorizontalDivider()
-
         if (steps.isEmpty()) {
             Spacer(modifier = Modifier.height(Spacing.md))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                Spacer(modifier = Modifier.width(Spacing.sm))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            ) {
+                JarvisLoader()
                 Text("Starting…", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
             Column(
                 modifier =
                     Modifier
-                        .padding(top = Spacing.sm)
+                        .padding(top = Spacing.md)
                         .heightIn(max = 320.dp)
                         .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
                 steps.forEach { step -> AgentStepRow(step = step) }
+                if (pending != null) {
+                    AgentApprovalRow(
+                        pending = pending,
+                        onAllow = onAllow,
+                        onDeny = onDeny,
+                    )
+                }
             }
         }
 
@@ -492,24 +574,58 @@ private fun AgentCanvasContent(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TextButton(onClick = onHide) { Text("Hide") }
-            if (pending != null) {
-                Spacer(modifier = Modifier.width(Spacing.sm))
-                OutlinedButton(onClick = onDeny) { Text("Deny") }
-                Spacer(modifier = Modifier.width(Spacing.sm))
-                Button(onClick = onAllow) { Text("Allow") }
-            } else {
-                Spacer(modifier = Modifier.width(Spacing.sm))
-                OutlinedButton(onClick = onStop) {
-                    Icon(
-                        imageVector = Icons.Default.Stop,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(modifier = Modifier.width(Spacing.xs))
-                    Text("Stop")
-                }
+            Spacer(modifier = Modifier.width(Spacing.sm))
+            OutlinedButton(onClick = onStop) {
+                Icon(
+                    imageVector = Icons.Default.Stop,
+                    contentDescription = null,
+                    modifier = Modifier.size(Spacing.lg),
+                )
+                Spacer(modifier = Modifier.width(Spacing.xs))
+                Text("Stop")
             }
         }
+    }
+}
+
+/** Accent circle with the tracked task count, anchoring the canvas header. */
+@Composable
+private fun AgentCountBadge(count: Int) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier =
+            Modifier
+                .size(Spacing.xxl)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary),
+    ) {
+        Text(
+            text = count.toString(),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onPrimary,
+        )
+    }
+}
+
+/** Mono plan label (e.g. "Iterative_Optimizer"); only rendered when the run names a plan. */
+@Composable
+private fun PlanNameChip(planName: String) {
+    Surface(
+        shape = RoundedCornerShape(Radius.small),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+    ) {
+        Text(
+            text = planName,
+            style = JarvisText.CodeLabel,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier =
+                Modifier.padding(
+                    horizontal = Spacing.sm,
+                    vertical = Spacing.xs,
+                ),
+        )
     }
 }
 
@@ -517,7 +633,7 @@ private fun AgentCanvasContent(
 @Composable
 private fun ConfirmationCard(confirmation: AgentConfirmation) {
     Surface(
-        shape = JarvisShapes.medium,
+        shape = JarvisShapes.codeBlock,
         color = MaterialTheme.colorScheme.surfaceVariant,
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -539,13 +655,12 @@ private fun ConfirmationCard(confirmation: AgentConfirmation) {
             // truncated — scroll instead of ellipsizing what the user is approving.
             Text(
                 text = confirmation.argsJson,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
+                style = JarvisText.Code,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .clip(JarvisShapes.medium)
+                        .clip(JarvisShapes.codeBlock)
                         .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f))
                         .heightIn(max = 200.dp)
                         .verticalScroll(rememberScrollState())
@@ -555,57 +670,203 @@ private fun ConfirmationCard(confirmation: AgentConfirmation) {
     }
 }
 
-/** One row in the canvas step list: ✓ done, inline spinner on the current row, ✗ failed. */
+/**
+ * One canvas row: status icon, bold title, optional observation detail, progress bar on
+ * the running row, and a state pill (duration once a step finishes, e.g. "1.4s").
+ */
 @Composable
 private fun AgentStepRow(step: AgentStep) {
-    val running = step.state == AgentStepState.RUNNING
-    val failed = step.state == AgentStepState.FAILED
-    // Quiet warm pill per milestone so the sheet reads like the app, not a stock dialog.
-    Surface(
-        shape = JarvisShapes.chip,
-        color =
-            when {
-                running -> MaterialTheme.colorScheme.primaryContainer
-                failed -> MaterialTheme.colorScheme.errorContainer
-                else -> MaterialTheme.colorScheme.surfaceContainerHighest
-            },
+    Row(
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.sm),
+        AgentStatusIcon(state = step.state)
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
-            when {
-                running -> CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                failed ->
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Failed",
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(16.dp),
-                    )
-                else ->
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = "Done",
-                        tint = JarvisColors.Accent.orange,
-                        modifier = Modifier.size(16.dp),
-                    )
-            }
-            Spacer(modifier = Modifier.width(Spacing.sm))
             Text(
                 text = step.text,
-                style = MaterialTheme.typography.bodyMedium,
-                color =
-                    when {
-                        running -> JarvisColors.Accent.orange
-                        failed -> MaterialTheme.colorScheme.error
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                fontWeight = if (running) FontWeight.Medium else FontWeight.Normal,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
             )
+            if (step.detail != null) {
+                Text(
+                    text = step.detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (step.state == AgentStepState.RUNNING) {
+                // Determinate when the step reports progress, indeterminate otherwise —
+                // same pill track either way.
+                val progress = step.progress
+                if (progress != null) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .height(Spacing.xs)
+                                .clip(JarvisShapes.pill),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .height(Spacing.xs)
+                                .clip(JarvisShapes.pill),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    )
+                }
+            }
+        }
+        AgentStatusPill(step = step)
+    }
+}
+
+/** Status icon: accent check when done, brand spinner while running, error mark on failure. */
+@Composable
+private fun AgentStatusIcon(state: AgentStepState) {
+    when (state) {
+        AgentStepState.DONE ->
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier =
+                    Modifier
+                        .size(Spacing.xxl)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(Spacing.lg),
+                )
+            }
+        AgentStepState.RUNNING -> JarvisLoader(size = Spacing.xxl)
+        AgentStepState.FAILED ->
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier =
+                    Modifier
+                        .size(Spacing.xxl)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.errorContainer),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Failed",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(Spacing.lg),
+                )
+            }
+    }
+}
+
+/** Right-hand pill: "Running" / "Failed" / duration ("1.4s") once finished / "Done". */
+@Composable
+private fun AgentStatusPill(step: AgentStep) {
+    val running = step.state == AgentStepState.RUNNING
+    val failed = step.state == AgentStepState.FAILED
+    val containerColor =
+        when {
+            running -> MaterialTheme.colorScheme.primaryContainer
+            failed -> MaterialTheme.colorScheme.errorContainer
+            else -> MaterialTheme.colorScheme.surfaceContainerHighest
+        }
+    val contentColor =
+        when {
+            running -> MaterialTheme.colorScheme.onPrimaryContainer
+            failed -> MaterialTheme.colorScheme.onErrorContainer
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        }
+    val label =
+        when {
+            running -> "Running"
+            failed -> "Failed"
+            step.durationLabel != null -> step.durationLabel
+            else -> "Done"
+        }
+    Surface(
+        shape = JarvisShapes.pill,
+        color = containerColor,
+    ) {
+        Text(
+            text = label,
+            style =
+                if (!running && !failed && step.durationLabel != null) {
+                    JarvisText.CodeLabel
+                } else {
+                    JarvisText.Caption
+                },
+            color = contentColor,
+            maxLines = 1,
+            modifier =
+                Modifier.padding(
+                    horizontal = Spacing.sm,
+                    vertical = Spacing.xs,
+                ),
+        )
+    }
+}
+
+/**
+ * The parked Sensitive-tier call as the last canvas row: warning mark, what is waiting,
+ * and the decision inline (Reject/Approve) so the action never scrolls out of reach.
+ */
+@Composable
+private fun AgentApprovalRow(
+    pending: AgentConfirmation,
+    onAllow: () -> Unit,
+    onDeny: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier =
+                Modifier
+                    .size(Spacing.xxl)
+                    .clip(CircleShape)
+                    .background(JarvisColors.Semantic.warning),
+        ) {
+            Icon(
+                imageVector = Icons.Default.PriorityHigh,
+                contentDescription = null,
+                tint = JarvisColors.Dark.canvas,
+                modifier = Modifier.size(Spacing.lg),
+            )
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            Text(
+                text = "Approval required: ${pending.toolName}",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "Sensitive-tier action. Review the parameters above — the call is recorded in the audit log.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                FilledTonalButton(onClick = onDeny) { Text("Reject") }
+                Button(onClick = onAllow) { Text("Approve") }
+            }
         }
     }
 }
@@ -740,7 +1001,7 @@ private fun MessageBubble(
                             .widthIn(max = maxWidth * 0.8f)
                             .clip(JarvisBubbleShapes.user)
                             .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .padding(horizontal = Spacing.lg, vertical = 10.dp),
+                            .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
                 )
             }
         }
@@ -750,13 +1011,13 @@ private fun MessageBubble(
     // Assistant: no bubble — flowing prose on the canvas.
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
-            JarvisMark(size = 16.dp)
+            JarvisMark(size = Spacing.lg)
             Text(
                 text = "Jarvis",
                 style = JarvisText.SenderLabel,
@@ -783,14 +1044,26 @@ private fun MessageBubble(
                     StreamingCursor()
                 } else {
                     // Cursor sits inline with the streaming prose (Claude spec).
-                    StreamingCursor(Modifier.padding(top = 2.dp))
+                    StreamingCursor(Modifier.padding(top = Spacing.xs))
                 }
-            MessageStatus.ERROR ->
-                Text(
-                    text = message.errorHint ?: "Failed",
-                    style = JarvisText.SenderLabel,
-                    color = MaterialTheme.colorScheme.error,
-                )
+            MessageStatus.ERROR -> {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PriorityHigh,
+                        contentDescription = "Error",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(Spacing.lg),
+                    )
+                    Text(
+                        text = message.errorHint ?: "Stream failed",
+                        style = JarvisText.SenderLabel,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
             // Stopped: partial prose already rendered above, nothing extra to add.
             MessageStatus.STOPPED -> Unit
             MessageStatus.COMPLETE -> {
@@ -807,7 +1080,7 @@ private fun MessageBubble(
                                     },
                                 contentDescription = if (isPlayingAudio) "Stop speaking" else "Read aloud",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(Spacing.xl),
                             )
                         }
                     }
@@ -839,8 +1112,8 @@ private fun RouteSelector(
                 Modifier
                     .clip(JarvisShapes.chip)
                     .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable { expanded = true }
-                    .padding(horizontal = Spacing.lg, vertical = 6.dp),
+                    .clickable(role = Role.Button) { expanded = true }
+                    .padding(horizontal = Spacing.lg, vertical = Spacing.xs),
         )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             RoutingOverride.entries.forEach { option ->
@@ -893,7 +1166,7 @@ private fun Composer(
                         .fillMaxWidth()
                         .clip(JarvisShapes.composer)
                         .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                        .padding(start = Spacing.lg, top = 4.dp, end = 6.dp, bottom = 4.dp),
+                        .padding(start = Spacing.lg, top = Spacing.xs, end = Spacing.xs, bottom = Spacing.xs),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 BasicTextField(
@@ -954,19 +1227,16 @@ private fun Composer(
                                     imageVector = Icons.Default.MicOff,
                                     contentDescription = "Stop recording",
                                     tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(20.dp),
+                                    modifier = Modifier.size(Spacing.xl),
                                 )
                             isTranscribing ->
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                )
+                                JarvisLoader(size = Spacing.lg, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             else ->
                                 Icon(
                                     imageVector = Icons.Default.Mic,
                                     contentDescription = "Start recording",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(20.dp),
+                                    modifier = Modifier.size(Spacing.xl),
                                 )
                         }
                     }

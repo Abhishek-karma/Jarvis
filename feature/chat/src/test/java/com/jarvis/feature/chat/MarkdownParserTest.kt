@@ -50,6 +50,29 @@ class MarkdownParserTest {
     }
 
     @Test
+    fun `all bullet marker shapes parse without crashing`() {
+        // Regression: `*` / `+` markers with wide spacing previously hit a `!!` NPE when
+        // the line-start regex and the item-extraction regex disagreed on the match.
+        val blocks = parseMarkdown("*   star wide\n+ plus tight\n-  dash")
+        assertEquals(1, blocks.size)
+        val list = blocks[0] as MdBlock.BulletList
+        assertEquals(3, list.items.size)
+        assertEquals(listOf(MdSpan("star wide")), list.items[0])
+        assertEquals(listOf(MdSpan("plus tight")), list.items[1])
+        assertEquals(listOf(MdSpan("dash")), list.items[2])
+    }
+
+    @Test
+    fun `indented numbered list items keep their text`() {
+        val blocks = parseMarkdown("1.   first\n2. second")
+        assertEquals(1, blocks.size)
+        val list = blocks[0] as MdBlock.NumberedList
+        assertEquals(2, list.items.size)
+        assertEquals(listOf(MdSpan("first")), list.items[0])
+        assertEquals(listOf(MdSpan("second")), list.items[1])
+    }
+
+    @Test
     fun `numbered list parses items`() {
         val blocks = parseMarkdown("1. first\n2. second")
         assertEquals(1, blocks.size)

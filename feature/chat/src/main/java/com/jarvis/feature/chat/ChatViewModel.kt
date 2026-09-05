@@ -49,6 +49,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import java.util.Locale
 
 data class ChatUiState(
     val conversationId: String? = null,
@@ -77,6 +78,8 @@ data class ChatUiState(
     val pendingConfirmation: AgentConfirmation? = null,
     /** Live step log rendered by the Agent Canvas. */
     val agentSteps: List<AgentStep> = emptyList(),
+    /** Plan label shown as the canvas header chip (e.g. "Iterative_Optimizer"); null hides it. */
+    val agentPlanName: String? = null,
 )
 
 sealed interface ChatUiEvent {
@@ -97,10 +100,16 @@ data class AgentConfirmation(
 
 enum class AgentStepState { RUNNING, DONE, FAILED }
 
-/** One line in the Agent Canvas step list. */
+/** One row in the Agent Canvas step list: bold title, optional observation detail. */
 data class AgentStep(
     val text: String,
     val state: AgentStepState = AgentStepState.RUNNING,
+    /** Secondary observation line under the title (e.g. a tool's result summary). Null hides the line. */
+    val detail: String? = null,
+    /** Measured wall-clock for a finished step ("1.4s"). Null falls back to the state label. */
+    val durationLabel: String? = null,
+    /** 0..1 fraction for the running row's progress bar. Null renders indeterminate. */
+    val progress: Float? = null,
 )
 
 /**
@@ -185,9 +194,10 @@ class ChatViewModel
             }
         }
 
-        private suspend fun openConversation(conversationId: String?) {
+        private suspend fun openConversation(conversationId: String?, preserveRouting: RoutingOverride? = null) {
             val conversation =
-                conversationId?.let { conversationRepository.getConversation(it) } ?: createConversation()
+                conversationId?.let { conversationRepository.getConversation(it) }
+                    ?: createConversation(preserveRouting ?: RoutingOverride.AUTO)
 
             _uiState.update {
                 it.copy(
@@ -261,12 +271,13 @@ class ChatViewModel
             if (_uiState.value.isStreaming) return
             viewModelScope.launch(dispatchers.main) {
                 _uiState.update { it.copy(isLoadingConversation = true, messages = emptyList()) }
-                openConversation(null)
+                val currentOverride = _uiState.value.routingOverride
+                openConversation(null, preserveRouting = currentOverride)
             }
         }
 
-        private suspend fun createConversation(): Conversation {
-            val conversation = Conversation(title = "New chat")
+        private suspend fun createConversation(routingOverride: RoutingOverride = RoutingOverride.AUTO): Conversation {
+            val conversation = Conversation(title = "New chat", routingOverride = routingOverride)
             conversationRepository.upsertConversation(conversation)
             return conversation
         }
@@ -401,6 +412,7 @@ class ChatViewModel
                         isAgentRunning = false,
                         pendingConfirmation = null,
                         agentSteps = emptyList(),
+                        agentPlanName = null,
                     )
                 }
             }
@@ -410,8 +422,7 @@ class ChatViewModel
          * Resolve a parked Sensitive-tier tool call from the UI (Allow/Deny). Denying halts the
          * run and audits the call as cancelled; allowing resumes the ReAct loop.
          */
-        fun respondToConfirmation(allow: Boolean) {
-            _uiState.update { it.copy(pendingConfirmation = null) }
+        fun respondToConfirmation(allow: Boolean) {            _uiState.update { it.copy(pendingConfirmation = null) }
             pendingGate?.complete(allow)
             pendingGate = null
         }
@@ -421,7 +432,7 @@ class ChatViewModel
             provider: com.jarvis.core.network.LlmProvider,
             model: String,
         ) {
-            _uiState.update { it.copy(isAgentRunning = true, agentSteps = emptyList()) }
+            _uiState.update { it.copy(isAgentRunning = true, agentSteps = emptyList(), agentPlanName = null) }
             val history = conversationRepository.getMessages(conversationId)
             val engine =
                 AgentEngine(
@@ -440,6 +451,7 @@ class ChatViewModel
             // one row is RUNNING at a time: milestones finish as DONE (✓) and the next one becomes
             // the highlighted row.
             val steps = mutableListOf<AgentStep>()
+            var runningSinceMs = 0L
 
             fun publish() = _uiState.update { it.copy(agentSteps = steps.toList()) }
 
@@ -452,10 +464,11 @@ class ChatViewModel
                 }
             }
 
-            /** Finish the running row: optional new text, then DONE (✓) or FAILED (✗). */
+            /** Finish the running row: optional new text/detail, then DONE (✓) or FAILED (✗). */
             fun completeRunning(
                 state: AgentStepState,
                 text: String? = null,
+                detail: String? = null,
             ) {
                 val index = steps.indexOfLast { it.state == AgentStepState.RUNNING }
                 if (index >= 0) {
@@ -463,6 +476,8 @@ class ChatViewModel
                         steps[index].copy(
                             text = text ?: steps[index].text,
                             state = state,
+                            detail = detail ?: steps[index].detail,
+                            durationLabel = formatAgentDuration(System.currentTimeMillis() - runningSinceMs),
                         )
                     publish()
                 }
@@ -470,6 +485,7 @@ class ChatViewModel
 
             /** Open a new milestone row (the previous one is already DONE). */
             fun push(text: String) {
+                runningSinceMs = System.currentTimeMillis()
                 steps += AgentStep(text = text)
                 publish()
             }
@@ -490,8 +506,14 @@ class ChatViewModel
                             completeRunning(
                                 if (event.success) AgentStepState.DONE else AgentStepState.FAILED,
                                 if (event.success) "${event.name} done" else "${event.name} failed",
+                                event.observationText.take(OBSERVATION_PREVIEW_CHARS).ifBlank { null },
                             )
-                        is AgentEvent.ToolRejected -> completeRunning(AgentStepState.FAILED, "Rejected ${event.name}")
+                        is AgentEvent.ToolRejected ->
+                            completeRunning(
+                                AgentStepState.FAILED,
+                                "Rejected ${event.name}",
+                                event.reason.take(OBSERVATION_PREVIEW_CHARS).ifBlank { null },
+                            )
                         // A user denial is a completed outcome, not a system failure.
                         is AgentEvent.ToolCancelled -> completeRunning(AgentStepState.DONE, "Denied ${event.name}")
                         is AgentEvent.FinalAnswer -> {
@@ -504,7 +526,11 @@ class ChatViewModel
                         }
                         is AgentEvent.Failed -> {
                             if (steps.isEmpty()) push("Failed")
-                            completeRunning(AgentStepState.FAILED, "Failed: ${event.code}")
+                            completeRunning(
+                                AgentStepState.FAILED,
+                                "Failed: ${event.code}",
+                                event.message.take(OBSERVATION_PREVIEW_CHARS).ifBlank { null },
+                            )
                             _uiEvents.tryEmit(ChatUiEvent.ShowError("${event.message} (${event.code})"))
                         }
                         is AgentEvent.StepCapReached -> {
@@ -542,6 +568,10 @@ class ChatViewModel
             _uiState.update { it.copy(pendingConfirmation = AgentConfirmation(toolName, argsJson)) }
             return gate.await()
         }
+
+        /** Wall-clock for a finished canvas row, rendered as the duration pill ("1.4s"). */
+        private fun formatAgentDuration(elapsedMs: Long): String =
+            String.format(Locale.US, "%.1fs", elapsedMs.coerceAtLeast(0) / 1000.0)
 
         private suspend fun streamAssistantReply(
             conversationId: String,
@@ -823,5 +853,8 @@ class ChatViewModel
             const val LOCAL_UNAVAILABLE_NOTICE =
                 "The local model is not downloaded yet, so cloud was used instead. " +
                     "Install it in Settings → Providers."
+
+            /** Canvas detail lines carry an observation preview, never the full raw output. */
+            const val OBSERVATION_PREVIEW_CHARS = 140
         }
     }

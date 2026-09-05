@@ -107,7 +107,7 @@ fun VoiceModeRoute(
             modifier =
                 Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 120.dp),
+                    .padding(bottom = VOICE_SNACKBAR_CLEARANCE),
         )
     }
 }
@@ -286,6 +286,9 @@ fun VoiceModeScreen(
         }
     }
 }
+
+/** How far the overlay snackbar floats above the bottom control row (padding + 56dp buttons). */
+private val VOICE_SNACKBAR_CLEARANCE = 120.dp
 
 /** 56dp circular control — white glyph on semi-transparent black. */
 @Composable

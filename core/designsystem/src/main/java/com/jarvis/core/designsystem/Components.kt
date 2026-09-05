@@ -12,7 +12,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,6 +32,8 @@ import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -49,6 +56,8 @@ import kotlin.math.sin
 
 /**
  * Shared header composable for screen titles, consistent across features.
+ * [containerColor] defaults to the canvas; surfaces with their own background
+ * (e.g. the history sidebar) pass their color through.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,17 +65,18 @@ fun JarvisHeader(
     title: String,
     modifier: Modifier = Modifier,
     navigationIcon: @Composable (() -> Unit)? = null,
-    actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
+    actions: @Composable RowScope.() -> Unit = {},
+    containerColor: Color = MaterialTheme.colorScheme.background,
 ) {
-    androidx.compose.material3.TopAppBar(
+    TopAppBar(
         title = {
             Text(text = title, style = JarvisText.ConvTitle)
         },
         navigationIcon = { navigationIcon?.invoke() },
         actions = actions,
         colors =
-            androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
-                containerColor = androidx.compose.material3.MaterialTheme.colorScheme.background,
+            TopAppBarDefaults.topAppBarColors(
+                containerColor = containerColor,
             ),
         modifier = modifier,
     )
@@ -82,7 +92,7 @@ fun JarvisMark(
     color: Color = JarvisColors.Accent.orange,
     modifier: Modifier = Modifier,
 ) {
-    Canvas(modifier.size(size).semantics { contentDescription = "Jarvis" }) {
+    Canvas(modifier = modifier.size(size).semantics { contentDescription = "Jarvis" }) {
         val cx = this.size.width / 2f
         val cy = this.size.height / 2f
         val r = minOf(cx, cy)
@@ -143,12 +153,8 @@ fun JarvisSendButton(
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
-    val interaction =
-        androidx.compose.runtime.remember {
-            androidx.compose.foundation.interaction
-                .MutableInteractionSource()
-        }
+    val haptics = LocalHapticFeedback.current
+    val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (pressed) Motion.PRESS_SCALE else 1f,
@@ -160,11 +166,11 @@ fun JarvisSendButton(
         modifier
             .size(40.dp)
             .scale(scale)
-            .clip(androidx.compose.foundation.shape.CircleShape)
+            .clip(CircleShape)
             .background(
                 when {
                     isStreaming -> JarvisColors.Accent.orange
-                    !enabled -> androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant
+                    !enabled -> MaterialTheme.colorScheme.surfaceVariant
                     pressed -> JarvisColors.Accent.orangePressed
                     else -> JarvisColors.Accent.orange
                 },
@@ -185,7 +191,7 @@ fun JarvisSendButton(
                 if (enabled || isStreaming) {
                     JarvisColors.Accent.onOrange
                 } else {
-                    androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
+                    MaterialTheme.colorScheme.onSurfaceVariant
                 },
             modifier = Modifier.size(20.dp),
         )
@@ -240,21 +246,37 @@ fun JarvisScreenLoader(
     modifier: Modifier = Modifier,
     label: String? = null,
 ) {
-    androidx.compose.foundation.layout.Column(
+    Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement =
-            androidx.compose.foundation.layout.Arrangement
-                .spacedBy(Spacing.md),
+        verticalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
         JarvisMark(size = 32.dp)
         JarvisLoader(size = 24.dp)
         if (!label.isNullOrBlank()) {
             Text(
                 text = label,
-                style = MaterialTheme.typography.bodyMedium,
+                style = JarvisText.BodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
+}
+
+/**
+ * Feature card — light cream surface for content-driven feature explanations.
+ * Used inside [JarvisListSection]-style cards that need richer content blocks.
+ */
+@Composable
+fun JarvisFeatureCard(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        modifier = modifier
+            .clip(JarvisShapes.card)
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .padding(Spacing.xxl),
+        content = content,
+    )
 }

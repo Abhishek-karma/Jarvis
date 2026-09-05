@@ -55,39 +55,58 @@ class LiteRtLmEngine private constructor(
                     onError(t)
                     return@withLock
                 }
+
+            // Exactly one of {cancelProcess, close} may ever run against this Conversation.
+            // The litertlm Flow's own awaitClose cleanup is a no-op and its native threads
+            // keep emitting after cancellation, so auto-close via `use {}` races
+            // cancelProcess() for the same native handle — that race is a use-after-free
+            // SIGSEGV when the user hits Stop mid-generation. Close is manual, last, and
+            // only ever after the cancel has been issued.
+            var conversationClosed = false
+            fun closeConversationOnce() {
+                if (conversationClosed) return
+                conversationClosed = true
+                runCatching { conversation.close() }
+            }
+
             try {
-                conversation.use { conv ->
-                    var seen = ""
-                    var first = true
-                    conv.sendMessageAsync(prompt).collect { message ->
-                        val text = messageText(message)
-                        if (text.isEmpty() || text == seen) return@collect
-                        when {
-                            first -> {
-                                onPartial(text)
-                                seen = text
-                                first = false
-                            }
-                            // Cumulative streaming: each emission is the full text so far.
-                            text.length > seen.length && text.startsWith(seen) -> {
-                                onPartial(text.substring(seen.length))
-                                seen = text
-                            }
-                            // Delta streaming: each emission is the next chunk.
-                            else -> {
-                                onPartial(text)
-                                seen = ""
-                            }
+                var seen = ""
+                var first = true
+                conversation.sendMessageAsync(prompt).collect { message ->
+                    val text = messageText(message)
+                    if (text.isEmpty() || text == seen) return@collect
+                    when {
+                        first -> {
+                            onPartial(text)
+                            seen = text
+                            first = false
+                        }
+                        // Cumulative streaming: each emission is the full text so far.
+                        text.length > seen.length && text.startsWith(seen) -> {
+                            onPartial(text.substring(seen.length))
+                            seen = text
+                        }
+                        // Delta streaming: each emission is the next chunk.
+                        else -> {
+                            onPartial(text)
+                            seen = ""
                         }
                     }
-                    onDone()
                 }
+                closeConversationOnce()
+                onDone()
             } catch (e: CancellationException) {
-                // Abort the in-flight native generation so the next turn doesn't collide with it.
+                // Stop pressed: abort the in-flight native generation BEFORE releasing the
+                // conversation — cancelProcess on a closed handle is a native crash.
                 runCatching { conversation.cancelProcess() }
+                closeConversationOnce()
                 throw e
             } catch (t: Throwable) {
+                runCatching { conversation.cancelProcess() }
+                closeConversationOnce()
                 onError(t)
+            } finally {
+                closeConversationOnce()
             }
         }
     }

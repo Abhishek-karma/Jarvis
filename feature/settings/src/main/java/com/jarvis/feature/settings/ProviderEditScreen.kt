@@ -14,7 +14,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -25,9 +24,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,9 +36,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jarvis.core.designsystem.JarvisConfirmDialog
+import com.jarvis.core.designsystem.JarvisHeader
+import com.jarvis.core.designsystem.JarvisLoader
+import com.jarvis.core.designsystem.JarvisShapes
+import com.jarvis.core.designsystem.JarvisText
+import com.jarvis.core.designsystem.Spacing
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,8 +76,8 @@ fun ProviderEditScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(if (editState.isNew) "Add Provider" else "Edit Provider") },
+            JarvisHeader(
+                title = if (editState.isNew) "Add Provider" else "Edit Provider",
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -93,10 +94,6 @@ fun ProviderEditScreen(
                         }
                     }
                 },
-                colors =
-                    TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                    ),
             )
         },
     ) { padding ->
@@ -105,21 +102,21 @@ fun ProviderEditScreen(
                 Modifier
                     .fillMaxSize()
                     .padding(padding)
-                    .padding(horizontal = 16.dp)
+                    .padding(horizontal = Spacing.lg)
                     .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(Spacing.lg),
         ) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(Spacing.sm))
 
             // Quick presets — cloud plus key-less local LLM servers (Ollama, LM Studio).
             Text(
                 text = "Quick start",
-                style = MaterialTheme.typography.labelMedium,
+                style = JarvisText.SenderLabel,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
                 ProviderPreset.entries.forEach { preset ->
                     AssistChip(
@@ -133,7 +130,7 @@ fun ProviderEditScreen(
             }
             Text(
                 text = "Local presets point at the emulator (10.0.2.2). On a phone, use your PC's LAN IP.",
-                style = MaterialTheme.typography.bodySmall,
+                style = JarvisText.Metadata,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
@@ -144,7 +141,7 @@ fun ProviderEditScreen(
                 label = { Text("Provider name") },
                 placeholder = { Text("e.g. OpenAI, Ollama, My Server") },
                 singleLine = true,
-                shape = com.jarvis.core.designsystem.JarvisShapes.medium,
+                shape = JarvisShapes.input,
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -156,7 +153,7 @@ fun ProviderEditScreen(
                 placeholder = { Text("https://api.openai.com") },
                 supportingText = { Text("API root — do not add /v1") },
                 singleLine = true,
-                shape = com.jarvis.core.designsystem.JarvisShapes.medium,
+                shape = JarvisShapes.input,
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -170,7 +167,7 @@ fun ProviderEditScreen(
                     Text("Sent with every chat. Blank auto-picks the server's first model.")
                 },
                 singleLine = true,
-                shape = com.jarvis.core.designsystem.JarvisShapes.medium,
+                shape = JarvisShapes.input,
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -186,7 +183,7 @@ fun ProviderEditScreen(
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                shape = com.jarvis.core.designsystem.JarvisShapes.medium,
+                shape = JarvisShapes.input,
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -199,11 +196,11 @@ fun ProviderEditScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         "Set as default",
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                        style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
                     )
                     Text(
                         "This provider will be used for new conversations",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = JarvisText.Metadata,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -217,19 +214,17 @@ fun ProviderEditScreen(
             editState.verificationError?.let { error ->
                 Text(
                     text = error,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = JarvisText.Metadata,
                     color = MaterialTheme.colorScheme.error,
                 )
             }
             if (editState.verificationSuccess) {
                 Text(
                     text = "✓ Verified and saved",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = JarvisText.Metadata,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
 
             // Save / verify button
             Button(
@@ -238,40 +233,28 @@ fun ProviderEditScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 if (editState.isVerifying) {
-                    com.jarvis.core.designsystem.JarvisLoader(
-                        color = MaterialTheme.colorScheme.onPrimary,
-                    )
+                    JarvisLoader(color = MaterialTheme.colorScheme.onPrimary)
                 } else {
                     Text(if (editState.isNew) "Verify & Save" else "Verify & Update")
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(Spacing.huge))
         }
     }
 
-    // Delete confirmation dialog
+    // Delete confirmation — the app's shared destructive-action dialog.
     if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete provider") },
-            text = { Text("This will permanently remove the provider and its API key.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteDialog = false
-                        viewModel.deleteCurrentProvider()
-                        onBack()
-                    },
-                ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
+        JarvisConfirmDialog(
+            title = "Delete provider",
+            message = "This will permanently remove the provider and its API key.",
+            confirmLabel = "Delete",
+            onConfirm = {
+                showDeleteDialog = false
+                viewModel.deleteCurrentProvider()
+                onBack()
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Cancel")
-                }
-            },
+            onDismiss = { showDeleteDialog = false },
         )
     }
 }

@@ -5,9 +5,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 
 /**
- * Root theme — light/dark follows the system setting (charcoal #212121 dark, never
- * true black) with the fixed warm accent scheme. Dynamic color is deliberately NOT
- * enabled — the identity is fixed regardless of wallpaper.
+ * Root theme — light/dark follows the system setting. The identity is the warm
+ * cream canvas + coral accent + dark navy product surfaces trinity from
+ * design.md, adapted for mobile:
+ *
+ *  - Light: warm cream `#FAF9F5` canvas, warm-ink `#141413` text, coral `#CC785C` accent.
+ *  - Dark: warm-ink `#141413` canvas, warm cream `#F5F0E8` text, coral `#CC785C` accent.
+ *
+ * Dynamic color is deliberately NOT enabled — the identity is fixed regardless of wallpaper.
  */
 @Composable
 fun JarvisTheme(

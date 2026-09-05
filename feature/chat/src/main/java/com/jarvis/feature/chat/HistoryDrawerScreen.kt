@@ -4,7 +4,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +32,8 @@ import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -40,12 +41,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,7 +61,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.core.common.Conversation
 import com.jarvis.core.designsystem.JarvisColors
+import com.jarvis.core.designsystem.JarvisConfirmDialog
+import com.jarvis.core.designsystem.JarvisEmptyState
+import com.jarvis.core.designsystem.JarvisHeader
+import com.jarvis.core.designsystem.JarvisMark
 import com.jarvis.core.designsystem.JarvisScreenLoader
+import com.jarvis.core.designsystem.JarvisShapes
 import com.jarvis.core.designsystem.JarvisText
 import com.jarvis.core.designsystem.Radius
 import com.jarvis.core.designsystem.Spacing
@@ -94,18 +97,12 @@ fun HistoryDrawerContent(
         modifier = Modifier.width(320.dp),
         drawerContainerColor = sidebarColor,
     ) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text("Jarvis", style = JarvisText.ConvTitle) },
-                    colors =
-                        TopAppBarDefaults.topAppBarColors(
-                            containerColor = sidebarColor,
-                        ),
-                )
-            },
-            containerColor = sidebarColor,
-        ) { padding ->
+        Column(modifier = Modifier.fillMaxSize()) {
+            JarvisHeader(
+                title = "Jarvis",
+                containerColor = sidebarColor,
+            )
+
             var searchQuery by remember { mutableStateOf("") }
 
             // Client-side filter by title, grouped sections preserved.
@@ -124,153 +121,102 @@ fun HistoryDrawerContent(
                     }
                 }
 
-            Column(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .padding(padding),
-            ) {
-                NewChatButton(onClick = onNewChat)
-                SearchField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.xs),
-                )
+            NewChatButton(onClick = onNewChat)
+            SearchField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.xs),
+            )
 
-                Box(modifier = Modifier.weight(1f)) {
-                    when {
-                        uiState.isLoading ->
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                JarvisScreenLoader()
-                            }
+            Box(modifier = Modifier.weight(1f)) {
+                when {
+                    uiState.isLoading ->
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            JarvisScreenLoader()
+                        }
 
-                        filteredSections.isEmpty() && searchQuery.isNotBlank() ->
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(
-                                        "No conversations found",
-                                        style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.Medium),
-                                        color = MaterialTheme.colorScheme.onSurface,
+                    filteredSections.isEmpty() && searchQuery.isNotBlank() ->
+                        JarvisEmptyState(
+                            title = "No conversations found",
+                            hint = "Try a different search",
+                        )
+
+                    filteredSections.isEmpty() ->
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            JarvisMark(size = Spacing.xxl)
+                            Spacer(modifier = Modifier.height(Spacing.md))
+                            JarvisEmptyState(
+                                title = "No conversations yet",
+                                hint = "Tap “New chat” to begin",
+                                modifier = Modifier.padding(vertical = Spacing.sm),
+                            )
+                        }
+
+                    else ->
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(top = Spacing.xs, bottom = Spacing.lg),
+                        ) {
+                            filteredSections.forEach { section ->
+                                stickyHeader(key = "header-${section.group.name}") {
+                                    // Rows scroll under the sticky label — give it the
+                                    // sidebar's opaque color so text doesn't bleed through.
+                                    SectionHeader(
+                                        label = section.group.label,
+                                        background = sidebarColor,
                                     )
-                                    Spacer(modifier = Modifier.height(Spacing.xs))
-                                    Text(
-                                        "Try a different search",
-                                        style = JarvisText.Metadata,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                }
+                                items(section.conversations, key = { it.id }) { conversation ->
+                                    ConversationRow(
+                                        conversation = conversation,
+                                        isActive = conversation.id == currentConversationId,
+                                        onClick = { onOpenConversation(conversation.id) },
+                                        onPin = { viewModel.togglePin(conversation) },
+                                        onRename = {
+                                            editingConversation = conversation
+                                            renameText = conversation.title
+                                        },
+                                        onDelete = { deletingConversation = conversation },
                                     )
                                 }
                             }
-
-                        filteredSections.isEmpty() ->
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    com.jarvis.core.designsystem
-                                        .JarvisMark(size = 24.dp)
-                                    Spacer(modifier = Modifier.height(Spacing.md))
-                                    Text(
-                                        "No conversations yet",
-                                        style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.Medium),
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                    Spacer(modifier = Modifier.height(Spacing.xs))
-                                    Text(
-                                        "Tap “New chat” to begin",
-                                        style = JarvisText.Metadata,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-
-                        else ->
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(top = Spacing.xs, bottom = Spacing.lg),
-                            ) {
-                                filteredSections.forEach { section ->
-                                    stickyHeader(key = "header-${section.group.name}") {
-                                        // Rows scroll under the sticky label — give it the
-                                        // sidebar's opaque color so text doesn't bleed through.
-                                        SectionHeader(label = section.group.label, background = sidebarColor)
-                                    }
-                                    items(section.conversations, key = { it.id }) { conversation ->
-                                        ConversationRow(
-                                            conversation = conversation,
-                                            isActive = conversation.id == currentConversationId,
-                                            onClick = { onOpenConversation(conversation.id) },
-                                            onPin = { viewModel.togglePin(conversation) },
-                                            onRename = {
-                                                editingConversation = conversation
-                                                renameText = conversation.title
-                                            },
-                                            onDelete = { deletingConversation = conversation },
-                                        )
-                                    }
-                                }
-                            }
-                    }
+                        }
                 }
-
-                SettingsRow(onClick = onOpenSettings)
             }
+
+            SettingsRow(onClick = onOpenSettings)
         }
     }
 
     editingConversation?.let { conversation ->
-        AlertDialog(
-            onDismissRequest = { editingConversation = null },
-            title = { Text("Rename conversation") },
-            text = {
-                OutlinedTextField(
-                    value = renameText,
-                    onValueChange = { renameText = it },
-                    label = { Text("Title") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+        RenameConversationDialog(
+            initialTitle = conversation.title,
+            onSave = {
+                viewModel.rename(conversation, renameText)
+                editingConversation = null
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.rename(conversation, renameText)
-                    editingConversation = null
-                }) {
-                    Text("Save")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { editingConversation = null }) {
-                    Text("Cancel")
-                }
-            },
+            onDismiss = { editingConversation = null },
+            onTextChange = { renameText = it },
         )
     }
 
     deletingConversation?.let { conversation ->
-        AlertDialog(
-            onDismissRequest = { deletingConversation = null },
-            title = { Text("Delete conversation") },
-            text = { Text("This will permanently delete \"${conversation.title}\" and all its messages.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.delete(conversation)
-                    deletingConversation = null
-                }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
+        JarvisConfirmDialog(
+            title = "Delete conversation",
+            message = "This will permanently delete \"${conversation.title}\" and all its messages.",
+            confirmLabel = "Delete",
+            onConfirm = {
+                viewModel.delete(conversation)
+                deletingConversation = null
             },
-            dismissButton = {
-                TextButton(onClick = { deletingConversation = null }) {
-                    Text("Cancel")
-                }
-            },
+            onDismiss = { deletingConversation = null },
         )
     }
 }
@@ -285,12 +231,17 @@ private fun SectionHeader(
             text = label,
             style = JarvisText.SectionHeader,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = Spacing.lg, end = Spacing.lg, top = Spacing.sm, bottom = Spacing.sm),
+            modifier =
+                Modifier.padding(
+                    start = Spacing.lg,
+                    end = Spacing.lg,
+                    top = Spacing.sm,
+                    bottom = Spacing.sm,
+                ),
         )
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ConversationRow(
     conversation: Conversation,
@@ -300,7 +251,6 @@ private fun ConversationRow(
     onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    var showActions by remember { mutableStateOf(false) }
     val sidebarActive =
         if (isSystemInDarkTheme()) {
             JarvisColors.Dark.sidebarActive
@@ -312,37 +262,33 @@ private fun ConversationRow(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = Spacing.sm, vertical = 2.dp)
+                .padding(horizontal = Spacing.sm, vertical = Spacing.xs)
                 .clip(RoundedCornerShape(Radius.small))
                 .background(if (isActive) sidebarActive else Color.Transparent)
-                .combinedClickable(
-                    onClick = onClick,
-                    onLongClick = { showActions = !showActions },
-                ).padding(start = Spacing.md, end = Spacing.xs, top = 11.dp, bottom = 11.dp),
+                .clickable(onClick = onClick)
+                .padding(start = Spacing.md, end = Spacing.xs, top = Spacing.sm, bottom = Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (conversation.pinned) {
-                    Icon(
-                        Icons.Default.PushPin,
-                        contentDescription = "Pinned",
-                        tint = JarvisColors.Accent.orange,
-                        modifier =
-                            Modifier
-                                .padding(end = 4.dp)
-                                .size(12.dp),
-                    )
-                }
-                Text(
-                    text = conversation.title,
-                    style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.Medium),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+            modifier = Modifier.weight(1f),
+        ) {
+            if (conversation.pinned) {
+                Icon(
+                    Icons.Default.PushPin,
+                    contentDescription = "Pinned",
+                    tint = JarvisColors.Accent.orange,
+                    modifier = Modifier.size(Spacing.md),
                 )
             }
+            Text(
+                text = conversation.title,
+                style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
 
         Text(
@@ -352,55 +298,80 @@ private fun ConversationRow(
             modifier = Modifier.padding(horizontal = Spacing.sm),
         )
 
-        if (showActions) {
-            IconButton(onClick = {
-                onPin()
-                showActions = false
-            }, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    Icons.Default.PushPin,
-                    contentDescription = if (conversation.pinned) "Unpin" else "Pin",
-                    tint =
-                        if (conversation.pinned) {
-                            JarvisColors.Accent.orange
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-            IconButton(onClick = {
-                onRename()
-                showActions = false
-            }, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    Icons.Default.Edit,
-                    contentDescription = "Rename",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-            IconButton(onClick = {
-                onDelete()
-                showActions = false
-            }, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    Icons.Default.Delete,
-                    contentDescription = "Delete",
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-        } else {
-            // Always-available overflow — actions are no longer long-press-only.
-            IconButton(onClick = { showActions = true }, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    Icons.Default.MoreVert,
-                    contentDescription = "Conversation options",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
+        // Overflow menu — one affordance, standard pattern, keeps the row quiet.
+        ConversationOverflowMenu(
+            conversation = conversation,
+            onPin = onPin,
+            onRename = onRename,
+            onDelete = onDelete,
+        )
+    }
+}
+
+@Composable
+private fun ConversationOverflowMenu(
+    conversation: Conversation,
+    onPin: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        IconButton(onClick = { expanded = true }, modifier = Modifier.size(Spacing.xxl)) {
+            Icon(
+                Icons.Default.MoreVert,
+                contentDescription = "Conversation options",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(Spacing.xl),
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text(if (conversation.pinned) "Unpin" else "Pin") },
+                onClick = {
+                    expanded = false
+                    onPin()
+                },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.PushPin,
+                        contentDescription = null,
+                        tint = if (conversation.pinned) JarvisColors.Accent.orange else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(Spacing.lg),
+                    )
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Rename") },
+                onClick = {
+                    expanded = false
+                    onRename()
+                },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(Spacing.lg),
+                    )
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                onClick = {
+                    expanded = false
+                    onDelete()
+                },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(Spacing.lg),
+                    )
+                },
+            )
         }
     }
 }
@@ -427,18 +398,18 @@ private fun formatTimestamp(millis: Long): String {
 @Composable
 private fun NewChatButton(onClick: () -> Unit) {
     Surface(
-        shape = RoundedCornerShape(Radius.codeBlock),
+        shape = JarvisShapes.codeBlock,
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier =
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = Spacing.lg, vertical = Spacing.sm)
-                .clip(RoundedCornerShape(Radius.codeBlock))
+                .clip(JarvisShapes.codeBlock)
                 .clickable(onClick = onClick),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = Spacing.md, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
@@ -446,7 +417,7 @@ private fun NewChatButton(onClick: () -> Unit) {
                 Icons.Default.Add,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(Spacing.xl),
             )
             Text(
                 text = "New chat",
@@ -465,20 +436,20 @@ private fun SearchField(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        shape = RoundedCornerShape(Radius.pill),
+        shape = JarvisShapes.pill,
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier.fillMaxWidth(),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = Spacing.md, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 Icons.Default.Search,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(Spacing.md),
             )
             BasicTextField(
                 value = value,
@@ -504,12 +475,12 @@ private fun SearchField(
                 },
             )
             if (value.isNotEmpty()) {
-                IconButton(onClick = { onValueChange("") }, modifier = Modifier.size(24.dp)) {
+                IconButton(onClick = { onValueChange("") }, modifier = Modifier.size(Spacing.xxl)) {
                     Icon(
                         Icons.Default.Close,
                         contentDescription = "Clear search",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(14.dp),
+                        modifier = Modifier.size(Spacing.md),
                     )
                 }
             }
@@ -526,7 +497,7 @@ private fun SettingsRow(onClick: () -> Unit) {
             Modifier
                 .fillMaxWidth()
                 .clickable(onClick = onClick)
-                .padding(horizontal = Spacing.lg, vertical = 13.dp),
+                .padding(horizontal = Spacing.lg, vertical = Spacing.md),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
@@ -534,7 +505,7 @@ private fun SettingsRow(onClick: () -> Unit) {
             Icons.Default.Settings,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(Spacing.xl),
         )
         Text(
             text = "Settings",
@@ -546,7 +517,41 @@ private fun SettingsRow(onClick: () -> Unit) {
             Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(Spacing.xl),
         )
     }
+}
+
+/** Rename dialog for a conversation title. */
+@Composable
+private fun RenameConversationDialog(
+    initialTitle: String,
+    onTextChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var text by remember { mutableStateOf(initialTitle) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename conversation", style = JarvisText.ConvTitle) },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = {
+                    text = it
+                    onTextChange(it)
+                },
+                label = { Text("Title") },
+                singleLine = true,
+                shape = JarvisShapes.input,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onSave) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }

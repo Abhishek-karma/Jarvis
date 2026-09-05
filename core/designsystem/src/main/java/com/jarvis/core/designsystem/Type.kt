@@ -7,27 +7,32 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 /**
- * Named type ramp: the platform sans for UI chrome and user messages, a serif for
- * assistant prose, monospace for code. Weights 400/500/600/700, display capped at 32sp.
+ * Named type ramp — mobile-first adaptation of the Claude.com web design:
+ *
+ *  - Display headlines run slab-serif (Copernicus/Tiempos Headline substitute)
+ *    at weight 400 with negative letter-spacing for a literary editorial voice.
+ *  - Body runs humanist sans (StyreneB/Inter substitute) for UI chrome and user messages.
+ *  - Serif for assistant prose — the Claude signature.
+ *  - Monospace for code.
  */
 object JarvisFont {
     /** UI chrome and user messages. */
     val sans: FontFamily = FontFamily.Default
 
-    /** Assistant message body and headings. */
+    /** Display headlines and assistant message body. */
     val serif: FontFamily = FontFamily.Serif
 
     /** Code. */
     val mono: FontFamily = FontFamily.Monospace
 }
 
-/** Named ramp — pt → sp 1:1. */
+/** Named ramp — pt → sp 1:1, mobile-optimized sizes. */
 object JarvisText {
-    // Display (about / empty state)
+    // Display (about / empty state) — slab-serif, weight 400, negative tracking
     val Display =
         TextStyle(
             fontFamily = JarvisFont.serif,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Normal,
             fontSize = 32.sp,
             lineHeight = 38.sp,
             letterSpacing = (-0.4).sp,
@@ -47,7 +52,7 @@ object JarvisText {
     val H1 =
         TextStyle(
             fontFamily = JarvisFont.serif,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Normal,
             fontSize = 24.sp,
             lineHeight = 31.sp,
             letterSpacing = (-0.2).sp,
@@ -55,7 +60,7 @@ object JarvisText {
     val H2 =
         TextStyle(
             fontFamily = JarvisFont.serif,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Normal,
             fontSize = 20.sp,
             lineHeight = 26.sp,
             letterSpacing = (-0.1).sp,
@@ -63,7 +68,7 @@ object JarvisText {
     val H3 =
         TextStyle(
             fontFamily = JarvisFont.serif,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Normal,
             fontSize = 17.sp,
             lineHeight = 23.sp,
         )
