@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -44,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import com.jarvis.core.designsystem.JarvisColors
 import com.jarvis.core.designsystem.JarvisShapes
 import com.jarvis.core.designsystem.JarvisText
+import com.jarvis.core.designsystem.Radius
 import com.jarvis.core.designsystem.Spacing
 import kotlinx.coroutines.delay
 
@@ -83,6 +86,7 @@ fun MarkdownText(
                         },
                     )
                 is MdBlock.CodeBlock -> CodeBlock(block)
+                is MdBlock.TableBlock -> TableBlockView(block)
                 is MdBlock.BulletList -> ListBlock(block.items, numbered = false)
                 is MdBlock.NumberedList -> ListBlock(block.items, numbered = true)
                 is MdBlock.Quote -> QuoteBlock(block)
@@ -210,16 +214,16 @@ private fun CodeBlock(block: MdBlock.CodeBlock) {
                 tint = codeFg.copy(alpha = 0.85f),
                 modifier =
                     Modifier
-                        .clip(RoundedCornerShape(Spacing.sm))
+                        .clip(RoundedCornerShape(Radius.small))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
+                            role = Role.Button,
                         ) {
                             clipboard.setText(AnnotatedString(block.code))
                             copied = true
-                        }.padding(Spacing.sm)
-                        .width(16.dp)
-                        .height(16.dp),
+                        }.padding(Spacing.md)
+                        .size(Spacing.xl),
             )
         }
         HorizontalDivider(color = codeBorder)
@@ -232,6 +236,95 @@ private fun CodeBlock(block: MdBlock.CodeBlock) {
                     .horizontalScroll(rememberScrollState())
                     .padding(Spacing.lg),
         )
+    }
+}
+
+/**
+ * Renders a GFM table: header row emphasized (semibold on the tinted surface), body rows
+ * separated by hairlines, cells weight-distributed so columns align. Wide tables scroll
+ * horizontally inside the rounded container.
+ */
+@Composable
+private fun TableBlockView(block: MdBlock.TableBlock) {
+    val dark = isSystemInDarkTheme()
+    val codeBorder = if (dark) JarvisColors.Dark.codeBorder else JarvisColors.Light.codeBorder
+    // Header emphasis per the spec: semibold text on the low-tinted surface.
+    val headerBg = MaterialTheme.colorScheme.surfaceContainerLow
+
+    // The whole table scrolls as one — per-row scroll states would desync header and
+    // body columns, so the scrollable lives on the table, never on a row. Clip and
+    // border sit outside the scroll so the rounded frame stays fixed while content
+    // scrolls under it.
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clip(JarvisShapes.codeBlock)
+                .border(1.dp, codeBorder, JarvisShapes.codeBlock)
+                .horizontalScroll(rememberScrollState()),
+    ) {
+        TableRow(cells = block.header, columns = block.columnCount, emphasized = true, background = headerBg)
+        HorizontalDivider(color = codeBorder)
+        block.rows.forEachIndexed { index, row ->
+            TableRow(
+                cells = row,
+                columns = block.columnCount,
+                emphasized = false,
+                background = Color.Unspecified,
+            )
+            if (index < block.rows.lastIndex) {
+                HorizontalDivider(color = codeBorder.copy(alpha = 0.5f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun TableRow(
+    cells: List<List<MdSpan>>,
+    columns: Int,
+    emphasized: Boolean,
+    background: Color,
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .then(
+                    if (background == Color.Unspecified) {
+                        Modifier
+                    } else {
+                        Modifier.background(background)
+                    },
+                ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        cells.forEach { cell ->
+            StyledText(
+                spans = cell,
+                style =
+                    if (emphasized) {
+                        JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                    } else {
+                        JarvisText.AssistantBody
+                    },
+                modifier =
+                    Modifier
+                        .weight(1f, fill = false)
+                        .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+            )
+        }
+        // Pad short rows so every table keeps its column shape.
+        repeat((columns - cells.size).coerceAtLeast(0)) {
+            Text(
+                text = "",
+                style = JarvisText.AssistantBody,
+                modifier =
+                    Modifier
+                        .weight(1f, fill = false)
+                        .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+            )
+        }
     }
 }
 

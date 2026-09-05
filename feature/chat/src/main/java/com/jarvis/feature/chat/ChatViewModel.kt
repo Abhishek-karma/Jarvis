@@ -18,12 +18,14 @@ import com.jarvis.core.common.MessageRole
 import com.jarvis.core.common.MessageStatus
 import com.jarvis.core.common.ProviderConfig
 import com.jarvis.core.common.RoutingOverride
+import com.jarvis.core.common.ThinkMode
 import com.jarvis.core.database.repository.ConversationRepository
 import com.jarvis.core.ml.LocalConnectivity
 import com.jarvis.core.ml.LocalLlmRuntime
 import com.jarvis.core.ml.LocalModelState
 import com.jarvis.core.ml.LocalModelStore
 import com.jarvis.core.navigation.Routes
+import com.jarvis.core.preferences.UserPreferencesRepository
 import com.jarvis.core.network.ChatRequest
 import com.jarvis.core.network.ChatStreamEvent
 import com.jarvis.core.network.LlmProvider
@@ -67,20 +69,27 @@ data class ChatUiState(
     val routingOverride: RoutingOverride = RoutingOverride.AUTO,
     /** Effective route for the current response, shown on the route badge. */
     val activeRoute: RoutingOverride = RoutingOverride.CLOUD,
+    /**
+     * What actually answered the last turn — route plus display label ("On-device",
+     * "gpt-4o-mini • OpenAI"), rendered as the badge under the latest assistant message.
+     * Null hides the badge.
+     */
+    val routeBadge: RouteBadge? = null,
     /** Voice recording state. */
     val isRecording: Boolean = false,
     /** Transcribing audio to text. */
     val isTranscribing: Boolean = false,
-    /** TTS audio playback state. */
-    val isPlayingAudio: Boolean = false,
+    /** TTS audio playback state. The id of the message currently being spoken, or null.
+     *  Per-message id (not a boolean) so the "stop" icon only appears on the row the user tapped. */
+    val playingAudioMessageId: String? = null,
     /** A ReAct agent run is in progress. */
     val isAgentRunning: Boolean = false,
     /** Sensitive-tier tool awaiting an explicit user decision. */
     val pendingConfirmation: AgentConfirmation? = null,
-    /** Live step log rendered by the Agent Canvas. */
+    /** Live step log rendered as the transcript's in-flight tail during an agent run. */
     val agentSteps: List<AgentStep> = emptyList(),
-    /** Plan label shown as the canvas header chip (e.g. "Iterative_Optimizer"); null hides it. */
-    val agentPlanName: String? = null,
+    /** Reasoning-effort setting; the composer pill cycles OFF → AUTO → ON. */
+    val thinkMode: ThinkMode = ThinkMode.AUTO,
 )
 
 sealed interface ChatUiEvent {
@@ -93,6 +102,15 @@ sealed interface ChatUiEvent {
     ) : ChatUiEvent
 }
 
+/**
+ * What answered the last turn, for the route badge on the chat canvas: the route that ran
+ * plus a display label ("On-device", "gpt-4o-mini • OpenAI").
+ */
+data class RouteBadge(
+    val route: RoutingOverride,
+    val label: String,
+)
+
 /** A Sensitive-tier tool call parked until the user taps Allow/Deny. */
 data class AgentConfirmation(
     val toolName: String,
@@ -101,7 +119,7 @@ data class AgentConfirmation(
 
 enum class AgentStepState { RUNNING, DONE, FAILED }
 
-/** One row in the Agent Canvas step list: bold title, optional observation detail. */
+/** One row in the agent step list: bold title, optional observation detail. */
 data class AgentStep(
     val text: String,
     val state: AgentStepState = AgentStepState.RUNNING,
@@ -133,6 +151,7 @@ class ChatViewModel
         private val localModelStore: LocalModelStore,
         private val localLlmRuntime: LocalLlmRuntime,
         private val connectivity: LocalConnectivity,
+        private val userPreferences: UserPreferencesRepository,
         savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow(ChatUiState())
@@ -146,6 +165,18 @@ class ChatViewModel
         val uiEvents: SharedFlow<ChatUiEvent> = _uiEvents.asSharedFlow()
 
         private var activeProvider: ProviderConfig? = null
+
+        /** Routing decision reason for the turn in flight — persisted via Message.routeUsed. */
+        private var lastRouteReason: String? = null
+
+        /** Agent step cap from user preferences; null until the first read completes. */
+        private var agentStepCap: Int? = null
+
+        /** Reasoning-effort mode observed from preferences (defaults to AUTO until first read). */
+        private var thinkMode: ThinkMode = ThinkMode.AUTO
+
+        /** Cautious mode: when true, every agent tool call requires user confirmation. */
+        private var cautiousMode = false
 
         /** Handle to the in-flight streaming request, used by [cancelStreaming]. */
         private var streamJob: Job? = null
@@ -175,6 +206,23 @@ class ChatViewModel
             // on-device model is installed and the route resolves to LOCAL.
             viewModelScope.launch(dispatchers.main) {
                 localModelStore.status.collect { _ -> refreshSendEnabled() }
+            }
+
+            // Observe the agent step cap so a Settings change applies to the next agent run
+            // without recreating the ViewModel.
+            viewModelScope.launch(dispatchers.main) {
+                userPreferences.agentStepCap.collect { cap -> agentStepCap = cap }
+            }
+            // Same for the reasoning-effort mode (PR-6's Settings radio writes the same key).
+            viewModelScope.launch(dispatchers.main) {
+                userPreferences.thinkMode.collect { mode ->
+                    thinkMode = mode
+                    _uiState.update { it.copy(thinkMode = mode) }
+                }
+            }
+            // Cautious mode gates every agent tool call (passed to AgentEngine.forceConfirm).
+            viewModelScope.launch(dispatchers.main) {
+                userPreferences.cautiousModeEnabled.collect { enabled -> cautiousMode = enabled }
             }
 
             // Deleting the active conversation (History drawer) must not strand the chat: when
@@ -209,7 +257,15 @@ class ChatViewModel
                     conversationId = conversation.id,
                     conversationTitle = conversation.title,
                     routingOverride = conversation.routingOverride,
-                    activeRoute = effectiveRoute(conversation.routingOverride),
+                    // No message text to classify yet — the decision tree's text heuristics
+                    // (privacy / realtime / heavy) simply don't fire on an empty string.
+                    activeRoute =
+                        RoutingClassifier
+                            .classify("", conversation.routingOverride, localModelReady, isOnline())
+                            .route,
+                    // No turn has been answered in this conversation yet — hide any badge
+                    // carried over from the previous one.
+                    routeBadge = null,
                     isLoadingConversation = false,
                 )
             }
@@ -223,7 +279,38 @@ class ChatViewModel
                     }
                 }
             messagesJob?.join()
+
+            // Reopening restores the badge for the last answered turn from its persisted
+            // routing reason alone — the live session's richer "model • provider" label isn't
+            // reconstructible without pinning provider/model ids, which stays out of scope.
+            conversationRepository
+                .getMessages(conversation.id)
+                .lastOrNull { it.routeUsed != null }
+                ?.routeUsed
+                ?.let { reason ->
+                    badgeFromPersistedReason(reason)?.let { badge ->
+                        _uiState.update { it.copy(routeBadge = badge) }
+                    }
+                }
         }
+
+        /** Rebuild route badge from persisted reason — model/provider not stored, so label is generic. */
+        private fun badgeFromPersistedReason(reasonName: String): RouteBadge? =
+            when (runCatching { RoutingReason.valueOf(reasonName) }.getOrNull()) {
+                RoutingReason.FORCED_LOCAL,
+                RoutingReason.PRIVACY_LOCAL,
+                RoutingReason.LIGHT_LOCAL,
+                -> RouteBadge(RoutingOverride.LOCAL, "On-device")
+
+                RoutingReason.FORCED_CLOUD,
+                RoutingReason.REALTIME_CLOUD,
+                RoutingReason.HEAVY_GENERATIVE_CLOUD,
+                RoutingReason.DEFAULT_CLOUD,
+                RoutingReason.FORCED_LOCAL_FALLBACK,
+                -> RouteBadge(RoutingOverride.CLOUD, "Cloud")
+
+                null -> null
+            }
 
         /** Open a conversation selected from the History drawer. */
         fun openConversationById(conversationId: String) {
@@ -234,10 +321,7 @@ class ChatViewModel
             }
         }
 
-        /**
-         * Change the per-chat routing override (Auto / Always Local / Always Cloud).
-         * Persists with the conversation so it survives process death.
-         */
+        /** Persist routing override with the conversation. */
         fun setRoutingOverride(override: RoutingOverride) {
             val conversationId = _uiState.value.conversationId ?: return
             viewModelScope.launch(dispatchers.main) {
@@ -245,7 +329,10 @@ class ChatViewModel
                     conversationRepository.upsertConversation(current.copy(routingOverride = override))
                 }
                 _uiState.update {
-                    it.copy(routingOverride = override, activeRoute = effectiveRoute(override))
+                    it.copy(
+                        routingOverride = override,
+                        activeRoute = RoutingClassifier.classify("", override, localModelReady, isOnline()).route,
+                    )
                 }
                 if (override == RoutingOverride.LOCAL && !localModelReady) {
                     _uiEvents.tryEmit(ChatUiEvent.ShowNotice(LOCAL_UNAVAILABLE_NOTICE))
@@ -253,25 +340,26 @@ class ChatViewModel
             }
         }
 
-        /**
-         * Smart routing:
-         *  LOCAL → on-device when a model is installed, cloud otherwise;
-         *  CLOUD → cloud;
-         *  AUTO  → cloud when online, on-device when offline with a model installed.
-         */
-        private fun effectiveRoute(override: RoutingOverride): RoutingOverride =
-            when (override) {
-                RoutingOverride.CLOUD -> RoutingOverride.CLOUD
-                RoutingOverride.LOCAL -> if (localModelReady) RoutingOverride.LOCAL else RoutingOverride.CLOUD
-                RoutingOverride.AUTO ->
-                    if (!connectivity.isOnline() && localModelReady) RoutingOverride.LOCAL else RoutingOverride.CLOUD
-            }
+        /** True when the network is reachable; a resolver failure counts as offline. */
+        private fun isOnline(): Boolean = runCatching { connectivity.isOnline() }.getOrDefault(false)
 
-        /** True when an on-device model file is installed and ready (used for routing decisions). */
+        private fun classifyRoute(
+            override: RoutingOverride,
+            message: String,
+        ): RoutingDecision = RoutingClassifier.classify(message, override, localModelReady, isOnline())
+
+        /** Persist reasoning-effort mode. */
+        fun setThinkMode(mode: ThinkMode) {
+            viewModelScope.launch(dispatchers.main) {
+                userPreferences.setThinkMode(mode)
+            }
+        }
+
+        /** On-device model installed and ready. */
         private val localModelReady: Boolean
             get() = runCatching { localModelStore.status.value is LocalModelState.Ready }.getOrDefault(false)
 
-        /** Create a fresh conversation and switch to it (History drawer "New Chat"). */
+        /** Create a fresh conversation, preserving the current routing override. */
         fun createNewConversation() {
             if (_uiState.value.isStreaming) return
             viewModelScope.launch(dispatchers.main) {
@@ -287,12 +375,7 @@ class ChatViewModel
             return conversation
         }
 
-        /**
-         * Name an untitled conversation from its first user message: runs of whitespace collapse
-         * to single spaces and the title caps at [TITLE_MAX_CHARS] so a long opener doesn't blow
-         * out the History drawer rows. A conversation whose title already differs from the
-         * default (manual rename or an earlier auto-title) is left alone.
-         */
+        /** Auto-name from the first user message. */
         private suspend fun autoTitleConversation(conversationId: String, firstMessageText: String) {
             val conversation = conversationRepository.getConversation(conversationId) ?: return
             if (conversation.title != DEFAULT_CONVERSATION_TITLE) return
@@ -321,12 +404,15 @@ class ChatViewModel
                 viewModelScope.launch(dispatchers.main) {
                     val conversationId = state.conversationId ?: return@launch
 
-                    // Smart routing v1: pick on-device vs cloud before persisting anything, so a
-                    // failed route leaves the composer text intact for a retry.
-                    val target = effectiveRoute(state.routingOverride)
-                    if (state.routingOverride == RoutingOverride.LOCAL && target != RoutingOverride.LOCAL) {
+                    // Pick route before persisting so a failed route leaves composer text for retry.
+                    val decision = classifyRoute(state.routingOverride, text)
+                    val target = decision.route
+                    if (decision.reason == RoutingReason.FORCED_LOCAL_FALLBACK) {
                         _uiEvents.tryEmit(ChatUiEvent.ShowNotice(LOCAL_UNAVAILABLE_NOTICE))
                     }
+                    // The reason rides on the user message's routeUsed column — the assistant
+                    // reply copies it in persist(), giving every turn an auditable decision.
+                    lastRouteReason = decision.reason.name
 
                     if (target == RoutingOverride.LOCAL) {
                         // Engine load takes seconds — show a preparing state and block double-taps.
@@ -347,27 +433,42 @@ class ChatViewModel
                             )
                             return@launch
                         }
-                        _uiState.update { it.copy(activeRoute = RoutingOverride.LOCAL) }
+                        _uiState.update {
+                            it.copy(
+                                activeRoute = RoutingOverride.LOCAL,
+                                routeBadge = RouteBadge(RoutingOverride.LOCAL, "On-device"),
+                            )
+                        }
                         val userMessage =
                             Message(
                                 conversationId = conversationId,
                                 role = MessageRole.USER,
                                 content = text,
+                                routeUsed = lastRouteReason,
                             )
                         conversationRepository.upsertMessage(userMessage)
                         autoTitleConversation(conversationId, text)
                         _uiState.update { it.copy(composerText = "", isStreaming = true) }
-                        // Gemma 4 E2B supports tools, so local routing runs the agent fully offline.
+                        // Local model supports tools, so agent runs fully offline.
                         if (AgentTrigger.shouldUseAgent(text) && localProvider.capabilities.supportsTools) {
-                            streamAgentReply(conversationId, localProvider, localProvider.modelId)
+                            streamAgentReply(
+                                conversationId,
+                                localProvider,
+                                localProvider.modelId,
+                                reasoningRequested = ThinkModeHeuristic.shouldThink(text, thinkMode),
+                            )
                         } else {
-                            streamAssistantReply(conversationId, localProvider, localProvider.modelId)
+                            streamAssistantReply(
+                                conversationId,
+                                localProvider,
+                                localProvider.modelId,
+                                reasoningRequested = ThinkModeHeuristic.shouldThink(text, thinkMode),
+                            )
                         }
                         return@launch
                     }
 
-                    // Cloud path requires a configured provider. A LOCAL-only install without one
-                    // must fail with a hint, not silently do nothing (the old silent `?: return`).
+                    // Cloud path requires a configured provider.
                     val provider = activeProvider
                     if (provider == null) {
                         _uiEvents.tryEmit(
@@ -381,8 +482,7 @@ class ChatViewModel
 
                     _uiState.update { it.copy(activeRoute = RoutingOverride.CLOUD) }
 
-                    // Resolve the model before persisting the user message, so a misconfigured
-                    // provider aborts cleanly with the composer text still in place for a retry.
+                    // Resolve model before persisting so a misconfigured provider aborts cleanly.
                     _uiState.update { it.copy(isPreparingSend = true) }
                     val model =
                         try {
@@ -400,11 +500,14 @@ class ChatViewModel
                         return@launch
                     }
 
+                    _uiState.update { it.copy(routeBadge = RouteBadge(RoutingOverride.CLOUD, "$model • ${provider.name}")) }
+
                     val userMessage =
                         Message(
                             conversationId = conversationId,
                             role = MessageRole.USER,
                             content = text,
+                            routeUsed = lastRouteReason,
                         )
                     conversationRepository.upsertMessage(userMessage)
                     autoTitleConversation(conversationId, text)
@@ -412,17 +515,24 @@ class ChatViewModel
 
                     // Agent trigger: a "Jarvis," prefix / action verbs on a tools-capable provider.
                     if (AgentTrigger.shouldUseAgent(text) && providerAdapter.capabilities.supportsTools) {
-                        streamAgentReply(conversationId, providerAdapter, model)
+                        streamAgentReply(
+                            conversationId,
+                            providerAdapter,
+                            model,
+                            reasoningRequested = ThinkModeHeuristic.shouldThink(text, thinkMode),
+                        )
                     } else {
-                        streamAssistantReply(conversationId, providerAdapter, model)
+                        streamAssistantReply(
+                            conversationId,
+                            providerAdapter,
+                            model,
+                            reasoningRequested = ThinkModeHeuristic.shouldThink(text, thinkMode),
+                        )
                     }
                 }
         }
 
-        /**
-         * Stop the in-flight stream. The partial assistant response is preserved and marked
-         * [MessageStatus.STOPPED].
-         */
+        /** Cancel streaming — partial response preserved. */
         fun cancelStreaming() {
             streamJob?.cancel()
             streamJob = null
@@ -439,17 +549,12 @@ class ChatViewModel
                         isAgentRunning = false,
                         pendingConfirmation = null,
                         agentSteps = emptyList(),
-                        agentPlanName = null,
                     )
                 }
             }
         }
 
-        /**
-         * Regenerate the last response: drop the previous assistant message(s) after the
-         * latest user turn, then re-run the same routing path as [sendMessage] against the
-         * retained history. The user message is NOT re-persisted — it stays as-is.
-         */
+        /** Regenerate the last response. */
         fun regenerate() {
             val state = _uiState.value
             val conversationId = state.conversationId ?: return
@@ -461,14 +566,14 @@ class ChatViewModel
             streamJob?.cancel()
             streamJob =
                 viewModelScope.launch(dispatchers.main) {
-                    // Remove everything after the last user turn — the previous answer (and any
-                    // trailing tool turns) — so the model sees a clean prompt to answer again.
+                    // Remove everything after the last user turn so the model sees a clean prompt.
                     val lastUser = state.messages[lastUserIndex]
                     val toRemove = state.messages.drop(lastUserIndex + 1)
                     toRemove.forEach { conversationRepository.deleteMessage(it.id) }
 
-                    val target = effectiveRoute(state.routingOverride)
-                    if (state.routingOverride == RoutingOverride.LOCAL && target != RoutingOverride.LOCAL) {
+                    val decision = classifyRoute(state.routingOverride, lastUser.content)
+                    val target = decision.route
+                    if (decision.reason == RoutingReason.FORCED_LOCAL_FALLBACK) {
                         _uiEvents.tryEmit(ChatUiEvent.ShowNotice(LOCAL_UNAVAILABLE_NOTICE))
                     }
 
@@ -490,11 +595,27 @@ class ChatViewModel
                             )
                             return@launch
                         }
-                        _uiState.update { it.copy(activeRoute = RoutingOverride.LOCAL, isStreaming = true) }
+                        _uiState.update {
+                            it.copy(
+                                activeRoute = RoutingOverride.LOCAL,
+                                routeBadge = RouteBadge(RoutingOverride.LOCAL, "On-device"),
+                                isStreaming = true,
+                            )
+                        }
                         if (AgentTrigger.shouldUseAgent(lastUser.content) && localProvider.capabilities.supportsTools) {
-                            streamAgentReply(conversationId, localProvider, localProvider.modelId)
+                            streamAgentReply(
+                                conversationId,
+                                localProvider,
+                                localProvider.modelId,
+                                reasoningRequested = ThinkModeHeuristic.shouldThink(lastUser.content, thinkMode),
+                            )
                         } else {
-                            streamAssistantReply(conversationId, localProvider, localProvider.modelId)
+                            streamAssistantReply(
+                                conversationId,
+                                localProvider,
+                                localProvider.modelId,
+                                reasoningRequested = ThinkModeHeuristic.shouldThink(lastUser.content, thinkMode),
+                            )
                         }
                         return@launch
                     }
@@ -529,19 +650,28 @@ class ChatViewModel
                         return@launch
                     }
 
+                    _uiState.update { it.copy(routeBadge = RouteBadge(RoutingOverride.CLOUD, "$model • ${provider.name}")) }
+
                     _uiState.update { it.copy(isStreaming = true) }
                     if (AgentTrigger.shouldUseAgent(lastUser.content) && providerAdapter.capabilities.supportsTools) {
-                        streamAgentReply(conversationId, providerAdapter, model)
+                        streamAgentReply(
+                            conversationId,
+                            providerAdapter,
+                            model,
+                            reasoningRequested = ThinkModeHeuristic.shouldThink(lastUser.content, thinkMode),
+                        )
                     } else {
-                        streamAssistantReply(conversationId, providerAdapter, model)
+                        streamAssistantReply(
+                            conversationId,
+                            providerAdapter,
+                            model,
+                            reasoningRequested = ThinkModeHeuristic.shouldThink(lastUser.content, thinkMode),
+                        )
                     }
                 }
         }
 
-        /**
-         * Resolve a parked Sensitive-tier tool call from the UI (Allow/Deny). Denying halts the
-         * run and audits the call as cancelled; allowing resumes the ReAct loop.
-         */
+        /** Resolve a parked tool call from the UI. */
         fun respondToConfirmation(allow: Boolean) {            _uiState.update { it.copy(pendingConfirmation = null) }
             pendingGate?.complete(allow)
             pendingGate = null
@@ -551,31 +681,33 @@ class ChatViewModel
             conversationId: String,
             provider: com.jarvis.core.network.LlmProvider,
             model: String,
+            reasoningRequested: Boolean = false,
         ) {
-            _uiState.update { it.copy(isAgentRunning = true, agentSteps = emptyList(), agentPlanName = null) }
+            _uiState.update { it.copy(isAgentRunning = true, agentSteps = emptyList()) }
             val history = conversationRepository.getMessages(conversationId)
             val engine =
                 AgentEngine(
                     registry = toolRegistry,
                     audit = auditLogger,
                     confirmationGate = ConfirmationGate { name, argsJson -> awaitConfirmation(name, argsJson) },
+                    // Preferences-driven cap; the engine default applies until the first read lands.
+                    stepCap = agentStepCap ?: AgentEngine.DEFAULT_STEP_CAP,
+                    forceConfirm = cautiousMode,
                 )
             val request =
                 AgentRunRequest(
                     provider = provider,
                     modelId = model,
                     messages = history,
+                    reasoningRequested = reasoningRequested,
                 )
 
-            // Local step log pushed into state on each event so the Canvas renders live. At most
-            // one row is RUNNING at a time: milestones finish as DONE (✓) and the next one becomes
-            // the highlighted row.
+            // Live step log for the in-flight tail. At most one row is RUNNING at a time.
             val steps = mutableListOf<AgentStep>()
             var runningSinceMs = 0L
 
             fun publish() = _uiState.update { it.copy(agentSteps = steps.toList()) }
 
-            /** Rename the running row's text — it stays in flight, keeping its spinner. */
             fun updateRunning(text: String) {
                 val index = steps.indexOfLast { it.state == AgentStepState.RUNNING }
                 if (index >= 0) {
@@ -584,44 +716,46 @@ class ChatViewModel
                 }
             }
 
-            /** Finish the running row: optional new text/detail, then DONE (✓) or FAILED (✗). */
-            fun completeRunning(
+            /** Finish the running row and persist the milestone. */
+            suspend fun completeRunning(
                 state: AgentStepState,
                 text: String? = null,
                 detail: String? = null,
             ) {
                 val index = steps.indexOfLast { it.state == AgentStepState.RUNNING }
                 if (index >= 0) {
+                    val finished = steps[index]
                     steps[index] =
-                        steps[index].copy(
-                            text = text ?: steps[index].text,
+                        finished.copy(
+                            text = text ?: finished.text,
                             state = state,
-                            detail = detail ?: steps[index].detail,
+                            detail = detail ?: finished.detail,
                             durationLabel = formatAgentDuration(System.currentTimeMillis() - runningSinceMs),
                         )
+                    val summary =
+                        buildString {
+                            append(steps[index].text)
+                            if (detail != null) append(" — ${detail.take(OBSERVATION_PREVIEW_CHARS)}")
+                        }
+                    persistMilestone(conversationId, summary, failed = state == AgentStepState.FAILED)
                     publish()
                 }
             }
 
-            /** Open a new milestone row (the previous one is already DONE). */
             fun push(text: String) {
                 runningSinceMs = System.currentTimeMillis()
                 steps += AgentStep(text = text)
                 publish()
             }
 
-            // Each canvas row is one milestone: a requested tool call (or a terminal state when the
-            // model never needed one). Renames keep the milestone in flight, completions check it off.
             var answerText = ""
             try {
                 engine.run(request).collect { event ->
                     when (event) {
                         AgentEvent.RunStarted, is AgentEvent.IterationStarted, is AgentEvent.ToolExecuting -> Unit
                         is AgentEvent.ToolRequested -> push("Calling ${event.name}")
-                        is AgentEvent.ConfirmationRequired -> {
-                            // The parked tool stays the highlighted row; the sheet title switches to the prompt.
+                        is AgentEvent.ConfirmationRequired ->
                             updateRunning("Needs your approval: ${event.name}")
-                        }
                         is AgentEvent.ToolExecuted ->
                             completeRunning(
                                 if (event.success) AgentStepState.DONE else AgentStepState.FAILED,
@@ -634,18 +768,12 @@ class ChatViewModel
                                 "Rejected ${event.name}",
                                 event.reason.take(OBSERVATION_PREVIEW_CHARS).ifBlank { null },
                             )
-                        // A user denial is a completed outcome, not a system failure.
                         is AgentEvent.ToolCancelled -> completeRunning(AgentStepState.DONE, "Denied ${event.name}")
                         is AgentEvent.FinalAnswer -> {
                             answerText = event.text
-                            if (steps.isEmpty()) {
-                                // No tools were needed — the run is one visible milestone.
-                                push("Answered")
-                            }
                             completeRunning(AgentStepState.DONE)
                         }
                         is AgentEvent.Failed -> {
-                            if (steps.isEmpty()) push("Failed")
                             completeRunning(
                                 AgentStepState.FAILED,
                                 "Failed: ${event.code}",
@@ -654,7 +782,6 @@ class ChatViewModel
                             _uiEvents.tryEmit(ChatUiEvent.ShowError("${event.message} (${event.code})"))
                         }
                         is AgentEvent.StepCapReached -> {
-                            if (steps.isEmpty()) push("Stopped")
                             completeRunning(AgentStepState.DONE)
                             _uiEvents.tryEmit(
                                 ChatUiEvent.ShowNotice("Agent hit its step limit after ${event.stepsUsed} steps."),
@@ -673,6 +800,7 @@ class ChatViewModel
                         role = MessageRole.ASSISTANT,
                         content = answerText,
                         status = MessageStatus.COMPLETE,
+                        routeUsed = lastRouteReason,
                     ),
                 )
             }
@@ -689,14 +817,30 @@ class ChatViewModel
             return gate.await()
         }
 
-        /** Wall-clock for a finished canvas row, rendered as the duration pill ("1.4s"). */
         private fun formatAgentDuration(elapsedMs: Long): String =
             String.format(Locale.US, "%.1fs", elapsedMs.coerceAtLeast(0) / 1000.0)
+
+        /** Persist a finished milestone as a display-only TOOL row. */
+        private suspend fun persistMilestone(
+            conversationId: String,
+            text: String,
+            failed: Boolean = false,
+        ) {
+            conversationRepository.upsertMessage(
+                Message(
+                    conversationId = conversationId,
+                    role = MessageRole.TOOL,
+                    content = text,
+                    status = if (failed) MessageStatus.ERROR else MessageStatus.COMPLETE,
+                ),
+            )
+        }
 
         private suspend fun streamAssistantReply(
             conversationId: String,
             provider: LlmProvider,
             model: String,
+            reasoningRequested: Boolean = false,
         ) {
             val history = conversationRepository.getMessages(conversationId)
             val assistantMessage =
@@ -705,6 +849,7 @@ class ChatViewModel
                     role = MessageRole.ASSISTANT,
                     content = "",
                     status = MessageStatus.STREAMING,
+                    routeUsed = lastRouteReason,
                 )
             conversationRepository.upsertMessage(assistantMessage)
 
@@ -712,12 +857,11 @@ class ChatViewModel
                 ChatRequest(
                     conversationHistory = history,
                     model = model,
+                    thinkMode = thinkMode,
+                    reasoningRequested = reasoningRequested,
                 )
 
-            // Streaming-token appends are debounced at 100ms: tokens
-            // accumulate in local builders and Room writes are batched, not per-token. The
-            // accumulator is authoritative — safer than read-modify-write against UI state,
-            // which can drop tokens when deltas arrive faster than the Room Flow re-emits.
+            // Debounce Room writes at 100ms — the accumulator is authoritative.
             val text = StringBuilder()
             val reasoning = StringBuilder()
             var promptTokens: Int? = null
@@ -756,8 +900,7 @@ class ChatViewModel
                         persist(MessageStatus.STREAMING)
                     }
                 }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                // Cancel mid-stream: partial response kept, marked "stopped".
+            } catch (e: CancellationException) {
                 if (text.isNotBlank() || reasoning.isNotBlank()) persist(MessageStatus.STOPPED)
                 throw e
             } catch (t: Throwable) {
@@ -771,7 +914,6 @@ class ChatViewModel
 
             val error = streamError
             if (error != null) {
-                // Partial text + failure → keep the partial, marked failed.
                 if (text.isNotBlank() || reasoning.isNotBlank()) persist(MessageStatus.ERROR)
                 _uiState.update { it.copy(isStreaming = false) }
                 _uiEvents.tryEmit(ChatUiEvent.ShowError(error.message))
@@ -781,12 +923,7 @@ class ChatViewModel
             }
         }
 
-        /**
-         * Model used for a new request: the provider config's stored model when set, else the
-         * first model the server lists (cached per provider id to skip a /v1/models round trip
-         * per message). Returns null when nothing resolves — a hard error rather than silently
-         * sending an OpenAI-specific guess to a local server, which 400s with "model not found".
-         */
+        /** Resolve model: stored config model, or first from server (cached). */
         private suspend fun resolveModel(
             provider: LlmProvider,
             config: ProviderConfig,
@@ -808,10 +945,6 @@ class ChatViewModel
         /** Per-provider model-id cache backing [providerModel]. */
         private var cachedModels: Pair<String, List<String>>? = null
 
-        /**
-         * Push-to-talk. Uses live mic recognition when the STT provider offers it (on-device,
-         * streaming partials); falls back to buffer capture + [SttProvider.transcribe].
-         */
         fun toggleRecording() {
             if (_uiState.value.isRecording) {
                 stopRecording()
@@ -828,7 +961,6 @@ class ChatViewModel
                     return@launch
                 }
 
-                // Fallback: capture the mic ourselves, then transcribe the buffer.
                 try {
                     audioRecorder.start()
                     _uiState.update { it.copy(isRecording = true) }
@@ -875,14 +1007,11 @@ class ChatViewModel
 
         private fun stopRecording() {
             if (liveSttSession != null) {
-                // Live session: stopListening lets the recognizer flush its final result, which
-                // arrives via onResult; the buffer path is not involved.
                 _uiState.update { it.copy(isRecording = false, isTranscribing = true) }
                 liveSttSession?.stopListening()
                 viewModelScope.launch(dispatchers.main) {
                     liveSttSession?.close()
                     liveSttSession = null
-                    // No result within a beat → treat as an empty capture.
                     delay(LIVE_RESULT_TIMEOUT_MS)
                     if (_uiState.value.isTranscribing) {
                         _uiState.update { it.copy(isTranscribing = false) }
@@ -916,7 +1045,7 @@ class ChatViewModel
             }
         }
 
-        /** Releases mic resources without sending (voice mode exit, ViewModel teardown). */
+        /** Release mic resources without sending. */
         fun stopLiveSessionAndRecorder() {
             stopLiveSession()
             if (_uiState.value.isRecording) {
@@ -931,12 +1060,28 @@ class ChatViewModel
                 _uiState.value.messages
                     .lastOrNull { it.role == MessageRole.ASSISTANT && it.content.isNotEmpty() }
                     ?: return
+            speakMessage(lastAssistant.id, lastAssistant.content)
+        }
+
+        /**
+         * Play TTS for a specific message. The id is the row key, so the "stop" icon only
+         * appears on the row the user tapped. A second tap on the same row stops playback
+         * and clears the marker; tapping a different row interrupts and switches to it.
+         */
+        fun speakMessage(messageId: String, content: String) {
+            // Same row tapped again while speaking — treat as stop.
+            if (_uiState.value.playingAudioMessageId == messageId) {
+                stopSpeaking()
+                return
+            }
+            // Switching rows: stop any in-flight playback before starting a new one.
+            audioPlayer.stop()
 
             viewModelScope.launch(dispatchers.main) {
-                _uiState.update { it.copy(isPlayingAudio = true) }
+                _uiState.update { it.copy(playingAudioMessageId = messageId) }
                 try {
                     ttsProvider
-                        .synthesize(lastAssistant.content, TtsVoice.NOVA)
+                        .synthesize(content, TtsVoice.NOVA)
                         .onSuccess { result ->
                             audioPlayer.play(result.audioData, result.format.extension)
                         }.onFailure { e ->
@@ -945,14 +1090,19 @@ class ChatViewModel
                 } catch (e: CancellationException) {
                     throw e
                 } finally {
-                    _uiState.update { it.copy(isPlayingAudio = false) }
+                    // Only clear the marker if this row is still the one playing — a new
+                    // tap on a different row may have taken over while we were still
+                    // synthesizing for the previous id.
+                    if (_uiState.value.playingAudioMessageId == messageId) {
+                        _uiState.update { it.copy(playingAudioMessageId = null) }
+                    }
                 }
             }
         }
 
         fun stopSpeaking() {
             audioPlayer.stop()
-            _uiState.update { it.copy(isPlayingAudio = false) }
+            _uiState.update { it.copy(playingAudioMessageId = null) }
         }
 
         override fun onCleared() {

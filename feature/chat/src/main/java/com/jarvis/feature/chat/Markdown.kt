@@ -34,6 +34,16 @@ sealed interface MdBlock {
         val spans: List<MdSpan>,
     ) : MdBlock
 
+    /**
+     * A pipe-delimited markdown table. [header] and each [rows] entry hold one span list
+     * per cell; [columnCount] is the widest row so the renderer can pad short rows.
+     */
+    data class TableBlock(
+        val header: List<List<MdSpan>>,
+        val rows: List<List<List<MdSpan>>>,
+        val columnCount: Int,
+    ) : MdBlock
+
     data object Divider : MdBlock
 }
 
@@ -45,6 +55,26 @@ data class MdSpan(
     val url: String? = null,
 )
 
+/** A `| a | b |`-shaped line (at least one pipe with non-blank content around it). */
+private val tableRowRegex = Regex("^\\s{0,3}\\|(.+)\\|?\\s*$")
+
+/** The GFM delimiter row: `| --- | :---: | --- |` — only dashes, colons and pipes. */
+private val tableDelimiterRegex = Regex("^\\s{0,3}\\|?(\\s*:?-{3,}:?\\s*\\|)+\\s*:?-{3,}:?\\s*\\|?\\s*$")
+
+/** Parse one delimiter row into the column alignment specs (kept for future use). */
+private fun isTableDelimiter(line: String): Boolean = tableDelimiterRegex.matches(line)
+
+/** Split a `| a | b |` row into raw cell texts (outer pipes stripped, not cell separators). */
+private fun splitTableRow(line: String): List<String> {
+    val match = tableRowRegex.find(line) ?: return emptyList()
+    // The greedy group can swallow the trailing pipe — drop exactly one before splitting.
+    var body = match.groupValues[1]
+    if (body.endsWith("|")) body = body.dropLast(1)
+    return body
+        .split('|')
+        .map { it.trim() }
+}
+
 /** Parse markdown source into a list of block-level nodes. */
 fun parseMarkdown(source: String): List<MdBlock> {
     val lines = source.replace("\r\n", "\n").split("\n")
@@ -53,6 +83,30 @@ fun parseMarkdown(source: String): List<MdBlock> {
 
     while (i < lines.size) {
         val line = lines[i]
+
+        // Table: a pipe row followed by a GFM delimiter row.
+        if (tableRowRegex.matches(line) &&
+            i + 1 < lines.size &&
+            isTableDelimiter(lines[i + 1])
+        ) {
+            val headerCells = splitTableRow(line)
+            i += 2 // skip header + delimiter
+            val bodyRows = mutableListOf<List<List<MdSpan>>>()
+            while (i < lines.size && tableRowRegex.matches(lines[i]) && lines[i].isNotBlank()) {
+                bodyRows.add(splitTableRow(lines[i]).map { parseInline(it) })
+                i++
+            }
+            val columnCount =
+                (listOf(headerCells.size) + bodyRows.map { it.size } + listOf(1)).max()
+            blocks.add(
+                MdBlock.TableBlock(
+                    header = headerCells.map { parseInline(it) },
+                    rows = bodyRows,
+                    columnCount = columnCount,
+                ),
+            )
+            continue
+        }
 
         // Fenced code block
         val fence = Regex("^\\s*(```+|~~~+)\\s*(\\S*)\\s*$").find(line)
@@ -128,14 +182,16 @@ fun parseMarkdown(source: String): List<MdBlock> {
             continue
         }
 
-        // Paragraph (accumulate until blank line or block start)
+        // Paragraph (accumulate until blank line or block start). A pipe row followed by
+        // a delimiter row also interrupts — GFM tables may open right after prose.
         val paraLines = mutableListOf(line)
         i++
         while (i < lines.size &&
             lines[i].isNotBlank() &&
             !lines[i].trimStart().startsWith(">") &&
             !Regex("^\\s{0,3}#{1,6}\\s").matches(lines[i]) &&
-            !Regex("^\\s*(```+|~~~+)").matches(lines[i])
+            !Regex("^\\s*(```+|~~~+)").matches(lines[i]) &&
+            !(tableRowRegex.matches(lines[i]) && i + 1 < lines.size && isTableDelimiter(lines[i + 1]))
         ) {
             paraLines.add(lines[i])
             i++

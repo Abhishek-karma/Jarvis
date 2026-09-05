@@ -60,15 +60,6 @@ import com.jarvis.core.designsystem.JarvisText
 import com.jarvis.core.designsystem.Motion
 import com.jarvis.core.designsystem.Spacing
 
-/**
- * Voice Mode — a full-screen takeover on black: a center ~280dp sphere with radial
- * gradient #3B82F6 → #60A5FA → #93C5FD pulsing 0.95 ↔ 1.05 over 2s; bottom Mute /
- * Speak / End controls; white status text above them.
- *
- * Shares the chat's [ChatViewModel] so recording/transcription state stays continuous
- * with the composer's push-to-talk. Errors surface in an overlay snackbar (the chat
- * screen's snackbar isn't visible here), and leaving the screen stops the mic.
- */
 @Composable
 fun VoiceModeRoute(
     onEnd: () -> Unit,
@@ -77,7 +68,6 @@ fun VoiceModeRoute(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
 
-    // Voice mode has no visible chat scaffold, so it surfaces one-shot events itself.
     LaunchedEffect(Unit) {
         viewModel.uiEvents.collect { event ->
             val message =
@@ -89,7 +79,6 @@ fun VoiceModeRoute(
         }
     }
 
-    // Leaving voice mode (End or back) must not leave the mic hot.
     DisposableEffect(Unit) {
         onDispose { viewModel.stopLiveSessionAndRecorder() }
     }
@@ -120,7 +109,6 @@ fun VoiceModeScreen(
     onStopSpeaking: () -> Unit,
     onEnd: () -> Unit,
 ) {
-    // Entrance: scale 0 → 1 + opacity 0 → 1 over a 400ms spring.
     var entered by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { entered = true }
     val entrance by animateFloatAsState(
@@ -129,7 +117,6 @@ fun VoiceModeScreen(
         label = "voiceEntrance",
     )
 
-    // Continuous pulse: scale 0.95 ↔ 1.05 over 2s ease-in-out.
     val pulse = rememberInfiniteTransition(label = "sphere")
     val pulseScale by pulse.animateFloat(
         initialValue = 0.95f,
@@ -146,7 +133,7 @@ fun VoiceModeScreen(
         when {
             uiState.isRecording -> "Listening…"
             uiState.isTranscribing -> "Transcribing…"
-            uiState.isPlayingAudio -> "Jarvis is speaking…"
+            uiState.playingAudioMessageId != null -> "Jarvis is speaking…"
             uiState.isStreaming -> "Jarvis is thinking…"
             else -> "Tap the mic and speak"
         }
@@ -180,7 +167,6 @@ fun VoiceModeScreen(
         ) {
             Spacer(modifier = Modifier.weight(0.6f))
 
-            // The pulsing sphere with its glow.
             Box(
                 modifier =
                     Modifier
@@ -189,7 +175,6 @@ fun VoiceModeScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 Canvas(modifier = Modifier.size(340.dp)) {
-                    // Glow ≈ rgba(59,130,246,0.4) 0 0 80dp.
                     repeat(3) { ring ->
                         drawCircle(
                             color = JarvisColors.Voice.blue1.copy(alpha = 0.12f - ring * 0.04f),
@@ -226,7 +211,7 @@ fun VoiceModeScreen(
                 color = Color.White.copy(alpha = 0.85f),
             )
 
-            // Live transcript (last turn each way), quiet white-on-black.
+            // Live transcript (last turn each way).
             if (lastUser.isNotEmpty() || lastAssistant.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(Spacing.lg))
                 Column(
@@ -273,8 +258,8 @@ fun VoiceModeScreen(
                 Spacer(modifier = Modifier.width(Spacing.xxl))
                 VoiceControlButton(
                     icon = Icons.AutoMirrored.Filled.VolumeUp,
-                    contentDescription = if (uiState.isPlayingAudio) "Stop speaking" else "Read the response",
-                    onClick = { if (uiState.isPlayingAudio) onStopSpeaking() else onSpeak() },
+                    contentDescription = if (uiState.playingAudioMessageId != null) "Stop speaking" else "Read the response",
+                    onClick = { if (uiState.playingAudioMessageId != null) onStopSpeaking() else onSpeak() },
                 )
                 Spacer(modifier = Modifier.width(Spacing.xxl))
                 VoiceControlButton(
@@ -287,10 +272,8 @@ fun VoiceModeScreen(
     }
 }
 
-/** How far the overlay snackbar floats above the bottom control row (padding + 56dp buttons). */
 private val VOICE_SNACKBAR_CLEARANCE = 120.dp
 
-/** 56dp circular control — white glyph on semi-transparent black. */
 @Composable
 private fun VoiceControlButton(
     icon: ImageVector,

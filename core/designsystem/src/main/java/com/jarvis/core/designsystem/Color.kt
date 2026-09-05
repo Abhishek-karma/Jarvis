@@ -6,15 +6,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 
 /**
- * Raw token values — Jarvis's mobile-first palette derived from the Claude.com
- * web design language (design.md), adapted for Android:
- *
- *  - Canvas is warm cream `#FAF9F5` (light) / dark warm-ink `#141413` (dark).
- *  - Accent is warm coral `#CC785C` — the signature Anthropic coral, used on
- *    primary CTAs, the brand wordmark, and active indicators.
- *  - Dark navy `#181715` carries product surfaces (code blocks, mockups, footers).
- *  - Light cream `#EFE9DE` for feature card backgrounds.
- *  - Typography runs slab-serif display (Copernicus substitute) + humanist sans body.
+ * Warm cream canvas + coral accent palette from design.md, adapted for mobile.
  */
 object JarvisColors {
     object Dark {

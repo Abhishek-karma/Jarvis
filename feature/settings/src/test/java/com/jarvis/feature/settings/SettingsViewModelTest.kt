@@ -1,12 +1,16 @@
 package com.jarvis.feature.settings
 
 import com.jarvis.core.common.ProviderConfig
+import com.jarvis.core.common.ProviderType
 import com.jarvis.core.database.repository.ProviderRepository
 import com.jarvis.core.database.security.ApiKeyStore
 import com.jarvis.core.ml.LocalModelState
 import com.jarvis.core.ml.LocalModelStore
+import com.jarvis.core.common.ThinkMode
+import com.jarvis.core.network.LlmProvider
 import com.jarvis.core.network.ProviderManager
-import com.jarvis.core.network.sse.OpenAiCompatibleProvider
+import com.jarvis.core.preferences.ThemeMode
+import com.jarvis.core.preferences.UserPreferencesRepository
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -38,6 +42,7 @@ class SettingsViewModelTest {
     private lateinit var providerManager: ProviderManager
     private lateinit var apiKeyStore: ApiKeyStore
     private lateinit var localModelStore: LocalModelStore
+    private lateinit var userPreferences: UserPreferencesRepository
     private lateinit var providersFlow: MutableStateFlow<List<ProviderConfig>>
     private lateinit var localModelStateFlow: MutableStateFlow<LocalModelState>
 
@@ -56,6 +61,7 @@ class SettingsViewModelTest {
         providerManager = mockk(relaxed = true)
         apiKeyStore = mockk(relaxed = true)
         localModelStore = mockk(relaxed = true)
+        userPreferences = mockk(relaxed = true)
         providersFlow = MutableStateFlow(emptyList())
         localModelStateFlow = MutableStateFlow(LocalModelState.NotDownloaded)
         every { localModelStore.status } returns localModelStateFlow
@@ -68,6 +74,7 @@ class SettingsViewModelTest {
                 providerManager = providerManager,
                 apiKeyStore = apiKeyStore,
                 localModelStore = localModelStore,
+                userPreferences = userPreferences,
                 context = mockk(relaxed = true),
                 dispatchers = testDispatchers,
             )
@@ -77,6 +84,49 @@ class SettingsViewModelTest {
     fun tearDown() {
         Dispatchers.resetMain()
     }
+
+    @Test
+    fun `preference setters delegate to the repository`() =
+        runTest {
+            viewModel.setThemeMode(ThemeMode.DARK)
+            viewModel.setThinkMode(ThinkMode.ON)
+            viewModel.setCautiousMode(true)
+            viewModel.setAgentStepCap(25)
+            advanceUntilIdle()
+
+            coVerify { userPreferences.setThemeMode(ThemeMode.DARK) }
+            coVerify { userPreferences.setThinkMode(ThinkMode.ON) }
+            coVerify { userPreferences.setCautiousModeEnabled(true) }
+            coVerify { userPreferences.setAgentStepCap(25) }
+        }
+
+    @Test
+    fun `persisted preferences are mirrored into prefsState`() =
+        runTest {
+            every { userPreferences.themeMode } returns MutableStateFlow(ThemeMode.DARK)
+            every { userPreferences.thinkMode } returns MutableStateFlow(ThinkMode.OFF)
+            every { userPreferences.cautiousModeEnabled } returns MutableStateFlow(true)
+            every { userPreferences.agentStepCap } returns MutableStateFlow(20)
+
+            // Recreate the ViewModel so its init collectors pick up the stubs.
+            viewModel =
+                SettingsViewModel(
+                    providerRepository = providerRepository,
+                    providerManager = providerManager,
+                    apiKeyStore = apiKeyStore,
+                    localModelStore = localModelStore,
+                    userPreferences = userPreferences,
+                    context = mockk(relaxed = true),
+                    dispatchers = testDispatchers,
+                )
+            advanceUntilIdle()
+
+            val prefs = viewModel.prefsState.value
+            assertEquals(ThemeMode.DARK, prefs.themeMode)
+            assertEquals(ThinkMode.OFF, prefs.thinkMode)
+            assertTrue(prefs.cautiousModeEnabled)
+            assertEquals(20, prefs.agentStepCap)
+        }
 
     @Test
     fun `deleteProvider removes from repository and key store`() =
@@ -112,6 +162,7 @@ class SettingsViewModelTest {
         assertEquals("", state.name)
         assertEquals("", state.model)
         assertEquals("", state.apiKey)
+        assertEquals(ProviderType.OPENAI_COMPATIBLE, state.type)
     }
 
     @Test
@@ -173,7 +224,7 @@ class SettingsViewModelTest {
     @Test
     fun `verifyAndSave allows empty API key for keyless local servers`() =
         runTest {
-            val mockAdapter = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            val mockAdapter = mockk<LlmProvider>(relaxed = true)
             coEvery { providerManager.adapterFor(any()) } returns mockAdapter
             coEvery { mockAdapter.listModels() } returns Result.success(emptyList())
             coEvery { providerRepository.upsert(any()) } just Runs
@@ -195,7 +246,7 @@ class SettingsViewModelTest {
     @Test
     fun `verifyAndSave persists provider on successful verification`() =
         runTest {
-            val mockAdapter = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            val mockAdapter = mockk<LlmProvider>(relaxed = true)
             coEvery { providerManager.adapterFor(any()) } returns mockAdapter
             coEvery { mockAdapter.listModels() } returns Result.success(emptyList())
             coEvery { providerRepository.upsert(any()) } just Runs
@@ -216,7 +267,35 @@ class SettingsViewModelTest {
                     match {
                         it.name == "Test Provider" &&
                             it.baseUrl == "https://api.openai.com" &&
-                            it.model == "gpt-4o-mini"
+                            it.model == "gpt-4o-mini" &&
+                            it.type == ProviderType.OPENAI_COMPATIBLE
+                    },
+                )
+            }
+            assertTrue(viewModel.editState.value.verificationSuccess)
+        }
+
+    @Test
+    fun `verifyAndSave persists provider type for non-default families`() =
+        runTest {
+            val mockAdapter = mockk<LlmProvider>(relaxed = true)
+            coEvery { providerManager.adapterFor(any()) } returns mockAdapter
+            coEvery { mockAdapter.listModels() } returns Result.success(emptyList())
+            coEvery { providerRepository.upsert(any()) } just Runs
+            coEvery { providerManager.dropAdapter(any()) } just Runs
+            coEvery { apiKeyStore.putKey(any(), any()) } just Runs
+
+            viewModel.onNameChange("Anthropic")
+            viewModel.onTypeChange(ProviderType.ANTHROPIC)
+            viewModel.onApiKeyChange("sk-ant-test")
+            viewModel.verifyAndSave()
+            advanceUntilIdle()
+
+            coVerify {
+                providerRepository.upsert(
+                    match {
+                        it.type == ProviderType.ANTHROPIC &&
+                            it.baseUrl == "https://api.anthropic.com"
                     },
                 )
             }
@@ -226,7 +305,7 @@ class SettingsViewModelTest {
     @Test
     fun `verifyAndSave shows error on failed verification`() =
         runTest {
-            val mockAdapter = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            val mockAdapter = mockk<LlmProvider>(relaxed = true)
             coEvery { providerManager.adapterFor(any()) } returns mockAdapter
             coEvery { mockAdapter.listModels() } returns Result.failure(Exception("401 Unauthorized"))
             coEvery { providerManager.dropAdapter(any()) } just Runs
@@ -265,8 +344,30 @@ class SettingsViewModelTest {
             assertEquals("OpenAI", state.name)
             assertEquals("gpt-4o-mini", state.model)
             assertEquals("sk-existing", state.apiKey)
+            assertEquals(ProviderType.OPENAI_COMPATIBLE, state.type)
             assertFalse(state.isNew)
         }
+
+    @Test
+    fun `onTypeChange re-points the base URL to the family root`() {
+        viewModel.onTypeChange(ProviderType.ANTHROPIC)
+
+        val state = viewModel.editState.value
+        assertEquals(ProviderType.ANTHROPIC, state.type)
+        assertEquals("https://api.anthropic.com", state.baseUrl)
+        assertNull(state.verificationError)
+        assertFalse(state.verificationSuccess)
+    }
+
+    @Test
+    fun `onTypeChange preserves a custom base URL`() {
+        viewModel.onBaseUrlChange("https://my-proxy.example.com/v1")
+        viewModel.onTypeChange(ProviderType.GEMINI)
+
+        val state = viewModel.editState.value
+        assertEquals(ProviderType.GEMINI, state.type)
+        assertEquals("https://my-proxy.example.com/v1", state.baseUrl)
+    }
 
     private fun assertNull(value: Any?) {
         assertEquals(null, value)

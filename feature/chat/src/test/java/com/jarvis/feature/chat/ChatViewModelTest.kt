@@ -72,6 +72,8 @@ class ChatViewModelTest {
     private lateinit var localModelStore: LocalModelStore
     private lateinit var localLlmRuntime: LocalLlmRuntime
     private lateinit var connectivity: LocalConnectivity
+    private lateinit var userPreferences: com.jarvis.core.preferences.UserPreferencesRepository
+    private lateinit var thinkModeFlow: MutableStateFlow<com.jarvis.core.common.ThinkMode>
     private lateinit var localModelStateFlow: MutableStateFlow<LocalModelState>
 
     @BeforeEach
@@ -95,6 +97,10 @@ class ChatViewModelTest {
         localModelStateFlow = MutableStateFlow(LocalModelState.NotDownloaded)
         every { localModelStore.status } returns localModelStateFlow
         every { connectivity.isOnline() } returns true
+        userPreferences = mockk(relaxed = true)
+        every { userPreferences.agentStepCap } returns MutableStateFlow(15)
+        thinkModeFlow = MutableStateFlow(com.jarvis.core.common.ThinkMode.AUTO)
+        every { userPreferences.thinkMode } returns thinkModeFlow
 
         // Default: no saved conversation ID → creates new
         val savedStateHandle = androidx.lifecycle.SavedStateHandle()
@@ -115,6 +121,7 @@ class ChatViewModelTest {
                 localModelStore = localModelStore,
                 localLlmRuntime = localLlmRuntime,
                 connectivity = connectivity,
+                userPreferences = userPreferences,
                 savedStateHandle = savedStateHandle,
             )
     }
@@ -131,6 +138,20 @@ class ChatViewModelTest {
         assertEquals("", state.composerText)
         assertFalse(state.isStreaming)
     }
+
+    @Test
+    fun `setThinkMode persists and echoes into UI state`() =
+        runTest {
+            viewModel.setThinkMode(com.jarvis.core.common.ThinkMode.ON)
+            advanceUntilIdle()
+
+            coVerify { userPreferences.setThinkMode(com.jarvis.core.common.ThinkMode.ON) }
+
+            // The preferences collector echoes the write into UI state.
+            thinkModeFlow.value = com.jarvis.core.common.ThinkMode.ON
+            advanceUntilIdle()
+            assertEquals(com.jarvis.core.common.ThinkMode.ON, viewModel.uiState.value.thinkMode)
+        }
 
     @Test
     fun `sendMessage does nothing when composer is empty`() =
@@ -548,6 +569,61 @@ class ChatViewModelTest {
         }
 
     @Test
+    fun `agent milestones persist as quiet TOOL rows in the transcript`() =
+        runTest {
+            val provider =
+                agentProvider(
+                    listOf(
+                        flowOf(
+                            ChatStreamEvent.ToolCallRequested(name = "current_time", argsJson = "{}"),
+                            ChatStreamEvent.Done,
+                        ),
+                        flowOf(ChatStreamEvent.TokenDelta("It is 12:00 UTC."), ChatStreamEvent.Done),
+                    ),
+                )
+            viewModelWith(tool("current_time"))
+            openAgentConversation()
+
+            viewModel.onTextChange("Jarvis, what time is it?")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            // The finished milestone is persisted inline (ChatGPT/Claude-style), so it
+            // survives in history after the run — not just in the live in-flight tail.
+            coVerify {
+                conversationRepository.upsertMessage(
+                    match { it.role == MessageRole.TOOL && it.content.contains("current_time done") },
+                )
+            }
+        }
+
+    @Test
+    fun `agent answer without tools persists no milestone rows`() =
+        runTest {
+            // "Jarvis," prefix on a tools-capable provider, but the model answers directly:
+            // the registry is empty so the engine never requests a call.
+            val provider =
+                agentProvider(
+                    listOf(
+                        flowOf(ChatStreamEvent.TokenDelta("Hi."), ChatStreamEvent.Done),
+                    ),
+                )
+            viewModelWith()
+            openAgentConversation()
+
+            viewModel.onTextChange("Jarvis, just say hi")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            coVerify(exactly = 0) { conversationRepository.upsertMessage(match { it.role == MessageRole.TOOL }) }
+            coVerify {
+                conversationRepository.upsertMessage(
+                    match { it.role == MessageRole.ASSISTANT && it.content == "Hi." },
+                )
+            }
+        }
+
+    @Test
     fun `agent run renders each canvas milestone with completed checkmarks`() =
         runTest {
             val provider =
@@ -671,6 +747,7 @@ class ChatViewModelTest {
 
             val state = viewModel.uiState.value
             assertEquals(RoutingOverride.LOCAL, state.activeRoute)
+            assertEquals(RouteBadge(RoutingOverride.LOCAL, "On-device"), state.routeBadge)
             assertFalse(state.isStreaming)
             coVerify {
                 conversationRepository.upsertMessage(
@@ -684,7 +761,7 @@ class ChatViewModelTest {
         }
 
     @Test
-    fun `AUTO online with an installed model still uses the cloud provider`() =
+    fun `AUTO online with a realtime question uses the cloud provider even with a model installed`() =
         runTest {
             val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
             every { provider.capabilities } returns ProviderCapabilities(supportsTools = false)
@@ -694,12 +771,45 @@ class ChatViewModelTest {
             installLocalModel()
             openAgentConversation()
 
-            viewModel.onTextChange("hello")
+            viewModel.onTextChange("what's the weather today")
             viewModel.sendMessage()
             advanceUntilIdle()
 
             assertEquals(RoutingOverride.CLOUD, viewModel.uiState.value.activeRoute)
+            assertEquals(
+                RouteBadge(RoutingOverride.CLOUD, "gpt-4o-mini • OpenAI"),
+                viewModel.uiState.value.routeBadge,
+            )
             coVerify(exactly = 0) { localLlmRuntime.currentProvider() }
+        }
+
+    @Test
+    fun `AUTO online with a light message and an installed model routes on-device`() =
+        runTest {
+            installLocalModel(partials = listOf("Local answer"))
+            every { connectivity.isOnline() } returns true
+            openAgentConversation()
+            coEvery {
+                conversationRepository.getMessages("conv-agent")
+            } returns
+                listOf(Message(id = "u1", conversationId = "conv-agent", role = MessageRole.USER, content = "hello"))
+
+            viewModel.onTextChange("hello")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            // Step 6 of the v0.5 tree: light message + ready model → LOCAL even while online.
+            assertEquals(RoutingOverride.LOCAL, viewModel.uiState.value.activeRoute)
+            assertEquals(RouteBadge(RoutingOverride.LOCAL, "On-device"), viewModel.uiState.value.routeBadge)
+            coVerify(exactly = 1) { localLlmRuntime.currentProvider() }
+            // The routing reason rides on the persisted user row (Message.routeUsed).
+            coVerify {
+                conversationRepository.upsertMessage(
+                    match {
+                        it.role == MessageRole.USER && it.routeUsed == RoutingReason.LIGHT_LOCAL.name
+                    },
+                )
+            }
         }
 
     @Test
@@ -746,6 +856,7 @@ class ChatViewModelTest {
                 localModelStore = localModelStore,
                 localLlmRuntime = localLlmRuntime,
                 connectivity = connectivity,
+                userPreferences = userPreferences,
                 savedStateHandle = androidx.lifecycle.SavedStateHandle(),
             )
     }

@@ -7,12 +7,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jarvis.core.common.DispatcherProvider
 import com.jarvis.core.common.ProviderConfig
+import com.jarvis.core.common.ProviderType
 import com.jarvis.core.database.repository.ProviderRepository
 import com.jarvis.core.database.security.ApiKeyStore
 import com.jarvis.core.ml.LocalModelSpec
 import com.jarvis.core.ml.LocalModelState
 import com.jarvis.core.ml.LocalModelStore
+import com.jarvis.core.network.LlmProvider
 import com.jarvis.core.network.ProviderManager
+import com.jarvis.core.common.ThinkMode
+import com.jarvis.core.preferences.ThemeMode
+import com.jarvis.core.preferences.UserPreferencesRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -28,6 +33,14 @@ import javax.inject.Inject
 data class ProvidersListState(
     val providers: List<ProviderConfig> = emptyList(),
     val isLoading: Boolean = true,
+)
+
+/** User preferences rendered by the general settings screen (theme, agent, reasoning). */
+data class PreferencesState(
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val thinkMode: ThinkMode = ThinkMode.AUTO,
+    val cautiousModeEnabled: Boolean = false,
+    val agentStepCap: Int = 15,
 )
 
 sealed interface ProvidersListEvent {
@@ -49,6 +62,8 @@ data class ProviderEditState(
     val model: String = "",
     val apiKey: String = "",
     val isDefault: Boolean = false,
+    /** Wire family — drives which adapter ProviderManager dispatches to. */
+    val type: ProviderType = ProviderType.OPENAI_COMPATIBLE,
     val isVerifying: Boolean = false,
     val verificationError: String? = null,
     /** True once the provider has been verified and persisted — drives the back navigation. */
@@ -56,11 +71,7 @@ data class ProviderEditState(
     val isNew: Boolean = true,
 )
 
-/**
- * Shared ViewModel for the settings flow.  Uses a sealed [SettingsRoute] to decide
- * which screen state to expose; keeps all provider CRUD in one place so the
- * ProvidersList and ProviderEdit screens can share the same coroutine scope.
- */
+/** Shared ViewModel for the settings flow. */
 @HiltViewModel
 class SettingsViewModel
     @Inject
@@ -69,17 +80,17 @@ class SettingsViewModel
         private val providerManager: ProviderManager,
         private val apiKeyStore: ApiKeyStore,
         private val localModelStore: LocalModelStore,
+        private val userPreferences: UserPreferencesRepository,
         @ApplicationContext private val context: Context,
         private val dispatchers: DispatcherProvider,
     ) : ViewModel() {
         private val _listState = MutableStateFlow(ProvidersListState())
         val listState: StateFlow<ProvidersListState> = _listState.asStateFlow()
 
-        /**
-         * One-shot toasts for list actions (delete, default, model import/remove).
-         * Buffered + tryEmit: fire-and-forget, never suspends when nobody is collecting
-         * (e.g. unit tests), and a burst of actions still shows each message in turn.
-         */
+    private val _prefsState = MutableStateFlow(PreferencesState())
+    val prefsState: StateFlow<PreferencesState> = _prefsState.asStateFlow()
+
+        /** One-shot toasts for list actions. */
         private val _listEvents = MutableSharedFlow<ProvidersListEvent>(extraBufferCapacity = 8)
         val listEvents: SharedFlow<ProvidersListEvent> = _listEvents.asSharedFlow()
 
@@ -100,12 +111,23 @@ class SettingsViewModel
                 }
             }
             viewModelScope.launch(dispatchers.main) {
+                userPreferences.themeMode.collect { mode -> _prefsState.update { it.copy(themeMode = mode) } }
+            }
+            viewModelScope.launch(dispatchers.main) {
+                userPreferences.thinkMode.collect { mode -> _prefsState.update { it.copy(thinkMode = mode) } }
+            }
+            viewModelScope.launch(dispatchers.main) {
+                userPreferences.cautiousModeEnabled.collect { enabled ->
+                    _prefsState.update { it.copy(cautiousModeEnabled = enabled) }
+                }
+            }
+            viewModelScope.launch(dispatchers.main) {
+                userPreferences.agentStepCap.collect { cap -> _prefsState.update { it.copy(agentStepCap = cap) } }
+            }
+            viewModelScope.launch(dispatchers.main) {
                 var previous: LocalModelState = LocalModelState.None
                 localModelStore.status.collect { state ->
                     _localModelState.value = state
-                    // User-started work (download / import) failing is worth a snackbar on top of
-                    // the card's inline error — other Error states (e.g. stale from a prior process)
-                    // are already visible in the card and shouldn't toast again on open.
                     if (state is LocalModelState.Error &&
                         (previous is LocalModelState.Downloading || previous is LocalModelState.Importing)
                     ) {
@@ -114,6 +136,22 @@ class SettingsViewModel
                     previous = state
                 }
             }
+        }
+
+        fun setThemeMode(mode: ThemeMode) {
+            viewModelScope.launch(dispatchers.main) { userPreferences.setThemeMode(mode) }
+        }
+
+        fun setThinkMode(mode: ThinkMode) {
+            viewModelScope.launch(dispatchers.main) { userPreferences.setThinkMode(mode) }
+        }
+
+        fun setCautiousMode(enabled: Boolean) {
+            viewModelScope.launch(dispatchers.main) { userPreferences.setCautiousModeEnabled(enabled) }
+        }
+
+        fun setAgentStepCap(cap: Int) {
+            viewModelScope.launch(dispatchers.main) { userPreferences.setAgentStepCap(cap) }
         }
 
         fun startLocalModelDownload() {
@@ -139,12 +177,7 @@ class SettingsViewModel
             }
         }
 
-        /**
-         * Sideloads a model picked from device storage (SAF). The Android layer opens the stream from
-         * the [uri] and hands it to the pure-JVM store, which copies it in and marks it Ready.
-         */
         fun importLocalModel(uri: Uri) {
-            // The card hides Import while busy/installed, but guard anyway against double starts.
             when (_localModelState.value) {
                 is LocalModelState.Downloading,
                 is LocalModelState.Importing,
@@ -221,6 +254,7 @@ class SettingsViewModel
                         model = provider.model.orEmpty(),
                         apiKey = existingKey,
                         isDefault = provider.isDefault,
+                        type = provider.type,
                         isNew = false,
                     )
                 }
@@ -232,6 +266,7 @@ class SettingsViewModel
             _editState.update {
                 ProviderEditState(
                     baseUrl = "https://api.openai.com",
+                    type = ProviderType.OPENAI_COMPATIBLE,
                     isNew = true,
                 )
             }
@@ -256,6 +291,33 @@ class SettingsViewModel
         fun onDefaultChange(isDefault: Boolean) {
             _editState.update { it.copy(isDefault = isDefault) }
         }
+
+        /**
+         * Switching the provider family re-points the base URL to that family's canonical
+         * root unless the user has already typed a custom one (we can't tell intent from a
+         * blank field, so we only auto-fill on a fresh family switch).
+         */
+        fun onTypeChange(type: ProviderType) {
+            _editState.update { state ->
+                val canonical = canonicalBaseUrl(type)
+                val url =
+                    if (state.baseUrl == canonicalBaseUrl(state.type) ||
+                        state.baseUrl == "https://api.openai.com"
+                    ) {
+                        canonical
+                    } else {
+                        state.baseUrl
+                    }
+                state.copy(type = type, baseUrl = url, verificationError = null, verificationSuccess = false)
+            }
+        }
+
+        private fun canonicalBaseUrl(type: ProviderType): String =
+            when (type) {
+                ProviderType.OPENAI_COMPATIBLE -> "https://api.openai.com"
+                ProviderType.ANTHROPIC -> "https://api.anthropic.com"
+                ProviderType.GEMINI -> "https://generativelanguage.googleapis.com"
+            }
 
         /**
          * Verify the endpoint by issuing a lightweight listModels() call, then persist.
@@ -293,6 +355,7 @@ class SettingsViewModel
                         name = name,
                         baseUrl = baseUrl,
                         model = model.ifBlank { null },
+                        type = state.type,
                         isDefault = state.isDefault,
                     )
 

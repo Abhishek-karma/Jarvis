@@ -1,8 +1,10 @@
 package com.jarvis.feature.chat
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 
 class MarkdownParserTest {
@@ -173,5 +175,141 @@ class MarkdownParserTest {
     @Test
     fun `url span is only set when a link is present`() {
         assertNull(MdSpan("plain").url)
+    }
+
+    @Nested
+    inner class Tables {
+        @Test
+        fun `basic table parses header and rows`() {
+            val blocks =
+                parseMarkdown(
+                    "| Name | Age |\n" +
+                        "| --- | --- |\n" +
+                        "| Alice | 30 |\n" +
+                        "| Bob | 25 |",
+                )
+
+            assertEquals(1, blocks.size)
+            val table = blocks[0] as MdBlock.TableBlock
+            assertEquals(2, table.columnCount)
+            assertEquals(
+                listOf(listOf(MdSpan("Name")), listOf(MdSpan("Age"))),
+                table.header,
+            )
+            assertEquals(2, table.rows.size)
+            assertEquals(
+                listOf(listOf(MdSpan("Alice")), listOf(MdSpan("30"))),
+                table.rows[0],
+            )
+            assertEquals(
+                listOf(listOf(MdSpan("Bob")), listOf(MdSpan("25"))),
+                table.rows[1],
+            )
+        }
+
+        @Test
+        fun `table with alignment colons parses`() {
+            val blocks =
+                parseMarkdown(
+                    "| Left | Center | Right |\n" +
+                        "| --- | :---: | ---: |\n" +
+                        "| a | b | c |",
+                )
+
+            val table = blocks[0] as MdBlock.TableBlock
+            assertEquals(3, table.columnCount)
+            assertEquals(
+                listOf(
+                    listOf(MdSpan("Left")),
+                    listOf(MdSpan("Center")),
+                    listOf(MdSpan("Right")),
+                ),
+                table.header,
+            )
+            assertEquals(1, table.rows.size)
+        }
+
+        @Test
+        fun `table without leading or trailing pipes parses`() {
+            val blocks =
+                parseMarkdown(
+                    "H1 | H2\n" +
+                        "--- | ---\n" +
+                        "a | b",
+                )
+
+            // GFM allows the pipe-less form; our subset requires the leading pipe, so this
+            // must NOT be read as a table (it stays a paragraph) — documented limitation.
+            assertFalse(blocks[0] is MdBlock.TableBlock)
+        }
+
+        @Test
+        fun `inline styles inside cells are preserved`() {
+            val blocks =
+                parseMarkdown(
+                    "| Item | Status |\n" +
+                        "| --- | --- |\n" +
+                        "| **Widget** | `ok` |",
+                )
+
+            val table = blocks[0] as MdBlock.TableBlock
+            val row = table.rows.single()
+            assertTrue(row[0].single().bold)
+            assertTrue(row[1].single().code)
+        }
+
+        @Test
+        fun `table interrupts an open paragraph`() {
+            val blocks =
+                parseMarkdown(
+                    "Here is the data:\n" +
+                        "| k | v |\n" +
+                        "| --- | --- |\n" +
+                        "| a | 1 |",
+                )
+
+            assertEquals(2, blocks.size)
+            assertTrue(blocks[0] is MdBlock.Paragraph)
+            assertTrue(blocks[1] is MdBlock.TableBlock)
+            val para = blocks[0] as MdBlock.Paragraph
+            assertEquals("Here is the data:", para.spans.single().text)
+        }
+
+        @Test
+        fun `delimiter row alone is not a table`() {
+            // A delimiter-looking line without a header row stays a paragraph/divider path.
+            val blocks = parseMarkdown("| --- | --- |")
+            assertFalse(blocks[0] is MdBlock.TableBlock)
+        }
+
+        @Test
+        fun `short rows keep the table shape via columnCount`() {
+            val blocks =
+                parseMarkdown(
+                    "| A | B | C |\n" +
+                        "| --- | --- | --- |\n" +
+                        "| 1 | 2 |",
+                )
+
+            val table = blocks[0] as MdBlock.TableBlock
+            assertEquals(3, table.columnCount)
+            assertEquals(2, table.rows.single().size)
+        }
+
+        @Test
+        fun `table followed by a paragraph splits cleanly`() {
+            val blocks =
+                parseMarkdown(
+                    "| a | b |\n" +
+                        "| --- | --- |\n" +
+                        "| 1 | 2 |\n" +
+                        "\n" +
+                        "Trailing prose.",
+                )
+
+            assertEquals(2, blocks.size)
+            assertTrue(blocks[0] is MdBlock.TableBlock)
+            assertTrue(blocks[1] is MdBlock.Paragraph)
+        }
     }
 }

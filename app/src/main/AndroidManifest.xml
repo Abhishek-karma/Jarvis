@@ -4,6 +4,22 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- Agent tool access (PR-7): calendar, contacts, SMS, calls, files, alarms, volume.
+         SENSITIVE-tier tools additionally pause behind the agent confirmation gate. -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <!-- READ_EXTERNAL_STORAGE is a no-op on API 33+ (scoped storage); MediaStore file search
+         works without any permission for indexed files on API 29+. -->
+    <uses-permission android:name="android.permission.SET_ALARM" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Telephony (SMS/call tools) is optional: Jarvis installs and runs on non-phone
+         devices; those tools just report "unavailable" there. -->
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
+
     <application
         android:name=".JarvisApplication"
         android:allowBackup="true"

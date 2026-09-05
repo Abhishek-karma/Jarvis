@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.union
-import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
@@ -44,13 +43,11 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PriorityHigh
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
@@ -61,14 +58,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -97,6 +91,8 @@ import com.jarvis.core.common.Message
 import com.jarvis.core.common.MessageRole
 import com.jarvis.core.common.MessageStatus
 import com.jarvis.core.common.RoutingOverride
+import com.jarvis.core.common.ThinkMode
+import com.jarvis.core.designsystem.JarvisBadge
 import com.jarvis.core.designsystem.JarvisBubbleShapes
 import com.jarvis.core.designsystem.JarvisColors
 import com.jarvis.core.designsystem.JarvisHeader
@@ -107,9 +103,7 @@ import com.jarvis.core.designsystem.JarvisSendButton
 import com.jarvis.core.designsystem.JarvisShapes
 import com.jarvis.core.designsystem.JarvisSnackbarHost
 import com.jarvis.core.designsystem.JarvisText
-import com.jarvis.core.designsystem.Radius
 import com.jarvis.core.designsystem.Spacing
-import com.jarvis.core.designsystem.TapTargets
 import com.jarvis.core.designsystem.StreamingCursor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -124,18 +118,6 @@ fun ChatRoute(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Surface one-shot events (errors, routing notices) as snackbars.
-    LaunchedEffect(Unit) {
-        viewModel.uiEvents.collect { event ->
-            when (event) {
-                is ChatUiEvent.ShowError -> snackbarHostState.showSnackbar(event.message)
-                is ChatUiEvent.ShowNotice -> snackbarHostState.showSnackbar(event.message)
-            }
-        }
-    }
-
-    // History drawer actions (rename, delete, pin failures) surface their toasts here —
-    // the drawer itself has no snackbar host.
     LaunchedEffect(Unit) {
         historyViewModel.uiEvents.collect { event ->
             when (event) {
@@ -148,8 +130,6 @@ fun ChatRoute(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
-    // RECORD_AUDIO runtime permission — must be requested before any voice recording.
-    // Denial routes to a visible fallback (snackbar + hint), never a silent dead end.
     val context = LocalContext.current
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     val permissionLauncher =
@@ -161,7 +141,6 @@ fun ChatRoute(
             if (granted) {
                 action?.invoke()
             } else {
-                // Don't touch the mic again this screen; tell the user why nothing happened.
                 scope.launch {
                     snackbarHostState.showSnackbar(
                         "Microphone access is off — enable it in system settings to use voice.",
@@ -181,10 +160,6 @@ fun ChatRoute(
         }
     }
 
-    // This wrapper only hosts the snackbar; every system-bar inset is consumed by the inner
-    // ChatScreen (TopAppBar status inset, composer nav/ime inset), so counting any inset here
-    // again would double-pad the page — and a static nav-bar inset here would stack below the
-    // keyboard when it opens. Zero insets, the snackbar pads itself.
     Scaffold(
         snackbarHost = {
             JarvisSnackbarHost(snackbarHostState, modifier = Modifier.navigationBarsPadding())
@@ -219,10 +194,12 @@ fun ChatRoute(
                 onSend = viewModel::sendMessage,
                 onCancel = viewModel::cancelStreaming,
                 onRoutingChange = viewModel::setRoutingOverride,
+                onThinkModeChange = viewModel::setThinkMode,
                 onOpenVoiceMode = { requireAudioPermission { onOpenVoiceMode() } },
                 onOpenDrawer = { scope.launch { drawerState.open() } },
                 onToggleRecording = { requireAudioPermission { viewModel.toggleRecording() } },
                 onSpeakLastResponse = viewModel::speakLastResponse,
+                onSpeakMessage = viewModel::speakMessage,
                 onStopSpeaking = viewModel::stopSpeaking,
                 onRespondToConfirmation = viewModel::respondToConfirmation,
                 onRegenerate = viewModel::regenerate,
@@ -239,30 +216,22 @@ fun ChatScreen(
     onSend: () -> Unit,
     onCancel: () -> Unit = {},
     onRoutingChange: (RoutingOverride) -> Unit = {},
+    onThinkModeChange: (ThinkMode) -> Unit = {},
     onOpenVoiceMode: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     onToggleRecording: () -> Unit = {},
     onSpeakLastResponse: () -> Unit = {},
+    onSpeakMessage: (String, String) -> Unit = { _, _ -> },
     onStopSpeaking: () -> Unit = {},
     onRespondToConfirmation: (Boolean) -> Unit = {},
     onRegenerate: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val lastMessageCount = uiState.messages.size
-    // The turn that owns the Regenerate affordance — only the latest assistant reply
-    // can be re-run. Computed once per state, not per row.
     val lastAssistantMessageId = remember(uiState.messages) {
         uiState.messages.lastOrNull { it.role == MessageRole.ASSISTANT }?.id
     }
 
-    // Follow-the-latest scroll. One mechanic for all cases:
-    //  - New message arrives (count changes) → jump to it.
-    //  - Last message grows while streaming (content length changes) → keep it in view.
-    //  - A different conversation was opened → land at its latest message, unanimated.
-    //
-    // The follow only runs while the user is at (or near) the bottom. Once they scroll up
-    // to read history, nothing yanks them back down for the rest of the turn — the exact
-    // behavior that made streaming unreadable before.
     val isAtBottom by remember {
         derivedStateOf {
             val info = listState.layoutInfo
@@ -274,29 +243,19 @@ fun ChatScreen(
         }
     }
 
-    // Conversation switch: an instant reposition, not an animation across recycled rows.
     LaunchedEffect(uiState.conversationId) {
         if (lastMessageCount > 0) {
-            // Scroll past the last real item so the list rests fully at the bottom; the
-            // LazyColumn clamps to its true max.
             listState.scrollToItem(lastMessageCount)
         }
     }
 
-    // New messages: animated follow. The user's own message always scrolls into view (they
-    // just sent it — even if they were scrolled up reading history); anything else only
-    // follows while pinned to the bottom.
     LaunchedEffect(lastMessageCount) {
         val last = uiState.messages.lastOrNull() ?: return@LaunchedEffect
         if (last.role == MessageRole.USER || isAtBottom) {
-            // Index + 1 clamps to the end of the list, so the newest bubble's bottom rests
-            // near the viewport bottom and streaming growth stays visible.
             listState.animateScrollToItem(lastMessageCount)
         }
     }
 
-    // Streaming growth: the bubble's height increases as tokens arrive. animateScrollToItem
-    // re-anchors every frame the content changes, which is what keeps long replies on screen.
     LaunchedEffect(
         uiState.messages.lastOrNull()?.content?.length,
         uiState.isStreaming,
@@ -307,25 +266,11 @@ fun ChatScreen(
         }
     }
 
-    var agentSheetOpen by remember { mutableStateOf(false) }
-    val pending = uiState.pendingConfirmation
-    val canvasVisible = uiState.isAgentRunning || pending != null
-
-    // A new run or a parked Sensitive-tier call auto-opens the sheet; Hide collapses it
-    // to a pill while the run keeps going.
-    LaunchedEffect(canvasVisible, pending) {
-        if (canvasVisible) agentSheetOpen = true
-    }
-
-    // Zero insets: Scaffold would otherwise apply the navigation-bar inset to the
-    // bottomBar AND Composer adds navigationBars.union(ime) itself — double bottom
-    // padding with the keyboard closed. TopAppBar pads for the status bar internally,
-    // so the header stays correct and Composer is the single owner of nav/ime insets.
     Scaffold(
         contentWindowInsets = WindowInsets(0.dp),
         topBar = {
             JarvisHeader(
-                title = if (uiState.conversationTitle == DEFAULT_CONVERSATION_TITLE) "" else uiState.conversationTitle,
+                title = "",
                 navigationIcon = {
                     IconButton(onClick = onOpenDrawer) {
                         Icon(Icons.Default.Menu, contentDescription = "History")
@@ -335,6 +280,10 @@ fun ChatScreen(
                     RouteSelector(
                         selected = uiState.routingOverride,
                         onSelect = onRoutingChange,
+                    )
+                    ThinkModeSelector(
+                        selected = uiState.thinkMode,
+                        onSelect = onThinkModeChange,
                     )
                     IconButton(onClick = onOpenVoiceMode) {
                         Icon(Icons.Default.Mic, contentDescription = "Voice mode")
@@ -396,251 +345,74 @@ fun ChatScreen(
                     items(uiState.messages, key = { it.id }) { message ->
                         MessageBubble(
                             message = message,
-                            isPlayingAudio = uiState.isPlayingAudio,
+                            isPlayingAudio = uiState.playingAudioMessageId == message.id,
                             isLastAssistant = message.id == lastAssistantMessageId,
                             canRegenerate = !uiState.isStreaming && !uiState.isPreparingSend,
-                            onSpeak = onSpeakLastResponse,
+                            routeBadge =
+                                if (message.id == lastAssistantMessageId) {
+                                    uiState.routeBadge
+                                } else {
+                                    null
+                                },
+                            onSpeak = { onSpeakMessage(message.id, message.content) },
                             onStopSpeaking = onStopSpeaking,
                             onRegenerate = onRegenerate,
                         )
                     }
-                }
 
-                // Collapsed agent pill floats above the list, inside the content area —
-                // anchored above the composer by the Scaffold padding, no magic offsets.
-                if (uiState.isAgentRunning && !agentSheetOpen && uiState.agentSteps.isNotEmpty()) {
-                    Box(
-                        modifier =
-                            Modifier
-                                .fillMaxSize()
-                                .padding(bottom = Spacing.md),
-                        contentAlignment = Alignment.BottomCenter,
-                    ) {
-                        AgentProgressPill(onClick = { agentSheetOpen = true })
+                    if (uiState.isAgentRunning || uiState.pendingConfirmation != null) {
+                        item(key = "agent-live") {
+                            AgentLiveBlock(
+                                steps = uiState.agentSteps,
+                                pending = uiState.pendingConfirmation,
+                                onAllow = { onRespondToConfirmation(true) },
+                                onDeny = { onRespondToConfirmation(false) },
+                            )
+                        }
                     }
                 }
             }
         }
     }
-
-    // Agent Canvas overlay: the collapsed pill lives inside the content area; only the
-    // confirmation sheet floats here.
-    if (agentSheetOpen && canvasVisible) {
-        ModalBottomSheet(
-            onDismissRequest = { agentSheetOpen = false },
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            shape = RoundedCornerShape(topStart = Radius.sheet, topEnd = Radius.sheet),
-        ) {
-            AgentCanvasContent(
-                steps = uiState.agentSteps,
-                pending = pending,
-                planName = uiState.agentPlanName,
-                onAllow = { onRespondToConfirmation(true) },
-                onDeny = { onRespondToConfirmation(false) },
-                onHide = { agentSheetOpen = false },
-                onStop = onCancel,
-            )
-        }
-    }
 }
 
-/**
- * How far above the true bottom (px) the list may rest while still counting as "the user
- * is following the latest". Small enough that a one-finger misdrag doesn't disable
- * following; large enough that content padding and ripple margins don't flip it randomly.
- */
 private const val BEHAVIOR_BOTTOM_TOLERANCE = 128
 
-/**
- * Collapsed agent pill shown while the canvas is hidden but the run continues. Placed by
- * the caller inside a content-area Box; only the pill itself is clickable.
- */
 @Composable
-private fun AgentProgressPill(onClick: () -> Unit) {
-    Surface(
-        shape = JarvisShapes.chip,
-        color = MaterialTheme.colorScheme.primaryContainer,
-        shadowElevation = 6.dp,
-        modifier =
-            Modifier
-                .clip(JarvisShapes.chip)
-                .sizeIn(minHeight = TapTargets.min)
-                .clickable(role = Role.Button, onClick = onClick),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-            modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
-        ) {
-            JarvisLoader()
-            Text(
-                text = "Agent working",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-        }
-    }
-}
-
-/**
- * Agent Canvas bottom sheet: run header (task count, plan chip, progress summary), step
- * rows with status icons and pills, and — when a Sensitive-tier tool parks the run — an
- * inline approval row with Reject/Approve. Hide collapses to the pill; Stop ends the run.
- */
-@Composable
-private fun AgentCanvasContent(
+private fun AgentLiveBlock(
     steps: List<AgentStep>,
     pending: AgentConfirmation?,
-    planName: String?,
     onAllow: () -> Unit,
     onDeny: () -> Unit,
-    onHide: () -> Unit,
-    onStop: () -> Unit,
 ) {
-    val doneCount = steps.count { it.state == AgentStepState.DONE }
     Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Spacing.lg)
-                .padding(bottom = Spacing.lg),
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-        ) {
-            AgentCountBadge(count = steps.size)
-            Text(
-                text = if (pending != null) "Agent needs your input" else "Agent working",
-                style = JarvisText.ConvTitle,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            if (planName != null) {
-                PlanNameChip(planName = planName)
-            }
-            IconButton(onClick = onHide) {
-                Icon(
-                    imageVector = Icons.Default.KeyboardArrowUp,
-                    contentDescription = "Collapse agent panel",
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(Spacing.xs))
-        Text(
-            text =
-                if (steps.isEmpty()) {
-                    "Starting run…"
-                } else {
-                    buildString {
-                        append("$doneCount of ${steps.size} tasks finished")
-                        if (pending != null) append(" • 1 action requires approval")
-                    }
-                },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
         if (pending != null) {
-            Spacer(modifier = Modifier.height(Spacing.md))
             ConfirmationCard(confirmation = pending)
-        }
-
-        if (steps.isEmpty()) {
-            Spacer(modifier = Modifier.height(Spacing.md))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-            ) {
-                JarvisLoader()
-                Text("Starting…", style = MaterialTheme.typography.bodyMedium)
-            }
+            AgentApprovalRow(pending = pending, onAllow = onAllow, onDeny = onDeny)
         } else {
-            Column(
-                modifier =
-                    Modifier
-                        .padding(top = Spacing.md)
-                        .heightIn(max = 320.dp)
-                        .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(Spacing.md),
-            ) {
-                steps.forEach { step -> AgentStepRow(step = step) }
-                if (pending != null) {
-                    AgentApprovalRow(
-                        pending = pending,
-                        onAllow = onAllow,
-                        onDeny = onDeny,
+            val running = steps.lastOrNull { it.state == AgentStepState.RUNNING }
+            if (running != null) {
+                AgentStepRow(step = running)
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    JarvisLoader()
+                    Text(
+                        text = "Working…",
+                        style = JarvisText.SenderLabel,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
         }
-
-        Spacer(modifier = Modifier.height(Spacing.lg))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(onClick = onHide) { Text("Hide") }
-            Spacer(modifier = Modifier.width(Spacing.sm))
-            OutlinedButton(onClick = onStop) {
-                Icon(
-                    imageVector = Icons.Default.Stop,
-                    contentDescription = null,
-                    modifier = Modifier.size(Spacing.lg),
-                )
-                Spacer(modifier = Modifier.width(Spacing.xs))
-                Text("Stop")
-            }
-        }
     }
 }
 
-/** Accent circle with the tracked task count, anchoring the canvas header. */
-@Composable
-private fun AgentCountBadge(count: Int) {
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier =
-            Modifier
-                .size(Spacing.xxl)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary),
-    ) {
-        Text(
-            text = count.toString(),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onPrimary,
-        )
-    }
-}
-
-/** Mono plan label (e.g. "Iterative_Optimizer"); only rendered when the run names a plan. */
-@Composable
-private fun PlanNameChip(planName: String) {
-    Surface(
-        shape = RoundedCornerShape(Radius.small),
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-    ) {
-        Text(
-            text = planName,
-            style = JarvisText.CodeLabel,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier =
-                Modifier.padding(
-                    horizontal = Spacing.sm,
-                    vertical = Spacing.xs,
-                ),
-        )
-    }
-}
-
-/** The parked Sensitive-tier call: what will run, with its full parameters. */
 @Composable
 private fun ConfirmationCard(confirmation: AgentConfirmation) {
     Surface(
@@ -681,10 +453,6 @@ private fun ConfirmationCard(confirmation: AgentConfirmation) {
     }
 }
 
-/**
- * One canvas row: status icon, bold title, optional observation detail, progress bar on
- * the running row, and a state pill (duration once a step finishes, e.g. "1.4s").
- */
 @Composable
 private fun AgentStepRow(step: AgentStep) {
     Row(
@@ -712,8 +480,6 @@ private fun AgentStepRow(step: AgentStep) {
                 )
             }
             if (step.state == AgentStepState.RUNNING) {
-                // Determinate when the step reports progress, indeterminate otherwise —
-                // same pill track either way.
                 val progress = step.progress
                 if (progress != null) {
                     LinearProgressIndicator(
@@ -743,7 +509,6 @@ private fun AgentStepRow(step: AgentStep) {
     }
 }
 
-/** Status icon: accent check when done, brand spinner while running, error mark on failure. */
 @Composable
 private fun AgentStatusIcon(state: AgentStepState) {
     when (state) {
@@ -783,7 +548,6 @@ private fun AgentStatusIcon(state: AgentStepState) {
     }
 }
 
-/** Right-hand pill: "Running" / "Failed" / duration ("1.4s") once finished / "Done". */
 @Composable
 private fun AgentStatusPill(step: AgentStep) {
     val running = step.state == AgentStepState.RUNNING
@@ -830,10 +594,6 @@ private fun AgentStatusPill(step: AgentStep) {
     }
 }
 
-/**
- * The parked Sensitive-tier call as the last canvas row: warning mark, what is waiting,
- * and the decision inline (Reject/Approve) so the action never scrolls out of reach.
- */
 @Composable
 private fun AgentApprovalRow(
     pending: AgentConfirmation,
@@ -882,10 +642,6 @@ private fun AgentApprovalRow(
     }
 }
 
-/**
- * Empty state: welcome display text plus 4 suggestion chips. The chip set rotates from a
- * curated list by day (deterministic across launches within a day, not random every open).
- */
 @Composable
 private fun EmptyChatState(
     enabled: Boolean,
@@ -941,7 +697,7 @@ private fun SuggestionChip(
     Surface(
         shape = JarvisShapes.chip,
         color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.clip(JarvisShapes.chip).clickable(onClick = onClick),
+        modifier = Modifier.clip(JarvisShapes.chip).clickable(onClick = onClick, role = Role.Button),
     ) {
         Text(
             text = text,
@@ -952,7 +708,6 @@ private fun SuggestionChip(
     }
 }
 
-/** Curated suggestion sets — one set shown per day, rotating deterministically. */
 private fun curatedSuggestions(): List<String> {
     val sets =
         listOf(
@@ -983,17 +738,13 @@ private fun curatedSuggestions(): List<String> {
     return sets[((dayIndex % sets.size) + sets.size) % sets.size]
 }
 
-/**
- * Message rendering: user messages are a right-aligned soft-gray pill; assistant messages
- * are bubble-less inline prose led by the Jarvis mark, with a blinking cursor while
- * streaming and a quiet action row (copy / regenerate / share / read aloud) below.
- */
 @Composable
 private fun MessageBubble(
     message: Message,
     isPlayingAudio: Boolean = false,
     isLastAssistant: Boolean = false,
     canRegenerate: Boolean = false,
+    routeBadge: RouteBadge? = null,
     onSpeak: () -> Unit = {},
     onStopSpeaking: () -> Unit = {},
     onRegenerate: () -> Unit = {},
@@ -1022,7 +773,41 @@ private fun MessageBubble(
         return
     }
 
-    // Assistant: no bubble — flowing prose on the canvas.
+    // Agent milestone (TOOL row): a quiet single-line step.
+    if (message.role == MessageRole.TOOL) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(
+                imageVector =
+                    if (message.status == MessageStatus.ERROR) {
+                        Icons.Default.PriorityHigh
+                    } else {
+                        Icons.Default.Check
+                    },
+                contentDescription = null,
+                tint =
+                    if (message.status == MessageStatus.ERROR) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        JarvisColors.Accent.orange
+                    },
+                modifier = Modifier.size(Spacing.lg),
+            )
+            Text(
+                text = message.content,
+                style = JarvisText.Metadata,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        return
+    }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
@@ -1107,6 +892,32 @@ private fun MessageBubble(
                 }
             }
         }
+
+        // Route badge (latest assistant turn only): what actually answered — the on-device
+        // engine in solid coral, or "<model> • <provider>" in a quiet neutral pill.
+        if (routeBadge != null) {
+            RouteBadgeChip(routeBadge)
+        }
+    }
+}
+
+/** The route badge pill under the latest assistant response. */
+@Composable
+private fun RouteBadgeChip(badge: RouteBadge) {
+    when (badge.route) {
+        RoutingOverride.LOCAL ->
+            JarvisBadge(
+                text = badge.label,
+                container = JarvisColors.Accent.orange,
+                content = JarvisColors.Accent.onOrange,
+            )
+
+        RoutingOverride.AUTO, RoutingOverride.CLOUD ->
+            JarvisBadge(
+                text = badge.label,
+                container = MaterialTheme.colorScheme.surfaceVariant,
+                content = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
     }
 }
 
@@ -1146,46 +957,52 @@ private fun AssistantActionRow(
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+        horizontalArrangement = Arrangement.spacedBy(ACTION_GAP),
         modifier = Modifier.padding(top = Spacing.xs),
     ) {
         // Copy
-        IconButton(onClick = {
-            clipboard.setText(AnnotatedString(message.content))
-            copied = true
-        }) {
+        IconButton(
+            onClick = {
+                clipboard.setText(AnnotatedString(message.content))
+                copied = true
+            },
+            modifier = Modifier.size(ACTION_HIT),
+        ) {
             Icon(
                 imageVector = if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
                 contentDescription = if (copied) "Copied" else "Copy response",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(Spacing.xl),
+                modifier = Modifier.size(ACTION_GLYPH),
             )
         }
 
         // Regenerate — only under the latest assistant turn, never while streaming.
         if (showRegenerate) {
-            IconButton(onClick = onRegenerate) {
+            IconButton(onClick = onRegenerate, modifier = Modifier.size(ACTION_HIT)) {
                 Icon(
                     imageVector = Icons.Default.Refresh,
                     contentDescription = "Regenerate response",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(Spacing.xl),
+                    modifier = Modifier.size(ACTION_GLYPH),
                 )
             }
         }
 
         // Share
-        IconButton(onClick = ::shareResponse) {
+        IconButton(onClick = ::shareResponse, modifier = Modifier.size(ACTION_HIT)) {
             Icon(
                 imageVector = Icons.Default.Share,
                 contentDescription = "Share response",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(Spacing.xl),
+                modifier = Modifier.size(ACTION_GLYPH),
             )
         }
 
         // Read aloud / stop
-        IconButton(onClick = { if (isPlayingAudio) onStopSpeaking() else onSpeak() }) {
+        IconButton(
+            onClick = { if (isPlayingAudio) onStopSpeaking() else onSpeak() },
+            modifier = Modifier.size(ACTION_HIT),
+        ) {
             Icon(
                 imageVector =
                     if (isPlayingAudio) {
@@ -1195,7 +1012,7 @@ private fun AssistantActionRow(
                     },
                 contentDescription = if (isPlayingAudio) "Stop speaking" else "Read aloud",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(Spacing.xl),
+                modifier = Modifier.size(ACTION_GLYPH),
             )
         }
     }
@@ -1203,6 +1020,12 @@ private fun AssistantActionRow(
 
 /** How long the copy button shows its check confirmation. */
 private const val COPY_CONFIRM_MS = 1200L
+
+/** Action-row sizing — small glyphs in compact hit areas so the row reads as
+ *  metadata, not a primary toolbar. */
+private val ACTION_GLYPH = 16.dp
+private val ACTION_HIT = 32.dp
+private val ACTION_GAP = 4.dp
 
 /** Top-bar route selector: Auto / Local / Cloud override for the chat, opens a dropdown. */
 @Composable
@@ -1248,6 +1071,60 @@ private fun routeLabel(route: RoutingOverride): String =
         RoutingOverride.AUTO -> "Auto (recommended)"
         RoutingOverride.LOCAL -> "Always Local"
         RoutingOverride.CLOUD -> "Always Cloud"
+    }
+
+/**
+ * Think-mode pill next to the route selector: cycles OFF → AUTO → ON. AUTO resolves per
+ * message via [ThinkModeHeuristic]; ON shows the active thinking state in accent color.
+ */
+@Composable
+private fun ThinkModeSelector(
+    selected: ThinkMode,
+    onSelect: (ThinkMode) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        Text(
+            text =
+                when (selected) {
+                    ThinkMode.OFF -> "Think: Off"
+                    ThinkMode.AUTO -> "Think: Auto"
+                    ThinkMode.ON -> "Think: On"
+                },
+            style = JarvisText.Chip,
+            color =
+                if (selected == ThinkMode.ON) {
+                    JarvisColors.Accent.orange
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+            modifier =
+                Modifier
+                    .clip(JarvisShapes.chip)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable(role = Role.Button) { expanded = true }
+                    .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            ThinkMode.entries.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(thinkModeLabel(option)) },
+                    onClick = {
+                        expanded = false
+                        onSelect(option)
+                    },
+                )
+            }
+        }
+    }
+}
+
+private fun thinkModeLabel(mode: ThinkMode): String =
+    when (mode) {
+        ThinkMode.OFF -> "Think: Off — never reason aloud"
+        ThinkMode.AUTO -> "Think: Auto — math, code & creative asks"
+        ThinkMode.ON -> "Think: On — always reason"
     }
 
 @Composable
@@ -1330,6 +1207,7 @@ private fun Composer(
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null,
+                                    role = Role.Button,
                                     enabled = enabled && !isTranscribing,
                                     onClick = onToggleRecording,
                                 ),

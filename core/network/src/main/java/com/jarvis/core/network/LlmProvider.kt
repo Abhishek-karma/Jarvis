@@ -2,6 +2,7 @@ package com.jarvis.core.network
 
 import com.jarvis.core.common.Message
 import com.jarvis.core.common.ModelInfo
+import com.jarvis.core.common.ThinkMode
 import kotlinx.coroutines.flow.Flow
 
 /** Provider capability flags. */
@@ -27,11 +28,16 @@ data class ToolDefinition(
 /**
  * Normalized chat request. `toolsAvailable` is non-null only in agent mode, when the
  * provider may request tools mid-reply.
+ *
+ * `thinkMode` is the source of truth for reasoning effort; `reasoningRequested` is the
+ * derived wire-level flag the adapters act on ( ThinkModeHeuristic resolves AUTO per
+ * message upstream, so adapters only ever see a concrete OFF/ON).
  */
 data class ChatRequest(
     val conversationHistory: List<Message>,
     val systemPrompt: String? = null,
     val model: String,
+    val thinkMode: ThinkMode = ThinkMode.AUTO,
     val reasoningRequested: Boolean = false,
     val toolsAvailable: List<ToolDefinition>? = null,
 )

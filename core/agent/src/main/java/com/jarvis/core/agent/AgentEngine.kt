@@ -18,6 +18,8 @@ data class AgentRunRequest(
     val modelId: String,
     val messages: List<Message>,
     val agentRunId: String? = null,
+    /** Derived reasoning flag — the last user turn's ThinkModeHeuristic decision. */
+    val reasoningRequested: Boolean = false,
 )
 
 /**
@@ -35,6 +37,8 @@ class AgentEngine(
     private val audit: AuditLogger,
     private val confirmationGate: ConfirmationGate,
     private val stepCap: Int = DEFAULT_STEP_CAP,
+    /** Cautious mode: every tool call requires confirmation regardless of tier. */
+    private val forceConfirm: Boolean = false,
 ) {
     private val validator = ToolArgsValidator()
 
@@ -62,6 +66,7 @@ class AgentEngine(
                                 conversationHistory = baseHistory + turnLog,
                                 systemPrompt = SYSTEM_PROMPT,
                                 model = request.modelId,
+                                reasoningRequested = request.reasoningRequested,
                                 toolsAvailable = if (supportsTools) definitions else null,
                             ),
                         ).toList()
@@ -121,7 +126,7 @@ class AgentEngine(
                 }
 
                 val userConfirmed: Boolean
-                if (tool.tier == PermissionTier.SENSITIVE) {
+                if (forceConfirm || tool.tier == PermissionTier.SENSITIVE) {
                     emit(AgentEvent.ConfirmationRequired(tool.name, call.argsJson))
                     if (!confirmationGate.confirm(tool.name, call.argsJson)) {
                         audit.record(cancelledRecord(request, tool, call))
@@ -225,7 +230,7 @@ class AgentEngine(
             content = note,
         )
 
-    private companion object {
+    companion object {
         const val DEFAULT_STEP_CAP = 15
         const val MAX_STEP_CAP = 40 // hard ceiling against runaway loops
         const val SYSTEM_PROMPT =

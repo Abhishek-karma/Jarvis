@@ -32,16 +32,8 @@ import kotlin.coroutines.resumeWithException
 import kotlin.random.Random
 
 /**
- * OpenAI-compatible adapter — works for OpenAI, Mistral, Groq, xAI,
- * LM Studio, Ollama's OpenAI endpoint, and any custom/self-hosted server speaking the
- * /v1/chat/completions + /v1/models dialect.
- *
- * Streaming uses OkHttp SSE. Retry policy: exponential backoff
- * (500ms base ×2, jittered), max 3 attempts, only for idempotent errors (timeout/429/5xx),
- * never for 4xx auth errors. Cancelling collection aborts the socket via invokeOnCancellation.
- *
- * Instances are created per ProviderConfig by ProviderManager (not Hilt-injectable directly,
- * since id/baseUrl/key-access are runtime values).
+ * OpenAI-compatible adapter — works for OpenAI, Mistral, Groq, xAI, LM Studio, Ollama, etc.
+ * Streaming uses OkHttp SSE with exponential backoff retry.
  */
 class OpenAiCompatibleProvider(
     override val id: String,
@@ -195,7 +187,6 @@ class OpenAiCompatibleProvider(
                         val code = response?.code?.toString() ?: "network"
                         val retryable = response?.code?.let { it == 429 || it in 500..599 } ?: true
 
-                        // Extract the actual error message from the response body if available
                         val errorMessage = when {
                             response != null -> {
                                 val bodyText = runCatching { response.body?.string() }.getOrNull()

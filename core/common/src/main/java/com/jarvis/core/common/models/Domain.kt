@@ -53,8 +53,32 @@ data class Conversation(
 
 enum class RoutingOverride { AUTO, LOCAL, CLOUD }
 
-/** Provider types the settings screen can create; v0.1 ships OpenAI-compatible only. */
-enum class ProviderType { OPENAI_COMPATIBLE, }
+/**
+ * Reasoning-effort setting for models that expose a thinking/reasoning channel.
+ * OFF never requests reasoning, ON always does, AUTO derives it per message via the
+ * ThinkModeHeuristic (math/code, creative-writing, and explicit step-by-step asks → ON).
+ * Persisted in user preferences; this enum is the source of truth for the wire-level
+ * `reasoningRequested` flag on chat requests.
+ */
+enum class ThinkMode { OFF, ON, AUTO }
+
+/**
+ * Provider families the settings screen can create. Each value maps to one [LlmProvider]
+ * adapter wired through [com.jarvis.core.network.ProviderManager.adapterFor].
+ *
+ * Older persisted [ProviderConfig]s deserialise to [OPENAI_COMPATIBLE] by default, which
+ * preserves v0.1-v0.5 user data on upgrade.
+ */
+enum class ProviderType {
+    /** OpenAI HTTP/SSE wire format. Covers OpenAI, Groq, Mistral, xAI, LM Studio, Ollama. */
+    OPENAI_COMPATIBLE,
+
+    /** Anthropic Messages API + SSE event-stream format. */
+    ANTHROPIC,
+
+    /** Google Gemini generateContent + streamGenerateContent. */
+    GEMINI,
+}
 
 /** User-configured provider instance (credentials live in EncryptedSharedPreferences, never here). */
 data class ProviderConfig(

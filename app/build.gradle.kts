@@ -58,6 +58,7 @@ dependencies {
     implementation(project(":core:database"))
     implementation(project(":core:network"))
     implementation(project(":core:ml"))
+    implementation(project(":core:preferences"))
     implementation(project(":feature:chat"))
     implementation(project(":feature:settings"))
 

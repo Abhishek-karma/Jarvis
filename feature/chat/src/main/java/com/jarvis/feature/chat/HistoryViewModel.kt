@@ -40,8 +40,7 @@ data class HistoryUiState(
 )
 
 /**
- * ViewModel for the History drawer. Observes all conversations, groups them by time, and
- * surfaces pin/rename/delete actions with one-shot toasts.
+ * ViewModel for the History drawer.
  */
 @HiltViewModel
 class HistoryViewModel
@@ -67,7 +66,7 @@ class HistoryViewModel
         }
 
         fun togglePin(conversation: Conversation) {
-            viewModelScope.launch(dispatchers.io) {
+            viewModelScope.launch {
                 runCatching { conversationRepository.setPinned(conversation.id, !conversation.pinned) }
                     .onFailure { _uiEvents.tryEmit(HistoryUiEvent.ShowError("Could not pin: ${it.message}")) }
             }
@@ -78,20 +77,15 @@ class HistoryViewModel
             newTitle: String,
         ) {
             if (newTitle.isBlank()) return
-            viewModelScope.launch(dispatchers.io) {
+            viewModelScope.launch {
                 runCatching { conversationRepository.renameConversation(conversation.id, newTitle.trim()) }
                     .onSuccess { _uiEvents.tryEmit(HistoryUiEvent.ShowMessage("Renamed")) }
                     .onFailure { _uiEvents.tryEmit(HistoryUiEvent.ShowError("Could not rename: ${it.message}")) }
             }
         }
 
-        /**
-         * Deletes a conversation. The ChatViewModel reacts to the removal itself (the messages
-         * observer fires with an empty list / the chat switches to a new conversation), so the
-         * drawer stays a pure list.
-         */
         fun delete(conversation: Conversation) {
-            viewModelScope.launch(dispatchers.io) {
+            viewModelScope.launch {
                 runCatching { conversationRepository.deleteConversation(conversation.id) }
                     .onSuccess { _uiEvents.tryEmit(HistoryUiEvent.ShowMessage("Conversation deleted")) }
                     .onFailure { _uiEvents.tryEmit(HistoryUiEvent.ShowError("Could not delete: ${it.message}")) }

@@ -6,27 +6,14 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-/**
- * Named type ramp — mobile-first adaptation of the Claude.com web design:
- *
- *  - Display headlines run slab-serif (Copernicus/Tiempos Headline substitute)
- *    at weight 400 with negative letter-spacing for a literary editorial voice.
- *  - Body runs humanist sans (StyreneB/Inter substitute) for UI chrome and user messages.
- *  - Serif for assistant prose — the Claude signature.
- *  - Monospace for code.
- */
+/** Font families — sans for UI, serif for assistant prose, mono for code. */
 object JarvisFont {
-    /** UI chrome and user messages. */
     val sans: FontFamily = FontFamily.Default
-
-    /** Display headlines and assistant message body. */
     val serif: FontFamily = FontFamily.Serif
-
-    /** Code. */
     val mono: FontFamily = FontFamily.Monospace
 }
 
-/** Named ramp — pt → sp 1:1, mobile-optimized sizes. */
+/** Named type ramp. */
 object JarvisText {
     // Display (about / empty state) — slab-serif, weight 400, negative tracking
     val Display =

@@ -1,5 +1,6 @@
 package com.jarvis.core.network
 
+import com.jarvis.core.common.DispatcherProvider
 import com.squareup.moshi.Moshi
 import dagger.Module
 import dagger.Provides
@@ -42,4 +43,7 @@ object NetworkModule {
             .Builder()
             .add(Any::class.java, JsonTreeAdapter)
             .build()
+
+    // LlmProvider adapters are NOT Hilt-provided: id/baseUrl/key-access are runtime values,
+    // so ProviderManager constructs them per ProviderConfig (see adapterFor).
 }

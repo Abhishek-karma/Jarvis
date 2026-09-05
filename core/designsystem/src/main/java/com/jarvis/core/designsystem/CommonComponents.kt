@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 
 /**
@@ -79,10 +80,11 @@ fun JarvisListRow(
     trailingIcon: ImageVector? = null,
     contentDescription: String? = null,
     dividerBelow: Boolean = false,
+    trailingContent: @Composable (() -> Unit)? = null,
 ) {
     val modifier =
         if (onClick != null) {
-            Modifier.clickable(onClick = onClick)
+            Modifier.clickable(onClick = onClick, role = Role.Button)
         } else {
             Modifier
         }
@@ -113,6 +115,9 @@ fun JarvisListRow(
                 contentDescription = contentDescription,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        if (trailingContent != null) {
+            trailingContent()
         }
     }
     if (dividerBelow) {

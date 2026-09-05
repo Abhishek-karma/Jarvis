@@ -80,7 +80,10 @@ fun ProviderEntity.toDomain(): ProviderConfig = ProviderConfig(
     name = name,
     baseUrl = baseUrl,
     model = model,
-    type = ProviderType.OPENAI_COMPATIBLE,
+    // Rows written before the enum grew (v0.1-v0.5) only ever stored "openai_compatible",
+    // so unknown values still fall back to the same family they were created as.
+    type = runCatching { ProviderType.valueOf(type.uppercase()) }
+        .getOrDefault(ProviderType.OPENAI_COMPATIBLE),
     isDefault = isDefault,
 )
 

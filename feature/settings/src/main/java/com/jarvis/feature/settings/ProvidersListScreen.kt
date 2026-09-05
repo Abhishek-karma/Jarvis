@@ -44,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -56,8 +57,10 @@ import com.jarvis.core.designsystem.JarvisEmptyState
 import com.jarvis.core.designsystem.JarvisHeader
 import com.jarvis.core.designsystem.JarvisListSection
 import com.jarvis.core.designsystem.JarvisScreenLoader
+import com.jarvis.core.designsystem.JarvisShapes
 import com.jarvis.core.designsystem.JarvisSnackbarHost
 import com.jarvis.core.designsystem.JarvisText
+import com.jarvis.core.designsystem.Radius
 import com.jarvis.core.designsystem.Spacing
 import androidx.compose.foundation.layout.size
 
@@ -213,25 +216,25 @@ private fun CloudProviderCard(
     onSetDefault: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = JarvisShapes.card
     Row(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .clip(shape)
                 .background(MaterialTheme.colorScheme.surface)
-                .clickable(onClick = onClick)
+                .clickable(onClick = onClick, role = Role.Button)
                 .padding(Spacing.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Default-provider accent stripe — a 4dp coral bar on the leading edge.
+        // Default-provider accent stripe — a coral bar on the leading edge.
         if (provider.isDefault) {
             Box(
                 modifier =
                     Modifier
-                        .width(4.dp)
-                        .height(40.dp)
-                        .clip(RoundedCornerShape(2.dp))
+                        .width(Radius.codeInline)
+                        .height(Spacing.xxl)
+                        .clip(RoundedCornerShape(Radius.codeInline / 2))
                         .background(JarvisColors.Accent.orange),
             )
             Spacer(Modifier.width(Spacing.md))

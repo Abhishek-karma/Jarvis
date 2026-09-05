@@ -85,7 +85,6 @@ fun HistoryDrawerContent(
     var deletingConversation by remember { mutableStateOf<Conversation?>(null) }
     var renameText by remember { mutableStateOf("") }
 
-    // Sidebar is always darker than the canvas — ChatGPT's signature treatment.
     val sidebarColor =
         if (isSystemInDarkTheme()) {
             JarvisColors.Dark.sidebar
@@ -105,7 +104,6 @@ fun HistoryDrawerContent(
 
             var searchQuery by remember { mutableStateOf("") }
 
-            // Client-side filter by title, grouped sections preserved.
             val filteredSections =
                 remember(uiState.sections, searchQuery) {
                     if (searchQuery.isBlank()) {
@@ -166,8 +164,6 @@ fun HistoryDrawerContent(
                         ) {
                             filteredSections.forEach { section ->
                                 stickyHeader(key = "header-${section.group.name}") {
-                                    // Rows scroll under the sticky label — give it the
-                                    // sidebar's opaque color so text doesn't bleed through.
                                     SectionHeader(
                                         label = section.group.label,
                                         background = sidebarColor,
@@ -298,7 +294,6 @@ private fun ConversationRow(
             modifier = Modifier.padding(horizontal = Spacing.sm),
         )
 
-        // Overflow menu — one affordance, standard pattern, keeps the row quiet.
         ConversationOverflowMenu(
             conversation = conversation,
             onPin = onPin,
@@ -394,7 +389,6 @@ private fun formatTimestamp(millis: Long): String {
     }
 }
 
-/** Full-width "+ New chat" pill at the top of the sidebar (ChatGPT/Claude sidebar spec). */
 @Composable
 private fun NewChatButton(onClick: () -> Unit) {
     Surface(
@@ -428,7 +422,6 @@ private fun NewChatButton(onClick: () -> Unit) {
     }
 }
 
-/** Rounded search pill that filters conversation titles client-side. */
 @Composable
 private fun SearchField(
     value: String,
@@ -488,7 +481,6 @@ private fun SearchField(
     }
 }
 
-/** Settings pinned to the drawer bottom (04-DESIGN.md Screen 2: "Bottom: … Settings"). */
 @Composable
 private fun SettingsRow(onClick: () -> Unit) {
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
