@@ -1,6 +1,8 @@
 package com.jarvis.core.ml
 
 import com.jarvis.core.common.DispatcherProvider
+import kotlin.concurrent.thread
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -16,6 +18,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.InputStream
+import java.util.concurrent.CountDownLatch
 
 /**
  * Store logic tests: real files in a @TempDir and a real OkHttp client against MockWebServer
@@ -145,6 +149,40 @@ class LocalModelStoreTest {
         }
 
     @Test
+    fun `refresh racing an in-flight import bails instead of clobbering state or the part file`() =
+        runBlocking {
+            // Gate the import's read so it is parked inside the copy: state is Importing and
+            // the .part exists. A refresh landing in that window must bail — before the fix it
+            // deleted the .part (unlinks a live file on Linux, fails silently on Windows) and
+            // clobbered the live state with NotDownloaded.
+            val gate = CountDownLatch(1)
+            val payload = ByteArray(4 * 1024 * 1024 + 16) { 0x41 }
+            "LITERTLM".toByteArray(Charsets.US_ASCII).copyInto(payload)
+
+            val store = store()
+            var importResult: Result<Unit>? = null
+            val importThread =
+                thread {
+                    importResult = store.importModel("picked.model", "My Gemma") { gatedStream(payload, gate) }
+                }
+            val part = File(tempDir, "gemma-2-2b-it-gpu-int4.litertlm.part")
+            withTimeout(10_000) {
+                while (!(store.status.value is LocalModelState.Importing) || !part.exists()) {
+                    delay(10)
+                }
+            }
+
+            store.refresh()
+            assertTrue(store.status.value is LocalModelState.Importing, "refresh clobbered the live state")
+            assertTrue(part.exists(), "refresh deleted the .part an import is writing")
+
+            gate.countDown()
+            importThread.join(10_000)
+            assertTrue(importResult?.isSuccess == true, importResult?.exceptionOrNull()?.message)
+            assertTrue(store.status.value is LocalModelState.Ready)
+        }
+
+    @Test
     fun `rejects a task container that needs the removed MediaPipe engine`() =
         runBlocking {
             // A TFLite flatbuffer .task (size prefix + "TFL3") is no longer a supported container.
@@ -192,5 +230,18 @@ class LocalModelStoreTest {
             val second = store.importModel("b.litertlm", "B") { ByteArrayInputStream(ByteArray(8) { 0x00 }) }
             assertTrue(second.isFailure)
             assertTrue(second.exceptionOrNull()?.message?.contains("already installed") == true)
+        }
+
+    /** Streams [payload] but blocks every read until [gate] is released. */
+    private fun gatedStream(payload: ByteArray, gate: CountDownLatch): InputStream =
+        object : InputStream() {
+            private val delegate = payload.inputStream()
+
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                gate.await()
+                return delegate.read(b, off, len)
+            }
+
+            override fun read(): Int = delegate.read()
         }
 }

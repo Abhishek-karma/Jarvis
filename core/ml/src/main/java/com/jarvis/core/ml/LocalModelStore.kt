@@ -82,14 +82,27 @@ class LocalModelStore(
 
     /** Re-derive state from disk: existing file → Ready, dev asset → copy → Ready, else NotDownloaded. */
     suspend fun refresh() {
-        val models = availableModels
-        if (models.isEmpty()) {
-            _status.value = LocalModelState.None
-            return
+        // The in-flight check and the stale-.part cleanup run in ONE lock section with the
+        // mutators' state flips: a writer can only start after its flip released the lock, so
+        // if we see a live Importing/Downloading here no .part is being written, and if we
+        // don't, a writer cannot start between this check and the delete. On Linux a delete
+        // of a file a writer still holds unlinks it from under the writer (on Windows the
+        // locked delete just fails), so this ordering is what keeps imports from dying mid-copy.
+        val spec: LocalModelSpec
+        synchronized(mutationLock) {
+            if (
+                _status.value is LocalModelState.Importing ||
+                _status.value is LocalModelState.Downloading
+            ) return
+            val models = availableModels
+            if (models.isEmpty()) {
+                _status.value = LocalModelState.None
+                return
+            }
+            spec = models.first()
+            // A killed process can leave a stale multi-GB .part behind (download or import).
+            runCatching { File(modelsDir, spec.fileName + ".part").delete() }
         }
-        val spec = models.first()
-        // A killed process can leave a stale multi-GB .part behind (download or import).
-        runCatching { File(modelsDir, spec.fileName + ".part").delete() }
         val installed = modelFile(spec)
         if (installed.isFile && installed.length() > 0) {
             _status.value = LocalModelState.Ready(spec, installed)
