@@ -18,7 +18,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -46,15 +45,8 @@ fun LocalModelCard(
 ) {
     val spec = models.firstOrNull() ?: return
 
-    Surface(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
-        shape = JarvisShapes.card,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
-        Column(modifier = Modifier.padding(Spacing.lg)) {
+    // No outer surface: the wrapping JarvisListSection supplies the card and outer padding.
+    Column(modifier = Modifier.fillMaxWidth().padding(Spacing.lg)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Default.SmartToy,
@@ -222,4 +214,3 @@ fun LocalModelCard(
             }
         }
     }
-}

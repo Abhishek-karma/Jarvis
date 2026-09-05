@@ -115,26 +115,6 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `applyPreset fills the form for a local server`() {
-        viewModel.applyPreset(ProviderPreset.OLLAMA)
-
-        val state = viewModel.editState.value
-        assertEquals("Ollama (local)", state.name)
-        assertEquals("http://10.0.2.2:11434", state.baseUrl)
-        assertEquals("", state.model)
-    }
-
-    @Test
-    fun `applyPreset fills the form for a cloud provider`() {
-        viewModel.applyPreset(ProviderPreset.OPENAI)
-
-        val state = viewModel.editState.value
-        assertEquals("OpenAI", state.name)
-        assertEquals("https://api.openai.com", state.baseUrl)
-        assertEquals("gpt-4o-mini", state.model)
-    }
-
-    @Test
     fun `onNameChange updates name and clears errors`() {
         viewModel.onNameChange("OpenAI")
 

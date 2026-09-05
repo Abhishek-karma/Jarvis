@@ -14,7 +14,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -35,7 +34,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jarvis.core.designsystem.JarvisConfirmDialog
@@ -106,34 +104,6 @@ fun ProviderEditScreen(
                     .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(Spacing.lg),
         ) {
-            Spacer(modifier = Modifier.height(Spacing.sm))
-
-            // Quick presets — cloud plus key-less local LLM servers (Ollama, LM Studio).
-            Text(
-                text = "Quick start",
-                style = JarvisText.SenderLabel,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-            ) {
-                ProviderPreset.entries.forEach { preset ->
-                    AssistChip(
-                        onClick = { viewModel.applyPreset(preset) },
-                        label = {
-                            Text(preset.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-            Text(
-                text = "Local presets point at the emulator (10.0.2.2). On a phone, use your PC's LAN IP.",
-                style = JarvisText.Metadata,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
             // Name
             OutlinedTextField(
                 value = editState.name,

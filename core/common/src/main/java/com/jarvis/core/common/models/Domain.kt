@@ -30,10 +30,16 @@ data class Message(
     val toolCallArgsJson: String? = null,
 )
 
+/**
+ * Title given to a conversation at creation. An untitled conversation is auto-named from
+ * its first user message (see ChatViewModel); manual renames replace it for good.
+ */
+const val DEFAULT_CONVERSATION_TITLE = "New chat"
+
 /** Domain model for a conversation. */
 data class Conversation(
     val id: String = UUID.randomUUID().toString(),
-    val title: String = "New chat",
+    val title: String = DEFAULT_CONVERSATION_TITLE,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     val pinned: Boolean = false,

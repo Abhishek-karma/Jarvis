@@ -39,15 +39,17 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PriorityHigh
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.DrawerValue
@@ -80,14 +82,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jarvis.core.common.DEFAULT_CONVERSATION_TITLE
 import com.jarvis.core.common.Message
 import com.jarvis.core.common.MessageRole
 import com.jarvis.core.common.MessageStatus
@@ -106,6 +111,7 @@ import com.jarvis.core.designsystem.Radius
 import com.jarvis.core.designsystem.Spacing
 import com.jarvis.core.designsystem.TapTargets
 import com.jarvis.core.designsystem.StreamingCursor
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -213,13 +219,13 @@ fun ChatRoute(
                 onSend = viewModel::sendMessage,
                 onCancel = viewModel::cancelStreaming,
                 onRoutingChange = viewModel::setRoutingOverride,
-                onOpenSettings = onOpenSettings,
                 onOpenVoiceMode = { requireAudioPermission { onOpenVoiceMode() } },
                 onOpenDrawer = { scope.launch { drawerState.open() } },
                 onToggleRecording = { requireAudioPermission { viewModel.toggleRecording() } },
                 onSpeakLastResponse = viewModel::speakLastResponse,
                 onStopSpeaking = viewModel::stopSpeaking,
                 onRespondToConfirmation = viewModel::respondToConfirmation,
+                onRegenerate = viewModel::regenerate,
             )
         }
     }
@@ -233,16 +239,21 @@ fun ChatScreen(
     onSend: () -> Unit,
     onCancel: () -> Unit = {},
     onRoutingChange: (RoutingOverride) -> Unit = {},
-    onOpenSettings: () -> Unit = {},
     onOpenVoiceMode: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     onToggleRecording: () -> Unit = {},
     onSpeakLastResponse: () -> Unit = {},
     onStopSpeaking: () -> Unit = {},
     onRespondToConfirmation: (Boolean) -> Unit = {},
+    onRegenerate: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val lastMessageCount = uiState.messages.size
+    // The turn that owns the Regenerate affordance — only the latest assistant reply
+    // can be re-run. Computed once per state, not per row.
+    val lastAssistantMessageId = remember(uiState.messages) {
+        uiState.messages.lastOrNull { it.role == MessageRole.ASSISTANT }?.id
+    }
 
     // Follow-the-latest scroll. One mechanic for all cases:
     //  - New message arrives (count changes) → jump to it.
@@ -314,7 +325,7 @@ fun ChatScreen(
         contentWindowInsets = WindowInsets(0.dp),
         topBar = {
             JarvisHeader(
-                title = if (uiState.conversationTitle == "New chat") "" else uiState.conversationTitle,
+                title = if (uiState.conversationTitle == DEFAULT_CONVERSATION_TITLE) "" else uiState.conversationTitle,
                 navigationIcon = {
                     IconButton(onClick = onOpenDrawer) {
                         Icon(Icons.Default.Menu, contentDescription = "History")
@@ -327,9 +338,6 @@ fun ChatScreen(
                     )
                     IconButton(onClick = onOpenVoiceMode) {
                         Icon(Icons.Default.Mic, contentDescription = "Voice mode")
-                    }
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
                 },
             )
@@ -389,8 +397,11 @@ fun ChatScreen(
                         MessageBubble(
                             message = message,
                             isPlayingAudio = uiState.isPlayingAudio,
+                            isLastAssistant = message.id == lastAssistantMessageId,
+                            canRegenerate = !uiState.isStreaming && !uiState.isPreparingSend,
                             onSpeak = onSpeakLastResponse,
                             onStopSpeaking = onStopSpeaking,
+                            onRegenerate = onRegenerate,
                         )
                     }
                 }
@@ -975,14 +986,17 @@ private fun curatedSuggestions(): List<String> {
 /**
  * Message rendering: user messages are a right-aligned soft-gray pill; assistant messages
  * are bubble-less inline prose led by the Jarvis mark, with a blinking cursor while
- * streaming and a quiet feedback row below.
+ * streaming and a quiet action row (copy / regenerate / share / read aloud) below.
  */
 @Composable
 private fun MessageBubble(
     message: Message,
     isPlayingAudio: Boolean = false,
+    isLastAssistant: Boolean = false,
+    canRegenerate: Boolean = false,
     onSpeak: () -> Unit = {},
     onStopSpeaking: () -> Unit = {},
+    onRegenerate: () -> Unit = {},
 ) {
     val isUser = message.role == MessageRole.USER
 
@@ -1061,34 +1075,134 @@ private fun MessageBubble(
                         text = message.errorHint ?: "Stream failed",
                         style = JarvisText.SenderLabel,
                         color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f),
                     )
-                }
-            }
-            // Stopped: partial prose already rendered above, nothing extra to add.
-            MessageStatus.STOPPED -> Unit
-            MessageStatus.COMPLETE -> {
-                // Feedback row: quiet 20dp glyphs in 48dp hit areas.
-                if (message.content.isNotEmpty()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { if (isPlayingAudio) onStopSpeaking() else onSpeak() }) {
+                    // Retry the failed turn — the most likely next action after an error.
+                    if (isLastAssistant && canRegenerate) {
+                        IconButton(onClick = onRegenerate) {
                             Icon(
-                                imageVector =
-                                    if (isPlayingAudio) {
-                                        Icons.AutoMirrored.Filled.VolumeOff
-                                    } else {
-                                        Icons.AutoMirrored.Filled.VolumeUp
-                                    },
-                                contentDescription = if (isPlayingAudio) "Stop speaking" else "Read aloud",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Retry response",
+                                tint = MaterialTheme.colorScheme.error,
                                 modifier = Modifier.size(Spacing.xl),
                             )
                         }
                     }
                 }
             }
+            // Stopped: partial prose already rendered above, nothing extra to add.
+            MessageStatus.STOPPED -> Unit
+            MessageStatus.COMPLETE -> {
+                // Action row: quiet 20dp glyphs in 48dp hit areas, shown once the
+                // response is final. Regenerate only on the latest turn.
+                if (message.content.isNotEmpty()) {
+                    AssistantActionRow(
+                        message = message,
+                        isPlayingAudio = isPlayingAudio,
+                        showRegenerate = isLastAssistant && canRegenerate,
+                        onSpeak = onSpeak,
+                        onStopSpeaking = onStopSpeaking,
+                        onRegenerate = onRegenerate,
+                    )
+                }
+            }
         }
     }
 }
+
+/**
+ * The quiet action row under a finished assistant response: Copy, Regenerate (latest
+ * turn only), Share, and Read aloud. Copy swaps to a check for a beat so the tap is
+ * confirmed without a snackbar.
+ */
+@Composable
+private fun AssistantActionRow(
+    message: Message,
+    isPlayingAudio: Boolean,
+    showRegenerate: Boolean,
+    onSpeak: () -> Unit,
+    onStopSpeaking: () -> Unit,
+    onRegenerate: () -> Unit,
+) {
+    val clipboard = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(COPY_CONFIRM_MS)
+            copied = false
+        }
+    }
+
+    // Native share sheet — fires an ACTION_SEND intent with the response text.
+    val context = LocalContext.current
+    fun shareResponse() {
+        val intent =
+            android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(android.content.Intent.EXTRA_TEXT, message.content)
+            }
+        context.startActivity(android.content.Intent.createChooser(intent, "Share response"))
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+        modifier = Modifier.padding(top = Spacing.xs),
+    ) {
+        // Copy
+        IconButton(onClick = {
+            clipboard.setText(AnnotatedString(message.content))
+            copied = true
+        }) {
+            Icon(
+                imageVector = if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+                contentDescription = if (copied) "Copied" else "Copy response",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(Spacing.xl),
+            )
+        }
+
+        // Regenerate — only under the latest assistant turn, never while streaming.
+        if (showRegenerate) {
+            IconButton(onClick = onRegenerate) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Regenerate response",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(Spacing.xl),
+                )
+            }
+        }
+
+        // Share
+        IconButton(onClick = ::shareResponse) {
+            Icon(
+                imageVector = Icons.Default.Share,
+                contentDescription = "Share response",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(Spacing.xl),
+            )
+        }
+
+        // Read aloud / stop
+        IconButton(onClick = { if (isPlayingAudio) onStopSpeaking() else onSpeak() }) {
+            Icon(
+                imageVector =
+                    if (isPlayingAudio) {
+                        Icons.AutoMirrored.Filled.VolumeOff
+                    } else {
+                        Icons.AutoMirrored.Filled.VolumeUp
+                    },
+                contentDescription = if (isPlayingAudio) "Stop speaking" else "Read aloud",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(Spacing.xl),
+            )
+        }
+    }
+}
+
+/** How long the copy button shows its check confirmation. */
+private const val COPY_CONFIRM_MS = 1200L
 
 /** Top-bar route selector: Auto / Local / Cloud override for the chat, opens a dropdown. */
 @Composable

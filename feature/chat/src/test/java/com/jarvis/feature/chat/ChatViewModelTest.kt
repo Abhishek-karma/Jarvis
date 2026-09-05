@@ -7,6 +7,7 @@ import com.jarvis.core.agent.Tool
 import com.jarvis.core.agent.ToolRegistry
 import com.jarvis.core.agent.ToolResult
 import com.jarvis.core.common.Conversation
+import com.jarvis.core.common.DEFAULT_CONVERSATION_TITLE
 import com.jarvis.core.common.Message
 import com.jarvis.core.common.MessageRole
 import com.jarvis.core.common.MessageStatus
@@ -187,8 +188,118 @@ class ChatViewModelTest {
             viewModel.createNewConversation()
             advanceUntilIdle()
 
-            coVerify { conversationRepository.upsertConversation(match { it.title == "New chat" }) }
+            coVerify { conversationRepository.upsertConversation(match { it.title == DEFAULT_CONVERSATION_TITLE }) }
             assertTrue(viewModel.uiState.value.conversationId != null)
+        }
+
+    @Test
+    fun `first send retitles an untitled conversation from its message`() =
+        runTest {
+            val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            every { provider.capabilities } returns ProviderCapabilities(supportsTools = false)
+            coEvery { provider.listModels() } returns Result.success(emptyList())
+            coEvery { provider.streamChat(any()) } returns flowOf(ChatStreamEvent.Done)
+            coEvery { providerManager.adapterFor(any()) } returns provider
+
+            // Fresh conversation: title still the default.
+            val conversation = Conversation(id = "conv-title")
+            coEvery { conversationRepository.getConversation("conv-title") } returns conversation
+            coEvery { conversationRepository.observeMessages("conv-title") } returns emptyFlow()
+            coEvery { conversationRepository.upsertConversation(any()) } just Runs
+            coEvery { conversationRepository.getMessages("conv-title") } returns emptyList()
+            coEvery { conversationRepository.upsertMessage(any()) } just Runs
+            coEvery { conversationRepository.renameConversation(any(), any()) } just Runs
+            providersFlow.value =
+                listOf(
+                    ProviderConfig(
+                        id = "p1",
+                        name = "OpenAI",
+                        baseUrl = "https://api.openai.com",
+                        model = "gpt-4o-mini",
+                        isDefault = true,
+                    ),
+                )
+
+            viewModel.openConversationById("conv-title")
+            advanceUntilIdle()
+            viewModel.onTextChange("hello world")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            coVerify { conversationRepository.renameConversation("conv-title", "hello world") }
+            assertEquals("hello world", viewModel.uiState.value.conversationTitle)
+        }
+
+    @Test
+    fun `send does not retitle a conversation that already has a custom title`() =
+        runTest {
+            val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            every { provider.capabilities } returns ProviderCapabilities(supportsTools = false)
+            coEvery { provider.listModels() } returns Result.success(emptyList())
+            coEvery { provider.streamChat(any()) } returns flowOf(ChatStreamEvent.Done)
+            coEvery { providerManager.adapterFor(any()) } returns provider
+
+            val conversation = Conversation(id = "conv-named", title = "Custom name")
+            coEvery { conversationRepository.getConversation("conv-named") } returns conversation
+            coEvery { conversationRepository.observeMessages("conv-named") } returns emptyFlow()
+            coEvery { conversationRepository.getMessages("conv-named") } returns emptyList()
+            coEvery { conversationRepository.upsertMessage(any()) } just Runs
+            providersFlow.value =
+                listOf(
+                    ProviderConfig(
+                        id = "p1",
+                        name = "OpenAI",
+                        baseUrl = "https://api.openai.com",
+                        model = "gpt-4o-mini",
+                        isDefault = true,
+                    ),
+                )
+
+            viewModel.openConversationById("conv-named")
+            advanceUntilIdle()
+            viewModel.onTextChange("hello world")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            coVerify(exactly = 0) { conversationRepository.renameConversation(any(), any()) }
+            assertEquals("Custom name", viewModel.uiState.value.conversationTitle)
+        }
+
+    @Test
+    fun `auto-title collapses whitespace and caps the length`() =
+        runTest {
+            val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            every { provider.capabilities } returns ProviderCapabilities(supportsTools = false)
+            coEvery { provider.listModels() } returns Result.success(emptyList())
+            coEvery { provider.streamChat(any()) } returns flowOf(ChatStreamEvent.Done)
+            coEvery { providerManager.adapterFor(any()) } returns provider
+
+            val conversation = Conversation(id = "conv-long")
+            coEvery { conversationRepository.getConversation("conv-long") } returns conversation
+            coEvery { conversationRepository.observeMessages("conv-long") } returns emptyFlow()
+            coEvery { conversationRepository.getMessages("conv-long") } returns emptyList()
+            coEvery { conversationRepository.upsertMessage(any()) } just Runs
+            providersFlow.value =
+                listOf(
+                    ProviderConfig(
+                        id = "p1",
+                        name = "OpenAI",
+                        baseUrl = "https://api.openai.com",
+                        model = "gpt-4o-mini",
+                        isDefault = true,
+                    ),
+                )
+
+            viewModel.openConversationById("conv-long")
+            advanceUntilIdle()
+            viewModel.onTextChange("  line one\n\nline two\n\n" + "z".repeat(80))
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            // "line one line two " (18 chars) + 32 z's = the 50-char cap.
+            coVerify {
+                conversationRepository.renameConversation("conv-long", "line one line two " + "z".repeat(32))
+            }
         }
 
     @Test

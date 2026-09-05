@@ -11,6 +11,7 @@ import com.jarvis.core.agent.AuditLogger
 import com.jarvis.core.agent.ConfirmationGate
 import com.jarvis.core.agent.ToolRegistry
 import com.jarvis.core.common.Conversation
+import com.jarvis.core.common.DEFAULT_CONVERSATION_TITLE
 import com.jarvis.core.common.DispatcherProvider
 import com.jarvis.core.common.Message
 import com.jarvis.core.common.MessageRole
@@ -53,7 +54,7 @@ import java.util.Locale
 
 data class ChatUiState(
     val conversationId: String? = null,
-    val conversationTitle: String = "New chat",
+    val conversationTitle: String = DEFAULT_CONVERSATION_TITLE,
     val messages: List<Message> = emptyList(),
     val composerText: String = "",
     /** Initial conversation load — suppresses the empty-state flash while reading Room. */
@@ -177,12 +178,16 @@ class ChatViewModel
             }
 
             // Deleting the active conversation (History drawer) must not strand the chat: when
-            // the current conversation disappears, switch to a fresh one.
+            // the current conversation disappears, switch to a fresh one. The same stream keeps
+            // the header title current when it changes out-of-band (drawer rename, auto-title).
             viewModelScope.launch(dispatchers.main) {
                 conversationRepository.observeConversations().collect { conversations ->
                     val currentId = _uiState.value.conversationId
-                    if (currentId != null && conversations.none { it.id == currentId }) {
-                        openConversation(null)
+                    val current = conversations.firstOrNull { it.id == currentId }
+                    when {
+                        currentId != null && current == null -> openConversation(null)
+                        current != null && current.title != _uiState.value.conversationTitle ->
+                            _uiState.update { it.copy(conversationTitle = current.title) }
                     }
                 }
             }
@@ -277,9 +282,29 @@ class ChatViewModel
         }
 
         private suspend fun createConversation(routingOverride: RoutingOverride = RoutingOverride.AUTO): Conversation {
-            val conversation = Conversation(title = "New chat", routingOverride = routingOverride)
+            val conversation = Conversation(title = DEFAULT_CONVERSATION_TITLE, routingOverride = routingOverride)
             conversationRepository.upsertConversation(conversation)
             return conversation
+        }
+
+        /**
+         * Name an untitled conversation from its first user message: runs of whitespace collapse
+         * to single spaces and the title caps at [TITLE_MAX_CHARS] so a long opener doesn't blow
+         * out the History drawer rows. A conversation whose title already differs from the
+         * default (manual rename or an earlier auto-title) is left alone.
+         */
+        private suspend fun autoTitleConversation(conversationId: String, firstMessageText: String) {
+            val conversation = conversationRepository.getConversation(conversationId) ?: return
+            if (conversation.title != DEFAULT_CONVERSATION_TITLE) return
+            val title =
+                firstMessageText
+                    .replace(Regex("\\s+"), " ")
+                    .trim()
+                    .take(TITLE_MAX_CHARS)
+            if (title.isEmpty()) return
+            conversationRepository.renameConversation(conversationId, title)
+            // Update the header directly; the conversations observer syncs it a beat later anyway.
+            _uiState.update { it.copy(conversationTitle = title) }
         }
 
         fun onTextChange(text: String) {
@@ -330,6 +355,7 @@ class ChatViewModel
                                 content = text,
                             )
                         conversationRepository.upsertMessage(userMessage)
+                        autoTitleConversation(conversationId, text)
                         _uiState.update { it.copy(composerText = "", isStreaming = true) }
                         // Gemma 4 E2B supports tools, so local routing runs the agent fully offline.
                         if (AgentTrigger.shouldUseAgent(text) && localProvider.capabilities.supportsTools) {
@@ -381,6 +407,7 @@ class ChatViewModel
                             content = text,
                         )
                     conversationRepository.upsertMessage(userMessage)
+                    autoTitleConversation(conversationId, text)
                     _uiState.update { it.copy(composerText = "", isStreaming = true) }
 
                     // Agent trigger: a "Jarvis," prefix / action verbs on a tools-capable provider.
@@ -416,6 +443,99 @@ class ChatViewModel
                     )
                 }
             }
+        }
+
+        /**
+         * Regenerate the last response: drop the previous assistant message(s) after the
+         * latest user turn, then re-run the same routing path as [sendMessage] against the
+         * retained history. The user message is NOT re-persisted — it stays as-is.
+         */
+        fun regenerate() {
+            val state = _uiState.value
+            val conversationId = state.conversationId ?: return
+            if (state.isStreaming || state.isPreparingSend || state.isLoadingConversation) return
+
+            val lastUserIndex = state.messages.indexOfLast { it.role == MessageRole.USER }
+            if (lastUserIndex < 0) return
+
+            streamJob?.cancel()
+            streamJob =
+                viewModelScope.launch(dispatchers.main) {
+                    // Remove everything after the last user turn — the previous answer (and any
+                    // trailing tool turns) — so the model sees a clean prompt to answer again.
+                    val lastUser = state.messages[lastUserIndex]
+                    val toRemove = state.messages.drop(lastUserIndex + 1)
+                    toRemove.forEach { conversationRepository.deleteMessage(it.id) }
+
+                    val target = effectiveRoute(state.routingOverride)
+                    if (state.routingOverride == RoutingOverride.LOCAL && target != RoutingOverride.LOCAL) {
+                        _uiEvents.tryEmit(ChatUiEvent.ShowNotice(LOCAL_UNAVAILABLE_NOTICE))
+                    }
+
+                    if (target == RoutingOverride.LOCAL) {
+                        _uiState.update { it.copy(isPreparingSend = true) }
+                        val localProvider =
+                            try {
+                                localLlmRuntime.currentProvider()
+                            } finally {
+                                _uiState.update { it.copy(isPreparingSend = false) }
+                            }
+                        if (localProvider == null) {
+                            _uiEvents.tryEmit(
+                                ChatUiEvent.ShowError(
+                                    localLlmRuntime.lastFailure
+                                        ?: "On-device model failed to load. Remove and re-download " +
+                                        "it in Settings → Providers.",
+                                ),
+                            )
+                            return@launch
+                        }
+                        _uiState.update { it.copy(activeRoute = RoutingOverride.LOCAL, isStreaming = true) }
+                        if (AgentTrigger.shouldUseAgent(lastUser.content) && localProvider.capabilities.supportsTools) {
+                            streamAgentReply(conversationId, localProvider, localProvider.modelId)
+                        } else {
+                            streamAssistantReply(conversationId, localProvider, localProvider.modelId)
+                        }
+                        return@launch
+                    }
+
+                    val provider = activeProvider
+                    if (provider == null) {
+                        _uiEvents.tryEmit(
+                            ChatUiEvent.ShowNotice(
+                                "No cloud provider configured. Add one in Settings, or switch routing to Local.",
+                            ),
+                        )
+                        return@launch
+                    }
+                    val providerAdapter = providerManager.adapterFor(provider)
+
+                    _uiState.update { it.copy(activeRoute = RoutingOverride.CLOUD) }
+
+                    _uiState.update { it.copy(isPreparingSend = true) }
+                    val model =
+                        try {
+                            resolveModel(providerAdapter, provider)
+                        } finally {
+                            _uiState.update { it.copy(isPreparingSend = false) }
+                        }
+                    if (model == null) {
+                        _uiEvents.tryEmit(
+                            ChatUiEvent.ShowError(
+                                "No model available for \"${provider.name}\". Set a model in the provider " +
+                                    "settings; local servers usually need one.",
+                            ),
+                        )
+                        return@launch
+                    }
+
+                    _uiState.update { it.copy(isStreaming = true) }
+                    if (AgentTrigger.shouldUseAgent(lastUser.content) && providerAdapter.capabilities.supportsTools) {
+                        streamAgentReply(conversationId, providerAdapter, model)
+                    } else {
+                        streamAssistantReply(conversationId, providerAdapter, model)
+                    }
+                }
         }
 
         /**
@@ -856,5 +976,8 @@ class ChatViewModel
 
             /** Canvas detail lines carry an observation preview, never the full raw output. */
             const val OBSERVATION_PREVIEW_CHARS = 140
+
+            /** Auto-derived conversation titles cap here; longer openers are truncated. */
+            const val TITLE_MAX_CHARS = 50
         }
     }

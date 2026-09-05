@@ -40,19 +40,6 @@ sealed interface ProvidersListEvent {
     ) : ProvidersListEvent
 }
 
-/** One-tap presets for the provider form. 10.0.2.2 is the emulator's host loopback;
- * on a physical device replace it with your PC's LAN IP. */
-enum class ProviderPreset(
-    val label: String,
-    val providerName: String,
-    val baseUrl: String,
-    val model: String,
-) {
-    OPENAI("OpenAI", "OpenAI", "https://api.openai.com", "gpt-4o-mini"),
-    OLLAMA("Ollama", "Ollama (local)", "http://10.0.2.2:11434", ""),
-    LM_STUDIO("LM Studio", "LM Studio (local)", "http://10.0.2.2:1234", ""),
-}
-
 data class ProviderEditState(
     val providerId: String? = null,
     val name: String = "",
@@ -246,19 +233,6 @@ class SettingsViewModel
                 ProviderEditState(
                     baseUrl = "https://api.openai.com",
                     isNew = true,
-                )
-            }
-        }
-
-        /** Fill the form from a one-tap preset (cloud or local server). */
-        fun applyPreset(preset: ProviderPreset) {
-            _editState.update {
-                it.copy(
-                    name = preset.providerName,
-                    baseUrl = preset.baseUrl,
-                    model = preset.model,
-                    verificationError = null,
-                    verificationSuccess = false,
                 )
             }
         }

@@ -19,6 +19,7 @@ interface ConversationRepository {
     suspend fun setPinned(id: String, pinned: Boolean)
     suspend fun renameConversation(id: String, title: String)
     suspend fun deleteConversation(id: String)
+    suspend fun deleteMessage(id: String)
     suspend fun deleteMessagesAfter(conversationId: String, fromCreatedAt: Long)
     suspend fun latestMessage(conversationId: String): Message?
 }

@@ -49,6 +49,8 @@ class ChatRepository @Inject constructor(
 
     override suspend fun deleteConversation(id: String) = conversationDao.delete(id)
 
+    override suspend fun deleteMessage(id: String) = messageDao.delete(id)
+
     override suspend fun deleteMessagesAfter(conversationId: String, fromCreatedAt: Long) =
         messageDao.deleteAfter(conversationId, fromCreatedAt)
 
