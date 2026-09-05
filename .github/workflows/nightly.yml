@@ -20,6 +20,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Windows checkouts can lose the exec bit; guard the wrapper before any ./gradlew call.
+      - name: Ensure gradlew is executable
+        run: chmod +x gradlew
+
       - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
         with:
@@ -45,6 +49,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Windows checkouts can lose the exec bit; guard the wrapper before any ./gradlew call.
+      - name: Ensure gradlew is executable
+        run: chmod +x gradlew
 
       - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
@@ -72,6 +80,10 @@ jobs:
     needs: [unit-tests, lint]
     steps:
       - uses: actions/checkout@v4
+
+      # Windows checkouts can lose the exec bit; guard the wrapper before any ./gradlew call.
+      - name: Ensure gradlew is executable
+        run: chmod +x gradlew
 
       - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
