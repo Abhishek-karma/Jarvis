@@ -14,7 +14,10 @@ object Routes {
     /** Chat route with an optional conversationId argument. */
     const val CHAT_ARG_CONVERSATION_ID = "conversationId"
     const val PROVIDER_ARG_ID = "providerId"
+    const val PROVIDER_ARG_TAB = "tab"
 
     fun providerEdit(providerId: String? = null): String =
         if (providerId == null) "$PROVIDER_EDIT?$PROVIDER_ARG_ID=" else "$PROVIDER_EDIT?$PROVIDER_ARG_ID=$providerId"
+
+    fun providers(tab: String = "cloud"): String = "$PROVIDERS_LIST?$PROVIDER_ARG_TAB=$tab"
 }

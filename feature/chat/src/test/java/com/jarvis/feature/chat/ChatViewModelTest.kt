@@ -38,6 +38,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
@@ -517,6 +518,83 @@ class ChatViewModelTest {
             viewModel.cancelStreaming()
             advanceUntilIdle()
             assertFalse(viewModel.uiState.value.isStreaming)
+        }
+
+    @Test
+    fun `sending while streaming interrupts the run and preserves the partial reply`() =
+        runTest {
+            // A message feed the test controls: streaming updates land in Room
+            // (and thus uiState.messages) only when we push them.
+            val messages = MutableStateFlow<List<Message>>(emptyList())
+            val hangingStream = MutableSharedFlow<ChatStreamEvent>(replay = 1)
+            hangingStream.tryEmit(ChatStreamEvent.TokenDelta("Partial answ"))
+
+            val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            every { provider.capabilities } returns ProviderCapabilities(supportsTools = false)
+            coEvery { provider.listModels() } returns Result.success(emptyList())
+            coEvery { provider.streamChat(any()) } returns hangingStream
+            coEvery { providerManager.adapterFor(any()) } returns provider
+
+            coEvery { conversationRepository.getConversation("conv-int") } returns Conversation(id = "conv-int")
+            coEvery { conversationRepository.observeMessages("conv-int") } returns messages
+            coEvery { conversationRepository.upsertConversation(any()) } just Runs
+            coEvery { conversationRepository.getMessages("conv-int") } returns emptyList()
+            coEvery { conversationRepository.upsertMessage(any()) } answers {
+                val msg = firstArg<Message>()
+                if (msg.role != MessageRole.TOOL) messages.value = messages.value + msg
+                Unit
+            }
+            providersFlow.value =
+                listOf(
+                    ProviderConfig(
+                        id = "p1",
+                        name = "OpenAI",
+                        baseUrl = "https://api.openai.com",
+                        model = "gpt-4o-mini",
+                        isDefault = true,
+                    ),
+                )
+
+            viewModel.openConversationById("conv-int")
+            advanceUntilIdle()
+
+            // First send — the stream parks after one token; the assistant row
+            // reaches the feed via the 100ms debounced persist.
+            viewModel.onTextChange("tell me a story")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+            testScheduler.advanceTimeBy(150)
+            advanceUntilIdle()
+
+            assertTrue(viewModel.uiState.value.isStreaming)
+            val streamingRow = viewModel.uiState.value.messages.lastOrNull { it.role == MessageRole.ASSISTANT }
+            assertEquals(MessageStatus.STREAMING, streamingRow?.status)
+            assertEquals("Partial answ", streamingRow?.content)
+
+            // Second send mid-generation — interrupts the run, keeps the partial.
+            viewModel.onTextChange("actually, quick question")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+            testScheduler.advanceTimeBy(150)
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertTrue(state.isStreaming)
+            assertEquals(null, state.pendingConfirmation)
+            coVerify(atLeast = 1) {
+                conversationRepository.upsertMessage(
+                    match {
+                        it.role == MessageRole.ASSISTANT &&
+                            it.content == "Partial answ" &&
+                            it.status == MessageStatus.STOPPED
+                    },
+                )
+            }
+            coVerify(atLeast = 1) {
+                conversationRepository.upsertMessage(
+                    match { it.role == MessageRole.USER && it.content == "actually, quick question" },
+                )
+            }
         }
 
     @Test

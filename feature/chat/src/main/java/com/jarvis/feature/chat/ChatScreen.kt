@@ -85,6 +85,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -134,6 +135,8 @@ import com.jarvis.core.designsystem.JarvisText
 import com.jarvis.core.designsystem.Spacing
 import com.jarvis.core.designsystem.Radius
 import com.jarvis.core.designsystem.StreamingCursor
+import kotlin.math.abs
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -276,30 +279,78 @@ fun ChatScreen(
         uiState.messages.lastOrNull { it.role == MessageRole.ASSISTANT }?.id
     }
 
+    // Follow-the-tail: the thread auto-scrolls only while the user is riding
+    // the bottom. Any user drag disengages it; tapping "Latest" (or sending)
+    // re-engages. This replaces the old isAtBottom gate, which always read
+    // true while the streaming bubble grew taller than the viewport and so
+    // yanked the user back down on every token.
+    var followTail by remember { mutableStateOf(true) }
+    val programmaticScroll = remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var tailScrollJob by remember { mutableStateOf<Job?>(null) }
+    val scrollToTail: (Boolean) -> Unit = { animate ->
+        tailScrollJob?.cancel()
+        tailScrollJob =
+            scope.launch {
+                programmaticScroll.value = true
+                try {
+                    if (animate) {
+                        listState.animateScrollToItem(lastMessageCount)
+                    } else {
+                        listState.scrollToItem(lastMessageCount)
+                    }
+                } finally {
+                    programmaticScroll.value = false
+                }
+            }
+    }
+
     val isAtBottom by remember {
         derivedStateOf {
 
 
+            // A thread that doesn't fill the viewport can't scroll — trivially
+            // at the bottom, so the jump pill never shows.
             if (!listState.canScrollForward) return@derivedStateOf true
             val info = listState.layoutInfo
             val lastVisible = info.visibleItemsInfo.lastOrNull() ?: return@derivedStateOf true
-
-
+            // Following counts when one of the last two items rests at the viewport
+            // bottom (within a small tolerance). A bare >= always held for a last
+            // item taller than the viewport; the abs() bound fixes that case.
+            val offset = info.viewportEndOffset - (lastVisible.offset + lastVisible.size)
             lastVisible.index >= info.totalItemsCount - 2 &&
-                lastVisible.offset + lastVisible.size >= info.viewportEndOffset - BEHAVIOR_BOTTOM_TOLERANCE
+                abs(offset) <= BEHAVIOR_BOTTOM_TOLERANCE
         }
     }
 
+    // User-gesture tracking: a scroll we didn't start ourselves takes over the
+    // tail — token updates stop fighting the drag. When it settles, following
+    // resumes only if the user let go at (or dragged back to) the bottom.
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress to programmaticScroll.value }
+            .collect { (scrolling, programmatic) ->
+                if (scrolling && !programmatic) {
+                    followTail = false
+                } else if (!scrolling) {
+                    followTail = isAtBottom
+                }
+            }
+    }
+
     LaunchedEffect(uiState.conversationId) {
+        followTail = true
         if (lastMessageCount > 0) {
-            listState.scrollToItem(lastMessageCount)
+            scrollToTail(false)
         }
     }
 
     LaunchedEffect(lastMessageCount) {
         val last = uiState.messages.lastOrNull() ?: return@LaunchedEffect
-        if (last.role == MessageRole.USER || isAtBottom) {
-            listState.animateScrollToItem(lastMessageCount)
+        if (last.role == MessageRole.USER) {
+            followTail = true
+            scrollToTail(true)
+        } else if (followTail) {
+            scrollToTail(true)
         }
     }
 
@@ -308,14 +359,10 @@ fun ChatScreen(
         uiState.isStreaming,
     ) {
         val last = uiState.messages.lastOrNull() ?: return@LaunchedEffect
-        if (uiState.isStreaming && last.content.isNotEmpty() && isAtBottom) {
-            listState.animateScrollToItem(lastMessageCount)
+        if (uiState.isStreaming && last.content.isNotEmpty() && followTail) {
+            scrollToTail(true)
         }
     }
-
-    val scope = rememberCoroutineScope()
-
-
 
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -439,7 +486,10 @@ fun ChatScreen(
                                         .clip(JarvisShapes.pill)
                                         .clickable(
                                             role = Role.Button,
-                                        ) { scope.launch { listState.animateScrollToItem(lastMessageCount) } }
+                                        ) {
+                                            followTail = true
+                                            scrollToTail(true)
+                                        }
                                         .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
@@ -486,7 +536,7 @@ fun ChatScreen(
 
         Composer(
             text = uiState.composerText,
-            enabled = uiState.isSendingEnabled && !uiState.isStreaming && !uiState.isPreparingSend && !uiState.isLoadingConversation,
+            enabled = uiState.isSendingEnabled && !uiState.isPreparingSend && !uiState.isLoadingConversation,
             isStreaming = uiState.isStreaming,
             isRecording = uiState.isRecording,
             isTranscribing = uiState.isTranscribing,

@@ -183,6 +183,7 @@ fun JarvisSendButton(
         label = "sendPress",
     )
     val canAct = if (isStreaming) true else enabled
+    val stopMode = isStreaming && !enabled
 
     Box(
         modifier
@@ -191,7 +192,7 @@ fun JarvisSendButton(
             .clip(CircleShape)
             .background(
                 when {
-                    isStreaming -> JarvisColors.Accent.primary
+                    stopMode -> JarvisColors.Accent.primary
                     !enabled -> MaterialTheme.colorScheme.surfaceVariant
                     pressed -> JarvisColors.Accent.primaryPressed
                     else -> MaterialTheme.colorScheme.onSurface
@@ -202,16 +203,16 @@ fun JarvisSendButton(
                 enabled = canAct,
             ) {
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                if (isStreaming) onCancel() else onSend()
+                if (stopMode) onCancel() else onSend()
             },
         contentAlignment = Alignment.Center,
     ) {
         Icon(
-            imageVector = if (isStreaming) Icons.Filled.Stop else Icons.Filled.ArrowUpward,
-            contentDescription = if (isStreaming) "Stop generating" else "Send",
+            imageVector = if (stopMode) Icons.Filled.Stop else Icons.Filled.ArrowUpward,
+            contentDescription = if (stopMode) "Stop generating" else "Send",
             tint =
                 if (enabled || isStreaming) {
-                    if (isStreaming || pressed) {
+                    if (stopMode || pressed) {
                         JarvisColors.Accent.onPrimary
                     } else {
                         MaterialTheme.colorScheme.background

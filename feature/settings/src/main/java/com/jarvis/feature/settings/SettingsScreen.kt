@@ -141,7 +141,7 @@ fun SettingsScreen(
     context, perm,
     ) == PackageManager.PERMISSION_GRANTED
     }
-    val permissionSubtitle = "$grantedCount of 7 granted"
+    val permissionSubtitle = "$grantedCount of 6 granted"
 
     Scaffold(
         topBar = {

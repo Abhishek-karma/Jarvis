@@ -447,11 +447,42 @@ class ChatViewModel
         fun sendMessage() {
             val state = _uiState.value
             val text = state.composerText.trim()
-            if (text.isEmpty() || state.isStreaming || state.isPreparingSend || state.isLoadingConversation) return
+            if (text.isEmpty() || state.isPreparingSend || state.isLoadingConversation) return
 
+            // Sending mid-generation interrupts the in-flight run. The gate is
+            // resolved (not parked) so a queued tool call can't fire later
+            // against the superseded turn.
+            val interrupting = state.isStreaming
+            if (interrupting) {
+                streamJob?.cancel()
+                streamJob = null
+                pendingGate?.complete(false)
+                pendingGate = null
+                _uiState.update {
+                    it.copy(
+                        isStreaming = false,
+                        isAgentRunning = false,
+                        pendingConfirmation = null,
+                        agentSteps = emptyList(),
+                    )
+                }
+            }
             streamJob?.cancel()
             streamJob =
                 viewModelScope.launch(dispatchers.main) {
+                    // Preserve the interrupted run's partial reply the way the Stop
+                    // button does — from this live coroutine, because the cancelled
+                    // run's own persist can no longer suspend. Runs before any new
+                    // upserts, so it can only ever match the superseded message.
+                    if (interrupting) {
+                        val interrupted =
+                            _uiState.value.messages.lastOrNull { it.status == MessageStatus.STREAMING }
+                        if (interrupted != null) {
+                            conversationRepository.upsertMessage(
+                                interrupted.copy(status = MessageStatus.STOPPED),
+                            )
+                        }
+                    }
 
 
                     val conversationId = ensureConversation()

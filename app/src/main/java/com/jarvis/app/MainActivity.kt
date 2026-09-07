@@ -86,6 +86,7 @@ private fun JarvisNavHost(startOnboarding: Boolean) {
         composable(Routes.ONBOARDING) {
             OnboardingRoute(
                 onOpenProviders = { navController.navigate(Routes.PROVIDERS_LIST) },
+                onOpenLocalModels = { navController.navigate(Routes.providers("local")) },
                 onFinished = {
 
 
@@ -135,8 +136,12 @@ private fun JarvisNavHost(startOnboarding: Boolean) {
         composable(Routes.PERMISSIONS) {
             PermissionsScreen(onBack = { navController.popBackStack() })
         }
-        composable(Routes.PROVIDERS_LIST) {
+        composable(
+            route = Routes.PROVIDERS_LIST + "?${Routes.PROVIDER_ARG_TAB}={${Routes.PROVIDER_ARG_TAB}}",
+            arguments = listOf(navArgument(Routes.PROVIDER_ARG_TAB) { defaultValue = "cloud" }),
+        ) { entry ->
             ProvidersListScreen(
+                initialTab = entry.arguments?.getString(Routes.PROVIDER_ARG_TAB) ?: "cloud",
                 onBack = { navController.popBackStack() },
                 onAddProvider = { navController.navigate(Routes.PROVIDER_EDIT) },
                 onEditProvider = { id -> navController.navigate(Routes.providerEdit(id)) },

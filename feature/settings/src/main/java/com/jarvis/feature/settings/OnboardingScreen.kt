@@ -85,6 +85,7 @@ import com.jarvis.core.designsystem.Spacing
 @Composable
 fun OnboardingRoute(
     onOpenProviders: () -> Unit,
+    onOpenLocalModels: () -> Unit,
     onFinished: () -> Unit,
     viewModel: OnboardingViewModel = hiltViewModel(),
 ) {
@@ -140,6 +141,7 @@ fun OnboardingRoute(
                     OnboardingStep.SETUP -> SetupStep(
                         hasProvider = uiState.hasProvider,
                         onOpenProviders = onOpenProviders,
+                        onOpenLocalModels = onOpenLocalModels,
                         onContinue = viewModel::advance,
                     )
                     OnboardingStep.PERMISSIONS -> PermissionsStep(
@@ -226,6 +228,7 @@ private fun WelcomeStep(onContinue: () -> Unit) {
 private fun SetupStep(
     hasProvider: Boolean,
     onOpenProviders: () -> Unit,
+    onOpenLocalModels: () -> Unit,
     onContinue: () -> Unit,
 ) {
     Column(
@@ -267,9 +270,8 @@ private fun SetupStep(
             icon = Icons.Default.PhoneAndroid,
             title = "On-device model",
             description =
-                "Private and works offline. Download anytime from Settings → Providers.",
-            onClick = null,
-            enabled = false,
+                "Private and works offline. Pick and download a model for your device.",
+            onClick = onOpenLocalModels,
         )
 
         Spacer(modifier = Modifier.height(Spacing.huge))

@@ -85,14 +85,16 @@ fun ProvidersListScreen(
     onBack: () -> Unit,
     onAddProvider: () -> Unit,
     onEditProvider: (String) -> Unit,
+    initialTab: String = "cloud",
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val listState by viewModel.listState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var deletingProvider by remember { mutableStateOf<ProviderConfig?>(null) }
 
-
-    var selectedTab by rememberSaveable { mutableStateOf(ProviderTab.CLOUD) }
+    var selectedTab by rememberSaveable {
+        mutableStateOf(if (initialTab.equals("local", ignoreCase = true)) ProviderTab.LOCAL else ProviderTab.CLOUD)
+    }
 
 
     LaunchedEffect(Unit) {
@@ -109,37 +111,14 @@ fun ProvidersListScreen(
         topBar = {
 
 
-            Row(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(start = Spacing.xs, end = Spacing.lg, top = Spacing.sm, bottom = Spacing.xs),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                }
-                Column(modifier = Modifier.weight(1f).padding(start = Spacing.xs)) {
-                    Text(
-                        text = "Providers",
-                        style = JarvisText.H2,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = "Manage and use AI models",
-                        style = JarvisText.BodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(onClick = { }) {
-                    Icon(
-                        Icons.Outlined.HelpOutline,
-                        contentDescription = "Help",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+            JarvisHeader(
+                title = "Providers",
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+            )
         },
         floatingActionButton = {
             AnimatedVisibility(visible = selectedTab == ProviderTab.CLOUD) {
