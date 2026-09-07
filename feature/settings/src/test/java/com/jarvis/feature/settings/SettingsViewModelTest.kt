@@ -1,12 +1,14 @@
 package com.jarvis.feature.settings
 
+import com.jarvis.core.common.LocalBenchmarkResult
 import com.jarvis.core.common.ProviderConfig
 import com.jarvis.core.common.ProviderType
+import com.jarvis.core.common.ThinkMode
 import com.jarvis.core.database.repository.ProviderRepository
 import com.jarvis.core.database.security.ApiKeyStore
+import com.jarvis.core.ml.LocalModelBenchmarkRunner
 import com.jarvis.core.ml.LocalModelState
 import com.jarvis.core.ml.LocalModelStore
-import com.jarvis.core.common.ThinkMode
 import com.jarvis.core.network.LlmProvider
 import com.jarvis.core.network.ProviderManager
 import com.jarvis.core.preferences.ChatMode
@@ -29,6 +31,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -44,6 +47,7 @@ class SettingsViewModelTest {
     private lateinit var apiKeyStore: ApiKeyStore
     private lateinit var localModelStore: LocalModelStore
     private lateinit var userPreferences: UserPreferencesRepository
+    private lateinit var benchmarkRunner: LocalModelBenchmarkRunner
     private lateinit var providersFlow: MutableStateFlow<List<ProviderConfig>>
     private lateinit var localModelStateFlow: MutableStateFlow<LocalModelState>
 
@@ -63,6 +67,7 @@ class SettingsViewModelTest {
         apiKeyStore = mockk(relaxed = true)
         localModelStore = mockk(relaxed = true)
         userPreferences = mockk(relaxed = true)
+        benchmarkRunner = mockk(relaxed = true)
         providersFlow = MutableStateFlow(emptyList())
         localModelStateFlow = MutableStateFlow(LocalModelState.NotDownloaded)
         every { localModelStore.status } returns localModelStateFlow
@@ -77,6 +82,7 @@ class SettingsViewModelTest {
                 localModelStore = localModelStore,
                 userPreferences = userPreferences,
                 updateChecker = mockk(relaxed = true),
+                benchmarkRunner = benchmarkRunner,
                 context = mockk(relaxed = true),
                 dispatchers = testDispatchers,
             )
@@ -95,6 +101,11 @@ class SettingsViewModelTest {
             viewModel.setCautiousMode(true)
             viewModel.setAgentStepCap(25)
             viewModel.setLocalInternetAccess(false)
+            viewModel.setLocalTemperature(0.8f)
+            viewModel.setLocalTopP(0.95f)
+            viewModel.setLocalMaxTokens(2048)
+            viewModel.setLocalThreads(6)
+            viewModel.setLocalPrewarm(false)
             advanceUntilIdle()
 
             coVerify { userPreferences.setThemeMode(ThemeMode.DARK) }
@@ -102,6 +113,11 @@ class SettingsViewModelTest {
             coVerify { userPreferences.setCautiousModeEnabled(true) }
             coVerify { userPreferences.setAgentStepCap(25) }
             coVerify { userPreferences.setLocalInternetAccess(false) }
+            coVerify { userPreferences.setLocalTemperature(0.8f) }
+            coVerify { userPreferences.setLocalTopP(0.95f) }
+            coVerify { userPreferences.setLocalMaxTokens(2048) }
+            coVerify { userPreferences.setLocalThreads(6) }
+            coVerify { userPreferences.setLocalPrewarm(false) }
         }
 
     @Test
@@ -113,7 +129,24 @@ class SettingsViewModelTest {
             every { userPreferences.agentStepCap } returns MutableStateFlow(20)
             every { userPreferences.chatMode } returns MutableStateFlow(ChatMode.LOCAL)
             every { userPreferences.localInternetAccess } returns MutableStateFlow(false)
-
+            every { userPreferences.localTemperature } returns MutableStateFlow(0.4f)
+            every { userPreferences.localTopP } returns MutableStateFlow(0.85f)
+            every { userPreferences.localMaxTokens } returns MutableStateFlow(512)
+            every { userPreferences.localThreads } returns MutableStateFlow(8)
+            every { userPreferences.localPrewarm } returns MutableStateFlow(false)
+            val bench =
+                LocalBenchmarkResult(
+                    modelId = "gemma-2b",
+                    modelName = "Gemma 2B",
+                    promptTokens = 24,
+                    completionTokens = 96,
+                    timeToFirstTokenMs = 120L,
+                    generationSpeedTps = 18.5f,
+                    totalTimeMs = 5200L,
+                    peakMemoryMb = 240L,
+                    threadCount = 4,
+                )
+            every { userPreferences.localBenchmarkResult } returns MutableStateFlow(bench)
 
             viewModel =
                 SettingsViewModel(
@@ -123,6 +156,7 @@ class SettingsViewModelTest {
                     localModelStore = localModelStore,
                     userPreferences = userPreferences,
                     updateChecker = mockk(relaxed = true),
+                    benchmarkRunner = benchmarkRunner,
                     context = mockk(relaxed = true),
                     dispatchers = testDispatchers,
                 )
@@ -135,6 +169,39 @@ class SettingsViewModelTest {
             assertEquals(20, prefs.agentStepCap)
             assertEquals(ChatMode.LOCAL, prefs.chatMode)
             assertFalse(prefs.localInternetAccess)
+            assertEquals(0.4f, prefs.localTemperature)
+            assertEquals(0.85f, prefs.localTopP)
+            assertEquals(512, prefs.localMaxTokens)
+            assertEquals(8, prefs.localThreads)
+            assertFalse(prefs.localPrewarm)
+            assertEquals(bench, prefs.localBenchmarkResult)
+        }
+
+    @Test
+    fun `runLocalBenchmark triggers benchmarkRunner and updates repository on success`() =
+        runTest {
+            val expectedBench =
+                LocalBenchmarkResult(
+                    modelId = "gemma-2b",
+                    modelName = "Gemma 2B",
+                    promptTokens = 24,
+                    completionTokens = 100,
+                    timeToFirstTokenMs = 90L,
+                    generationSpeedTps = 22.4f,
+                    totalTimeMs = 4500L,
+                    peakMemoryMb = 310L,
+                    threadCount = 4,
+                )
+            coEvery { benchmarkRunner.runBenchmark(any(), any()) } returns Result.success(expectedBench)
+            coEvery { userPreferences.setLocalBenchmarkResult(any()) } just Runs
+
+            viewModel.runLocalBenchmark()
+            advanceUntilIdle()
+
+            coVerify { benchmarkRunner.runBenchmark(any(), any()) }
+            coVerify { userPreferences.setLocalBenchmarkResult(expectedBench) }
+            assertEquals(expectedBench, viewModel.prefsState.value.localBenchmarkResult)
+            assertFalse(viewModel.prefsState.value.isBenchmarking)
         }
 
     @Test

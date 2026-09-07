@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -33,8 +34,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.jarvis.core.designsystem.JarvisColors
 import com.jarvis.core.designsystem.JarvisConfirmDialog
+import com.jarvis.core.designsystem.JarvisIconTile
 import com.jarvis.core.designsystem.JarvisShapes
 import com.jarvis.core.designsystem.JarvisText
 import com.jarvis.core.designsystem.Spacing
@@ -49,92 +52,90 @@ fun InstalledModelCard(
     onActivate: () -> Unit,
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
-    Surface(
-        shape = JarvisShapes.card,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column {
-            Row(
-                modifier = Modifier.padding(Spacing.lg),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Spacing.md),
-            ) {
-                Box(
-                    modifier =
-                        Modifier
-                            .size(52.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center,
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(Spacing.lg),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+        ) {
+            JarvisIconTile(
+                icon = Icons.Outlined.SmartToy,
+                tinted = model.isActive,
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                 ) {
-                    Icon(
-                        Icons.Outlined.SmartToy,
-                        contentDescription = null,
-                        tint = JarvisColors.Accent.primary,
-                        modifier = Modifier.size(Spacing.xxl),
-                    )
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                    ) {
-                        Text(
-                            text = model.spec.displayName,
-                            style = JarvisText.H3,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
-                        if (model.isActive) {
-                            ActivePill()
-                        }
-                    }
                     Text(
-                        text =
-                            listOf(formatBytes(model.sizeBytes), model.spec.family.takeIf { it.isNotBlank() } ?: "Local model")
-                                .joinToString(" · "),
-                        style = JarvisText.BodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = model.spec.displayName,
+                        style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
-                    Spacer(modifier = Modifier.height(Spacing.sm))
-                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                        TagChip(fileNameTag(model.spec.fileName))
-                        TagChip("Local")
-                        if (model.sizeBytes < LIGHT_MODEL_BYTES) TagChip("Lightweight")
+                    if (model.isActive) {
+                        ActivePill()
                     }
+                }
+                Text(
+                    text =
+                        listOf(formatBytes(model.sizeBytes), model.spec.family.takeIf { it.isNotBlank() } ?: "Local model")
+                            .joinToString(" · "),
+                    style = JarvisText.Metadata,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(Spacing.xs))
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    TagChip(fileNameTag(model.spec.fileName))
+                    TagChip("Offline")
+                    if (model.sizeBytes < LIGHT_MODEL_BYTES) TagChip("Fast")
                 }
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Row(
-                modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.xs),
-                verticalAlignment = Alignment.CenterVertically,
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Row(
+            modifier = Modifier.padding(horizontal = Spacing.md, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(
+                onClick = onActivate,
+                enabled = !model.isActive,
             ) {
-                TextButton(onClick = onActivate, enabled = !model.isActive) {
-                    Text("Use", color = MaterialTheme.colorScheme.primary)
-                }
-                Spacer(modifier = Modifier.weight(1f))
-                TextButton(onClick = { confirmDelete = true }) {
+                if (model.isActive) {
                     Icon(
-                        Icons.Default.Delete,
+                        Icons.Outlined.Check,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(Spacing.lg),
+                        tint = JarvisColors.Semantic.success,
+                        modifier = Modifier.size(16.dp),
                     )
                     Spacer(modifier = Modifier.width(Spacing.xs))
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text("Active model", color = JarvisColors.Semantic.success, style = JarvisText.Button)
+                } else {
+                    Text("Set as Active", color = MaterialTheme.colorScheme.primary, style = JarvisText.Button)
                 }
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            TextButton(onClick = { confirmDelete = true }) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(modifier = Modifier.width(Spacing.xs))
+                Text("Delete", color = MaterialTheme.colorScheme.error, style = JarvisText.Button)
             }
         }
     }
 
     if (confirmDelete) {
         JarvisConfirmDialog(
-            title = "Delete model",
+            title = "Delete local model",
             message =
-                "This permanently removes \"${model.spec.displayName}\" " +
+                "This will permanently remove \"${model.spec.displayName}\" " +
                     "(${formatBytes(model.sizeBytes)}) from this device.",
             confirmLabel = "Delete",
             onConfirm = {
@@ -150,24 +151,27 @@ fun InstalledModelCard(
 @Composable
 fun ActivePill() {
     Surface(
-        shape = RoundedCornerShape(999.dp),
+        shape = JarvisShapes.pill,
         color = JarvisColors.Semantic.success.copy(alpha = 0.14f),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = Spacing.mdPlus, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = Spacing.smPlus, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Box(
                 modifier =
                     Modifier
-                        .size(8.dp)
+                        .size(6.dp)
                         .clip(CircleShape)
                         .background(JarvisColors.Semantic.success),
             )
             Text(
-                "Active",
-                style = JarvisText.Metadata.copy(fontWeight = FontWeight.SemiBold),
+                "ACTIVE",
+                style = JarvisText.Metadata.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp,
+                ),
                 color = JarvisColors.Semantic.success,
             )
         }
@@ -178,14 +182,14 @@ fun ActivePill() {
 @Composable
 fun TagChip(text: String) {
     Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(6.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
         Text(
             text = text,
-            style = JarvisText.Metadata,
+            style = JarvisText.Metadata.copy(fontSize = 11.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = Spacing.mdPlus, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = Spacing.sm, vertical = 2.dp),
         )
     }
 }
@@ -194,3 +198,4 @@ private fun fileNameTag(fileName: String): String {
     val ext = fileName.substringAfterLast('.', missingDelimiterValue = "")
     return if (ext.isNotBlank()) ".$ext" else "Model"
 }
+

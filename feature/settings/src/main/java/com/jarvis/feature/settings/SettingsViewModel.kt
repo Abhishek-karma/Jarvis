@@ -9,23 +9,25 @@ import androidx.lifecycle.viewModelScope
 import com.jarvis.core.common.DispatcherProvider
 import com.jarvis.core.common.ProviderConfig
 import com.jarvis.core.common.ProviderType
+import com.jarvis.core.common.ThinkMode
 import com.jarvis.core.database.repository.ProviderRepository
 import com.jarvis.core.database.security.ApiKeyStore
 import com.jarvis.core.ml.InstalledModel
+import com.jarvis.core.ml.LocalModelBenchmarkRunner
 import com.jarvis.core.ml.LocalModelSpec
 import com.jarvis.core.ml.LocalModelState
 import com.jarvis.core.ml.LocalModelStore
 import com.jarvis.core.network.LlmProvider
 import com.jarvis.core.network.ProviderManager
-import com.jarvis.core.network.update.UpdateChecker
 import com.jarvis.core.network.update.UpdateCheckResult
-import com.jarvis.core.common.ThinkMode
+import com.jarvis.core.network.update.UpdateChecker
 import com.jarvis.core.preferences.ChatMode
 import com.jarvis.core.preferences.ThemeMode
 import com.jarvis.core.preferences.UserPreferencesRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -47,6 +49,7 @@ class SettingsViewModel
         private val localModelStore: LocalModelStore,
         private val userPreferences: UserPreferencesRepository,
         private val updateChecker: UpdateChecker,
+        private val benchmarkRunner: LocalModelBenchmarkRunner,
         @ApplicationContext private val context: Context,
         private val dispatchers: DispatcherProvider,
     ) : ViewModel() {
@@ -145,6 +148,36 @@ class SettingsViewModel
                 }
             }
             viewModelScope.launch(dispatchers.main) {
+                userPreferences.localTemperature.collect { temp ->
+                    _prefsState.update { it.copy(localTemperature = temp) }
+                }
+            }
+            viewModelScope.launch(dispatchers.main) {
+                userPreferences.localTopP.collect { topP ->
+                    _prefsState.update { it.copy(localTopP = topP) }
+                }
+            }
+            viewModelScope.launch(dispatchers.main) {
+                userPreferences.localMaxTokens.collect { tokens ->
+                    _prefsState.update { it.copy(localMaxTokens = tokens) }
+                }
+            }
+            viewModelScope.launch(dispatchers.main) {
+                userPreferences.localThreads.collect { threads ->
+                    _prefsState.update { it.copy(localThreads = threads) }
+                }
+            }
+            viewModelScope.launch(dispatchers.main) {
+                userPreferences.localPrewarm.collect { prewarm ->
+                    _prefsState.update { it.copy(localPrewarm = prewarm) }
+                }
+            }
+            viewModelScope.launch(dispatchers.main) {
+                userPreferences.localBenchmarkResult.collect { bench ->
+                    _prefsState.update { it.copy(localBenchmarkResult = bench) }
+                }
+            }
+            viewModelScope.launch(dispatchers.main) {
                 var previous: LocalModelState = LocalModelState.None
                 localModelStore.status.collect { state ->
                     _localModelState.value = state
@@ -174,12 +207,101 @@ class SettingsViewModel
             viewModelScope.launch(dispatchers.main) { userPreferences.setAgentStepCap(cap) }
         }
 
-
-
-
-
         fun setLocalInternetAccess(enabled: Boolean) {
             viewModelScope.launch(dispatchers.main) { userPreferences.setLocalInternetAccess(enabled) }
+        }
+
+        fun setLocalTemperature(temperature: Float) {
+            viewModelScope.launch(dispatchers.main) { userPreferences.setLocalTemperature(temperature) }
+        }
+
+        fun setLocalTopP(topP: Float) {
+            viewModelScope.launch(dispatchers.main) { userPreferences.setLocalTopP(topP) }
+        }
+
+        fun setLocalMaxTokens(tokens: Int) {
+            viewModelScope.launch(dispatchers.main) { userPreferences.setLocalMaxTokens(tokens) }
+        }
+
+        fun setLocalThreads(threads: Int) {
+            viewModelScope.launch(dispatchers.main) { userPreferences.setLocalThreads(threads) }
+        }
+
+        fun setLocalPrewarm(enabled: Boolean) {
+            viewModelScope.launch(dispatchers.main) { userPreferences.setLocalPrewarm(enabled) }
+        }
+
+        private var benchmarkJob: Job? = null
+
+        fun runLocalBenchmark() {
+            if (_prefsState.value.isBenchmarking) return
+            benchmarkJob =
+                viewModelScope.launch(dispatchers.io) {
+                    _prefsState.update {
+                        it.copy(
+                            isBenchmarking = true,
+                            benchmarkProgress = 0.05f,
+                            benchmarkStatusText = "Preparing on-device benchmark…",
+                        )
+                    }
+                    val result =
+                        benchmarkRunner.runBenchmark(
+                            threads = _prefsState.value.localThreads,
+                            onProgress = { progress, status ->
+                                _prefsState.update {
+                                    it.copy(
+                                        benchmarkProgress = progress,
+                                        benchmarkStatusText = status,
+                                    )
+                                }
+                            },
+                        )
+
+                    result
+                        .onSuccess { bench ->
+                            userPreferences.setLocalBenchmarkResult(bench)
+                            _prefsState.update {
+                                it.copy(
+                                    isBenchmarking = false,
+                                    benchmarkProgress = 1.0f,
+                                    benchmarkStatusText = "Completed",
+                                    localBenchmarkResult = bench,
+                                )
+                            }
+                            _listEvents.tryEmit(
+                                ProvidersListEvent.ShowMessage("Benchmark complete: ${bench.generationSpeedTps} tok/s"),
+                            )
+                        }.onFailure { error ->
+                            _prefsState.update {
+                                it.copy(
+                                    isBenchmarking = false,
+                                    benchmarkProgress = 0f,
+                                    benchmarkStatusText = error.message ?: "Benchmark failed",
+                                )
+                            }
+                            _listEvents.tryEmit(
+                                ProvidersListEvent.ShowError(error.message ?: "Benchmark failed to run"),
+                            )
+                        }
+                }
+        }
+
+        fun cancelLocalBenchmark() {
+            benchmarkJob?.cancel()
+            _prefsState.update {
+                it.copy(
+                    isBenchmarking = false,
+                    benchmarkProgress = 0f,
+                    benchmarkStatusText = "Cancelled",
+                )
+            }
+        }
+
+        fun clearLocalBenchmark() {
+            viewModelScope.launch(dispatchers.main) {
+                userPreferences.clearLocalBenchmarkResult()
+                _prefsState.update { it.copy(localBenchmarkResult = null) }
+            }
         }
 
         fun startLocalModelDownload(modelId: String) {
