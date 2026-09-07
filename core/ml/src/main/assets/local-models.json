@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "gemma-4-e2b-it",
+      "displayName": "Gemma 4 E2B",
+      "family": "Gemma 4",
+      "runtime": "LITERT_LM",
+      "fileName": "gemma-4-E2B-it-web.litertlm",
+      "url": "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.litertlm",
+      "manualPage": "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm",
+      "checksumSha256": "3a08e8d94e23b814ae5414469c370c503813949acb8ceaa17e4ebf8a35af35b5",
+      "approxSizeLabel": "~2.0 GB",
+      "ramNote": "Fits 8 GB devices (quantized)",
+      "license": "Gemma Terms of Use",
+      "description": "Google's lightweight flagship for on-device use — strong general chat and reasoning for its size.",
+      "tags": ["Text", "Quantized", "8 GB+", "Popular"]
+    },
+    {
+      "id": "qwen2.5-1.5b-instruct",
+      "displayName": "Qwen 2.5 1.5B Instruct",
+      "family": "Qwen",
+      "runtime": "LITERT_LM",
+      "fileName": "Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm",
+      "url": "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm",
+      "manualPage": "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct",
+      "checksumSha256": "faa60663b333290c1496c499828b21d3e3254a788cacd8cce917ce0f761a2dc9",
+      "approxSizeLabel": "~1.6 GB",
+      "ramNote": "Great for 8 GB devices",
+      "license": "Apache 2.0",
+      "description": "Alibaba's efficient instruct model — fast responses, 4k context, very light on memory.",
+      "tags": ["Text", "Quantized", "8 GB+", "Fast"]
+    },
+    {
+      "id": "deepseek-r1-1.5b",
+      "displayName": "DeepSeek R1 Distill 1.5B",
+      "family": "DeepSeek",
+      "runtime": "LITERT_LM",
+      "fileName": "DeepSeek-R1-Distill-Qwen-1.5B_multi-prefill-seq_q8_ekv4096.litertlm",
+      "url": "https://huggingface.co/litert-community/DeepSeek-R1-Distill-Qwen-1.5B/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B_multi-prefill-seq_q8_ekv4096.litertlm",
+      "manualPage": "https://huggingface.co/litert-community/DeepSeek-R1-Distill-Qwen-1.5B",
+      "checksumSha256": "69b35f01759eed765641ab4af589bbe98131fd2825662a086d9037409b8c1295",
+      "approxSizeLabel": "~1.8 GB",
+      "ramNote": "Great for 8 GB devices",
+      "license": "MIT",
+      "description": "Reasoning-first model — thinks step by step before answering. Slower per token, stronger on math and logic.",
+      "tags": ["Text", "Reasoning", "8 GB+", "Thinks"]
+    },
+    {
+      "id": "qwen3-0.6b",
+      "displayName": "Qwen 3 0.6B",
+      "family": "Qwen 3",
+      "runtime": "LITERT_LM",
+      "fileName": "Qwen3-0.6B.litertlm",
+      "url": "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/Qwen3-0.6B.litertlm",
+      "manualPage": "https://huggingface.co/litert-community/Qwen3-0.6B",
+      "checksumSha256": "555579ff2f4fd13379abe69c1c3ab5200f7338bc92471557f1d6614a6e5ab0b4",
+      "approxSizeLabel": "~0.6 GB",
+      "ramNote": "Runs on almost any phone",
+      "license": "Apache 2.0",
+      "description": "Ultra-light model for older or low-RAM phones — instant responses, great for quick questions.",
+      "tags": ["Text", "Ultra-light", "4 GB+", "Fast"]
+    }
+  ]
+}

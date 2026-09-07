@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Adaptive-icon background. Kept in this file (not the generic colors.xml)
+      so the launcher assets can be redesigned or replaced without touching
+      the rest of the app palette. Mirrors the existing ic_launcher_background
+      token used by the legacy mipmap-anydpi/ic_launcher.xml fallback.
+    -->
+    <color name="ic_launcher_background">#FFFFFFFF</color>
+
+    <!-- Splash background mirrors the launcher background for a calm cross-fade. -->
+    <color name="splash_background">#FFFFFFFF</color>
+</resources>
