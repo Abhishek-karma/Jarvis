@@ -63,6 +63,7 @@ object WebTools {
                                 structuredData = mapOf(
                                     "chars" to page.text.length,
                                     "truncated" to (page.text.length > MAX_CHARS),
+                                    "untrusted" to true,
                                 ),
                             )
                         }

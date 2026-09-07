@@ -42,6 +42,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import com.jarvis.core.common.Message
 import com.jarvis.core.common.MessageRole
 import com.jarvis.core.common.RoutingOverride
 import com.jarvis.core.common.ThinkMode
@@ -77,8 +78,12 @@ fun ChatScreen(
     onSpeakLastResponse: () -> Unit = {},
     onSpeakMessage: (String, String) -> Unit = { _, _ -> },
     onStopSpeaking: () -> Unit = {},
-    onRespondToConfirmation: (Boolean) -> Unit = {},
+    onRespondToConfirmation: (Boolean, Boolean) -> Unit = { _, _ -> },
     onRegenerate: () -> Unit = {},
+    onRetryMessage: (String) -> Unit = {},
+    onEditMessage: (Message) -> Unit = {},
+    onDeleteMessage: (String) -> Unit = {},
+    onContinueGenerating: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
@@ -239,6 +244,10 @@ fun ChatScreen(
                                     onSpeak = { onSpeakMessage(message.id, message.content) },
                                     onStopSpeaking = onStopSpeaking,
                                     onRegenerate = onRegenerate,
+                                    onRetry = onRetryMessage,
+                                    onEdit = onEditMessage,
+                                    onDelete = onDeleteMessage,
+                                    onContinue = onContinueGenerating,
                                 )
                             }
 
@@ -247,8 +256,8 @@ fun ChatScreen(
                                     AgentLiveBlock(
                                         steps = uiState.agentSteps,
                                         pending = uiState.pendingConfirmation,
-                                        onAllow = { onRespondToConfirmation(true) },
-                                        onDeny = { onRespondToConfirmation(false) },
+                                        onAllow = { alwaysForChat -> onRespondToConfirmation(true, alwaysForChat) },
+                                        onDeny = { onRespondToConfirmation(false, false) },
                                     )
                                 }
                             }

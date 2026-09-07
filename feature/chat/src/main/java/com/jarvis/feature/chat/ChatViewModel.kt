@@ -28,6 +28,7 @@ import com.jarvis.core.ml.LocalModelStore
 import com.jarvis.core.navigation.Routes
 import com.jarvis.core.preferences.ChatMode
 import com.jarvis.core.preferences.UserPreferencesRepository
+import com.jarvis.core.network.CategorizedProviderError
 import com.jarvis.core.network.ChatRequest
 import com.jarvis.core.network.ChatStreamEvent
 import com.jarvis.core.network.LlmProvider
@@ -194,6 +195,7 @@ class ChatViewModel
         }
 
         private suspend fun openConversation(conversationId: String?, preserveRouting: RoutingOverride? = null) {
+            sessionApprovedTools.clear()
             val conversation =
                 conversationId?.let { conversationRepository.getConversation(it) }
 
@@ -374,9 +376,9 @@ class ChatViewModel
             _uiState.update { it.copy(composerText = text) }
         }
 
-        fun sendMessage() {
+        fun sendMessage(overrideText: String? = null) {
             val state = _uiState.value
-            val text = state.composerText.trim()
+            val text = (overrideText ?: state.composerText).trim()
             if (text.isEmpty() || state.isPreparingSend || state.isLoadingConversation) return
 
             // Sending mid-generation interrupts the in-flight run. The gate is
@@ -461,7 +463,13 @@ class ChatViewModel
                             )
                         conversationRepository.upsertMessage(userMessage)
                         autoTitleConversation(conversationId, text)
-                        _uiState.update { it.copy(composerText = "", isStreaming = true) }
+                        _uiState.update {
+                            if (overrideText == null) {
+                                it.copy(composerText = "", isStreaming = true)
+                            } else {
+                                it.copy(isStreaming = true)
+                            }
+                        }
 
 
                         if (AgentTrigger.shouldUseAgent(text) && localProvider.capabilities.supportsTools) {
@@ -525,7 +533,13 @@ class ChatViewModel
                         )
                     conversationRepository.upsertMessage(userMessage)
                     autoTitleConversation(conversationId, text)
-                    _uiState.update { it.copy(composerText = "", isStreaming = true) }
+                    _uiState.update {
+                        if (overrideText == null) {
+                            it.copy(composerText = "", isStreaming = true)
+                        } else {
+                            it.copy(isStreaming = true)
+                        }
+                    }
 
 
                     if (AgentTrigger.shouldUseAgent(text) && providerAdapter.capabilities.supportsTools) {
@@ -685,10 +699,46 @@ class ChatViewModel
                 }
         }
 
+        private val sessionApprovedTools = mutableSetOf<String>()
+
         /** Resolve a parked tool call from the UI. */
-        fun respondToConfirmation(allow: Boolean) {            _uiState.update { it.copy(pendingConfirmation = null) }
+        fun respondToConfirmation(allow: Boolean, alwaysForChat: Boolean = false) {
+            val pendingTool = _uiState.value.pendingConfirmation?.toolName
+            if (allow && alwaysForChat && pendingTool != null) {
+                sessionApprovedTools.add(pendingTool)
+            }
+            _uiState.update { it.copy(pendingConfirmation = null) }
             pendingGate?.complete(allow)
             pendingGate = null
+        }
+
+        fun deleteMessage(messageId: String) {
+            viewModelScope.launch(dispatchers.io) {
+                runCatching {
+                    conversationRepository.deleteMessage(messageId)
+                }.onFailure { error ->
+                    _uiEvents.tryEmit(ChatUiEvent.ShowError("Could not delete message: ${error.message}"))
+                }
+            }
+        }
+
+        fun editMessage(message: Message) {
+            _uiState.update { it.copy(composerText = message.content) }
+        }
+
+        fun retryMessage(messageId: String) {
+            val state = _uiState.value
+            if (state.isStreaming || state.isPreparingSend) return
+            viewModelScope.launch(dispatchers.main) {
+                conversationRepository.deleteMessage(messageId)
+                regenerate()
+            }
+        }
+
+        fun continueGenerating() {
+            val state = _uiState.value
+            if (state.isStreaming || state.isPreparingSend) return
+            sendMessage("Please continue your response exactly where you left off.")
         }
 
         private suspend fun streamAgentReply(
@@ -837,6 +887,9 @@ class ChatViewModel
             toolName: String,
             argsJson: String,
         ): Boolean {
+            if (sessionApprovedTools.contains(toolName)) {
+                return true
+            }
             val gate = CompletableDeferred<Boolean>()
             pendingGate = gate
             _uiState.update { it.copy(pendingConfirmation = AgentConfirmation(toolName, argsJson)) }
@@ -940,9 +993,19 @@ class ChatViewModel
 
             val error = streamError
             if (error != null) {
-                if (text.isNotBlank() || reasoning.isNotBlank()) persist(MessageStatus.ERROR)
+                val categorized = CategorizedProviderError.classify(error.code, error.message)
+                conversationRepository.upsertMessage(
+                    assistantMessage.copy(
+                        content = text.toString(),
+                        reasoningContent = reasoning.toString().ifBlank { null },
+                        status = MessageStatus.ERROR,
+                        promptTokens = promptTokens,
+                        completionTokens = completionTokens,
+                        errorHint = "${categorized.title}: ${categorized.description}",
+                    ),
+                )
                 _uiState.update { it.copy(isStreaming = false) }
-                _uiEvents.tryEmit(ChatUiEvent.ShowError(error.message))
+                _uiEvents.tryEmit(ChatUiEvent.ShowError("${categorized.title}: ${categorized.description}"))
             } else {
                 persist(MessageStatus.COMPLETE)
                 _uiState.update { it.copy(isStreaming = false) }

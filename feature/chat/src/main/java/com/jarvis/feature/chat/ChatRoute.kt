@@ -129,6 +129,10 @@ fun ChatRoute(
                 onStopSpeaking = viewModel::stopSpeaking,
                 onRespondToConfirmation = viewModel::respondToConfirmation,
                 onRegenerate = viewModel::regenerate,
+                onRetryMessage = viewModel::retryMessage,
+                onEditMessage = viewModel::editMessage,
+                onDeleteMessage = viewModel::deleteMessage,
+                onContinueGenerating = viewModel::continueGenerating,
                 onOpenSettings = onOpenSettings,
             )
         }

@@ -2,6 +2,7 @@ package com.jarvis.feature.chat.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,15 +19,23 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PriorityHigh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,23 +50,61 @@ import com.jarvis.core.designsystem.Spacing
 import com.jarvis.feature.chat.AgentConfirmation
 import com.jarvis.feature.chat.AgentStep
 import com.jarvis.feature.chat.AgentStepState
+import org.json.JSONObject
 
 @Composable
 fun AgentLiveBlock(
     steps: List<AgentStep>,
     pending: AgentConfirmation?,
-    onAllow: () -> Unit,
+    onAllow: (Boolean) -> Unit,
     onDeny: () -> Unit,
 ) {
+    var expanded by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
         if (pending != null) {
             ConfirmationCard(confirmation = pending)
-            AgentApprovalRow(pending = pending, onAllow = onAllow, onDeny = onDeny)
+            AgentApprovalRow(
+                pending = pending,
+                onAllowOnce = { onAllow(false) },
+                onAllowAlways = { onAllow(true) },
+                onDeny = onDeny,
+            )
         } else {
-            val running = steps.lastOrNull { it.state == AgentStepState.RUNNING }
+            if (steps.size > 1) {
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(JarvisShapes.pill)
+                            .clickable { expanded = !expanded }
+                            .padding(vertical = Spacing.xs, horizontal = Spacing.sm),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = if (expanded) "Hide previous steps" else "Show previous steps (${steps.size - 1})",
+                        style = JarvisText.Metadata,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Icon(
+                        imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(Spacing.md),
+                    )
+                }
+                if (expanded) {
+                    steps.dropLast(1).forEach { step ->
+                        AgentStepRow(step = step)
+                    }
+                }
+            }
+
+            val running = steps.lastOrNull { it.state == AgentStepState.RUNNING } ?: steps.lastOrNull()
             if (running != null) {
                 AgentStepRow(step = running)
             } else {
@@ -79,6 +126,21 @@ fun AgentLiveBlock(
 
 @Composable
 fun ConfirmationCard(confirmation: AgentConfirmation) {
+    var showRawJson by remember { mutableStateOf(false) }
+
+    val parsedArgs = remember(confirmation.argsJson) {
+        runCatching {
+            val obj = JSONObject(confirmation.argsJson)
+            val map = mutableListOf<Pair<String, String>>()
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                map.add(key to obj.opt(key).toString())
+            }
+            map
+        }.getOrNull()
+    }
+
     Surface(
         shape = JarvisShapes.card,
         color = MaterialTheme.colorScheme.background,
@@ -87,36 +149,118 @@ fun ConfirmationCard(confirmation: AgentConfirmation) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(Spacing.lg)) {
-            Text(
-                text = "Allow ${confirmation.toolName}?",
-                style = JarvisText.Body.copy(fontWeight = FontWeight.SemiBold),
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            ) {
+                Text(
+                    text = "Allow ${formatToolTitle(confirmation.toolName)}?",
+                    style = JarvisText.Body.copy(fontWeight = FontWeight.SemiBold),
+                    modifier = Modifier.weight(1f),
+                )
+                Surface(
+                    shape = JarvisShapes.pill,
+                    color = JarvisColors.Semantic.warning.copy(alpha = 0.2f),
+                ) {
+                    Text(
+                        text = "Sensitive Tier",
+                        style = JarvisText.CodeLabel,
+                        color = JarvisColors.Semantic.warning,
+                        modifier = Modifier.padding(horizontal = Spacing.sm, vertical = 2.dp),
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(Spacing.xs))
             Text(
                 text =
-                    "This tool can change your device or data, so Jarvis paused for your " +
-                        "explicit approval. The call is recorded in the audit log.",
+                    "This tool can modify device data or execute actions externally. " +
+                        "Review the requested parameters before granting approval.",
                 style = JarvisText.Metadata,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(modifier = Modifier.height(Spacing.sm))
 
-            Text(
-                text = confirmation.argsJson,
-                style = JarvisText.Code,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(JarvisShapes.codeBlock)
-                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                        .heightIn(max = 110.dp)
-                        .verticalScroll(rememberScrollState())
-                        .padding(Spacing.mdPlus),
-            )
+            if (!parsedArgs.isNullOrEmpty()) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(JarvisShapes.codeBlock)
+                            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                            .padding(Spacing.md),
+                ) {
+                    parsedArgs.forEach { (key, value) ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            Text(
+                                text = "$key:",
+                                style = JarvisText.Code.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Text(
+                                text = value,
+                                style = JarvisText.Code,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 4,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+
+            TextButton(
+                onClick = { showRawJson = !showRawJson },
+                modifier = Modifier.padding(top = Spacing.xs),
+            ) {
+                Text(
+                    text = if (showRawJson) "Hide raw JSON" else "View raw JSON",
+                    style = JarvisText.Metadata,
+                )
+            }
+
+            if (showRawJson || parsedArgs.isNullOrEmpty()) {
+                Text(
+                    text = confirmation.argsJson,
+                    style = JarvisText.Code,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(JarvisShapes.codeBlock)
+                            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                            .heightIn(max = 110.dp)
+                            .verticalScroll(rememberScrollState())
+                            .padding(Spacing.mdPlus),
+                )
+            }
         }
     }
 }
+
+private fun formatToolTitle(toolName: String): String =
+    when (toolName) {
+        "web_search" -> "Web Search"
+        "fetch_url" -> "Web Page Fetch"
+        "calculator" -> "Calculator"
+        else -> toolName.replace('_', ' ').replaceFirstChar { it.uppercase() }
+    }
+
+private fun formatStepDescription(text: String): String =
+    when {
+        text.startsWith("Calling web_search") -> "Searching the web"
+        text.startsWith("Calling fetch_url") -> "Retrieving webpage"
+        text.startsWith("Calling calculator") -> "Evaluating calculation"
+        text.startsWith("Calling ") -> "Executing ${text.removePrefix("Calling ").replace('_', ' ')}"
+        text.endsWith(" done") -> "${text.removeSuffix(" done").replace('_', ' ').replaceFirstChar { it.uppercase() }} complete"
+        text.startsWith("Needs your approval: ") -> "Approval required for ${text.removePrefix("Needs your approval: ").replace('_', ' ')}"
+        text.startsWith("Denied ") -> "Rejected ${text.removePrefix("Denied ").replace('_', ' ')}"
+        else -> text
+    }
 
 @Composable
 fun AgentStepRow(step: AgentStep) {
@@ -131,7 +275,7 @@ fun AgentStepRow(step: AgentStep) {
             verticalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
             Text(
-                text = step.text,
+                text = formatStepDescription(step.text),
                 style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -262,7 +406,8 @@ fun AgentStatusPill(step: AgentStep) {
 @Composable
 fun AgentApprovalRow(
     pending: AgentConfirmation,
-    onAllow: () -> Unit,
+    onAllowOnce: () -> Unit,
+    onAllowAlways: () -> Unit,
     onDeny: () -> Unit,
 ) {
     Row(
@@ -290,26 +435,42 @@ fun AgentApprovalRow(
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             Text(
-                text = "Approval required: ${pending.toolName}",
+                text = "Approval required: ${formatToolTitle(pending.toolName)}",
                 style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = "Sensitive-tier action. Review the parameters above — the call is recorded in the audit log.",
+                text = "Sensitive-tier action. Choose whether to permit this single operation or trust it for this conversation.",
                 style = JarvisText.Metadata,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                Button(
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                OutlinedButton(
                     onClick = onDeny,
+                    shape = JarvisShapes.codeBlock,
+                ) {
+                    Text("Deny", color = MaterialTheme.colorScheme.error)
+                }
+                Button(
+                    onClick = onAllowOnce,
                     shape = JarvisShapes.codeBlock,
                     colors =
                         ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                             contentColor = MaterialTheme.colorScheme.onSurface,
                         ),
-                ) { Text("Reject") }
-                Button(onClick = onAllow, shape = JarvisShapes.codeBlock) { Text("Approve") }
+                ) {
+                    Text("Allow once")
+                }
+                Button(
+                    onClick = onAllowAlways,
+                    shape = JarvisShapes.codeBlock,
+                ) {
+                    Text("Always")
+                }
             }
         }
     }

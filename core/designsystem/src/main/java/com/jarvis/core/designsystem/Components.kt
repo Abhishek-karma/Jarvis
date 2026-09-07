@@ -183,7 +183,7 @@ fun JarvisSendButton(
         label = "sendPress",
     )
     val canAct = if (isStreaming) true else enabled
-    val stopMode = isStreaming && !enabled
+    val stopMode = isStreaming
 
     Box(
         modifier

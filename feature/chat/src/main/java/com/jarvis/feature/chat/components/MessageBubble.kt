@@ -1,27 +1,37 @@
 package com.jarvis.feature.chat.components
 
 import android.content.Intent
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PriorityHigh
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -34,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jarvis.core.common.Message
@@ -43,6 +54,7 @@ import com.jarvis.core.common.RoutingOverride
 import com.jarvis.core.designsystem.JarvisBubbleShapes
 import com.jarvis.core.designsystem.JarvisColors
 import com.jarvis.core.designsystem.JarvisMark
+import com.jarvis.core.designsystem.JarvisShapes
 import com.jarvis.core.designsystem.JarvisText
 import com.jarvis.core.designsystem.Spacing
 import com.jarvis.core.designsystem.StreamingCursor
@@ -65,28 +77,90 @@ fun MessageBubble(
     onSpeak: () -> Unit = {},
     onStopSpeaking: () -> Unit = {},
     onRegenerate: () -> Unit = {},
+    onRetry: (String) -> Unit = {},
+    onEdit: (Message) -> Unit = {},
+    onDelete: (String) -> Unit = {},
+    onContinue: () -> Unit = {},
 ) {
     val isUser = message.role == MessageRole.USER
 
     if (isUser) {
-        Row(
+        var showActions by remember { mutableStateOf(false) }
+        val clipboard = LocalClipboardManager.current
+        var copied by remember { mutableStateOf(false) }
+        LaunchedEffect(copied) {
+            if (copied) {
+                delay(COPY_CONFIRM_MS)
+                copied = false
+            }
+        }
+
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
+            horizontalAlignment = Alignment.End,
         ) {
             BoxWithConstraints {
-                Text(
-                    text = message.content,
-                    style = JarvisText.Body,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    softWrap = true,
-                    overflow = TextOverflow.Clip,
-                    modifier =
-                        Modifier
-                            .widthIn(max = maxWidth * 0.82f)
-                            .clip(JarvisBubbleShapes.user)
-                            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                            .padding(horizontal = Spacing.lg, vertical = Spacing.mdPlus),
-                )
+                SelectionContainer {
+                    Text(
+                        text = message.content,
+                        style = JarvisText.Body,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        softWrap = true,
+                        overflow = TextOverflow.Clip,
+                        modifier =
+                            Modifier
+                                .widthIn(max = maxWidth * 0.82f)
+                                .clip(JarvisBubbleShapes.user)
+                                .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                                .clickable { showActions = !showActions }
+                                .padding(horizontal = Spacing.lg, vertical = Spacing.mdPlus),
+                    )
+                }
+            }
+
+            if (showActions) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(ACTION_GAP),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = Spacing.xs),
+                ) {
+                    IconButton(
+                        onClick = {
+                            clipboard.setText(AnnotatedString(message.content))
+                            copied = true
+                        },
+                        modifier = Modifier.size(ACTION_HIT),
+                    ) {
+                        Icon(
+                            imageVector = if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+                            contentDescription = if (copied) "Copied" else "Copy message",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(ACTION_GLYPH),
+                        )
+                    }
+                    IconButton(
+                        onClick = { onEdit(message) },
+                        modifier = Modifier.size(ACTION_HIT),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit message",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(ACTION_GLYPH),
+                        )
+                    }
+                    IconButton(
+                        onClick = { onDelete(message.id) },
+                        modifier = Modifier.size(ACTION_HIT),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete message",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(ACTION_GLYPH),
+                        )
+                    }
+                }
             }
         }
         return
@@ -172,7 +246,9 @@ fun MessageBubble(
         }
 
         if (message.content.isNotEmpty()) {
-            MarkdownText(markdown = message.content)
+            SelectionContainer {
+                MarkdownText(markdown = message.content)
+            }
         }
 
         when (message.status) {
@@ -182,38 +258,114 @@ fun MessageBubble(
                 } else {
                     StreamingCursor(Modifier.padding(top = Spacing.xs))
                 }
-            MessageStatus.ERROR -> {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PriorityHigh,
-                        contentDescription = "Error",
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(Spacing.lg),
-                    )
-                    Text(
-                        text = message.errorHint ?: "Stream failed",
-                        style = JarvisText.SenderLabel,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.weight(1f),
-                    )
 
-                    if (isLastAssistant && canRegenerate) {
-                        IconButton(onClick = onRegenerate) {
+            MessageStatus.ERROR -> {
+                Surface(
+                    shape = JarvisShapes.card,
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.xs),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        modifier = Modifier.padding(Spacing.md),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PriorityHigh,
+                            contentDescription = "Error",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(Spacing.xl),
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Unable to complete response",
+                                style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                            Text(
+                                text = message.errorHint ?: "An unexpected error occurred while generating.",
+                                style = JarvisText.Metadata,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (canRegenerate) {
+                            TextButton(onClick = { onRetry(message.id) }) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(Spacing.md),
+                                )
+                                Spacer(modifier = Modifier.width(Spacing.xs))
+                                Text("Retry")
+                            }
+                        }
+                        IconButton(onClick = { onDelete(message.id) }) {
                             Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Retry response",
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(Spacing.xl),
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Delete error",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(Spacing.lg),
                             )
                         }
                     }
                 }
             }
 
-            MessageStatus.STOPPED -> Unit
+            MessageStatus.STOPPED -> {
+                Surface(
+                    shape = JarvisShapes.card,
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.xs),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                    ) {
+                        Text(
+                            text = "Generation paused",
+                            style = JarvisText.Metadata,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                            if (canRegenerate) {
+                                TextButton(onClick = onContinue) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(Spacing.md),
+                                    )
+                                    Spacer(modifier = Modifier.width(Spacing.xs))
+                                    Text("Continue")
+                                }
+                            }
+                            if (isLastAssistant && canRegenerate) {
+                                TextButton(onClick = onRegenerate) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(Spacing.md),
+                                    )
+                                    Spacer(modifier = Modifier.width(Spacing.xs))
+                                    Text("Regenerate")
+                                }
+                            }
+                        }
+                    }
+                }
+                AssistantActionRow(
+                    message = message,
+                    isPlayingAudio = isPlayingAudio,
+                    showRegenerate = isLastAssistant && canRegenerate,
+                    onSpeak = onSpeak,
+                    onStopSpeaking = onStopSpeaking,
+                    onRegenerate = onRegenerate,
+                    onDelete = { onDelete(message.id) },
+                )
+            }
+
             MessageStatus.COMPLETE -> {
                 if (message.content.isNotEmpty()) {
                     AssistantActionRow(
@@ -223,6 +375,7 @@ fun MessageBubble(
                         onSpeak = onSpeak,
                         onStopSpeaking = onStopSpeaking,
                         onRegenerate = onRegenerate,
+                        onDelete = { onDelete(message.id) },
                     )
                 }
             }
@@ -245,6 +398,7 @@ fun AssistantActionRow(
     onSpeak: () -> Unit,
     onStopSpeaking: () -> Unit,
     onRegenerate: () -> Unit,
+    onDelete: () -> Unit = {},
 ) {
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
@@ -317,6 +471,18 @@ fun AssistantActionRow(
                         Icons.AutoMirrored.Filled.VolumeUp
                     },
                 contentDescription = if (isPlayingAudio) "Stop speaking" else "Read aloud",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(ACTION_GLYPH),
+            )
+        }
+
+        IconButton(
+            onClick = onDelete,
+            modifier = Modifier.size(ACTION_HIT),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Delete,
+                contentDescription = "Delete response",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(ACTION_GLYPH),
             )
