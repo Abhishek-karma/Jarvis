@@ -77,6 +77,30 @@ fun JarvisIconTile(
     tinted: Boolean = false,
     contentDescription: String? = null,
 ) {
+    JarvisIconTile(
+        modifier = modifier,
+        tinted = tinted,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint =
+                if (tinted) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            modifier = Modifier.size(19.dp),
+        )
+    }
+}
+
+@Composable
+fun JarvisIconTile(
+    modifier: Modifier = Modifier,
+    tinted: Boolean = false,
+    content: @Composable () -> Unit,
+) {
     Box(
         modifier =
             modifier
@@ -91,17 +115,7 @@ fun JarvisIconTile(
                 ),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint =
-                if (tinted) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            modifier = Modifier.size(19.dp),
-        )
+        content()
     }
 }
 

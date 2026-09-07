@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.jarvis.core.designsystem.JarvisCopyrightIcon
 import com.jarvis.core.designsystem.JarvisHeader
 import com.jarvis.core.designsystem.JarvisIconTile
 import com.jarvis.core.designsystem.JarvisListSection
@@ -124,24 +125,31 @@ fun AboutScreen(onBack: () -> Unit) {
 
 
 
-            JarvisListSection(title = "Project") {
+            JarvisListSection(title = "Project & Copyright") {
                 ProjectSourceRow()
                 ProjectLicenseRow()
             }
 
-
-
-
             Spacer(modifier = Modifier.height(Spacing.huge))
-            Text(
-                text = "Made on Android · Compose · Hilt · Room",
-                style = JarvisText.Caption,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Row(
                 modifier =
                     Modifier
                         .fillMaxWidth()
                         .padding(bottom = Spacing.xl),
-            )
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                JarvisCopyrightIcon(
+                    size = 13.dp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(end = Spacing.xs),
+                )
+                Text(
+                    text = "2026 Jarvis · Made on Android with Compose",
+                    style = JarvisText.Caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -232,19 +240,24 @@ private fun ProjectLicenseRow() {
                 .padding(horizontal = Spacing.lg, vertical = Spacing.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        JarvisIconTile(Icons.Outlined.Code)
+        JarvisIconTile(tinted = true) {
+            JarvisCopyrightIcon(
+                size = 18.dp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
         Spacer(modifier = Modifier.width(Spacing.md))
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(Spacing.xs, Alignment.CenterVertically),
         ) {
             Text(
-                text = "License",
+                text = "License & Copyright",
                 style = JarvisText.Body,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = "Apache-2.0",
+                text = "Apache-2.0 License · Open Source AI Assistant",
                 style = JarvisText.Metadata,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

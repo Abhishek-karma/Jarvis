@@ -142,6 +142,42 @@ fun JarvisMark(
     }
 }
 
+/**
+ * Geometric, theme-aligned Copyright icon for Jarvis that scales gracefully with typography.
+ */
+@Composable
+fun JarvisCopyrightIcon(
+    size: Dp = 16.dp,
+    color: Color = JarvisColors.Accent.primary,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier.size(size).semantics { contentDescription = "Copyright" }) {
+        val cx = this.size.width / 2f
+        val cy = this.size.height / 2f
+        val r = minOf(cx, cy)
+        val stroke = (r * 0.14f).coerceAtLeast(1.5f)
+
+        // Outer circular enclosure
+        drawCircle(
+            color = color,
+            radius = r - stroke / 2f,
+            center = Offset(cx, cy),
+            style = Stroke(width = stroke),
+        )
+
+        // Inner 'C' arc
+        val cRadius = r * 0.52f
+        drawArc(
+            color = color,
+            startAngle = 45f,
+            sweepAngle = 270f,
+            useCenter = false,
+            topLeft = Offset(cx - cRadius, cy - cRadius),
+            size = Size(cRadius * 2f, cRadius * 2f),
+            style = Stroke(width = stroke * 1.15f, cap = StrokeCap.Round),
+        )
+    }
+}
 
 @Composable
 fun StreamingCursor(modifier: Modifier = Modifier) {
