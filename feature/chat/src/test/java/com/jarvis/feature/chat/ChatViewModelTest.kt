@@ -523,8 +523,8 @@ class ChatViewModelTest {
     @Test
     fun `sending while streaming interrupts the run and preserves the partial reply`() =
         runTest {
-            // A message feed the test controls: streaming updates land in Room
-            // (and thus uiState.messages) only when we push them.
+            // A message feed the test controls, standing in for Room: upserts
+            // replace by id, exactly like the real table.
             val messages = MutableStateFlow<List<Message>>(emptyList())
             val hangingStream = MutableSharedFlow<ChatStreamEvent>(replay = 1)
             hangingStream.tryEmit(ChatStreamEvent.TokenDelta("Partial answ"))
@@ -538,11 +538,11 @@ class ChatViewModelTest {
             coEvery { conversationRepository.getConversation("conv-int") } returns Conversation(id = "conv-int")
             coEvery { conversationRepository.observeMessages("conv-int") } returns messages
             coEvery { conversationRepository.upsertConversation(any()) } just Runs
+            coEvery { conversationRepository.renameConversation(any(), any()) } just Runs
             coEvery { conversationRepository.getMessages("conv-int") } returns emptyList()
             coEvery { conversationRepository.upsertMessage(any()) } answers {
                 val msg = firstArg<Message>()
-                if (msg.role != MessageRole.TOOL) messages.value = messages.value + msg
-                Unit
+                messages.value = messages.value.filterNot { it.id == msg.id } + msg
             }
             providersFlow.value =
                 listOf(
@@ -558,33 +558,34 @@ class ChatViewModelTest {
             viewModel.openConversationById("conv-int")
             advanceUntilIdle()
 
-            // First send — the stream parks after one token; the assistant row
-            // reaches the feed via the 100ms debounced persist.
+            // First send — the stream parks after one token, the run stays live.
             viewModel.onTextChange("tell me a story")
             viewModel.sendMessage()
             advanceUntilIdle()
-            testScheduler.advanceTimeBy(150)
+
+            // Simulate the debounced persist landing the partial token text.
+            val placeholder = viewModel.uiState.value.messages.last { it.role == MessageRole.ASSISTANT }
+            messages.value = messages.value.map { if (it.id == placeholder.id) it.copy(content = "Partial answ") else it }
             advanceUntilIdle()
 
             assertTrue(viewModel.uiState.value.isStreaming)
-            val streamingRow = viewModel.uiState.value.messages.lastOrNull { it.role == MessageRole.ASSISTANT }
-            assertEquals(MessageStatus.STREAMING, streamingRow?.status)
-            assertEquals("Partial answ", streamingRow?.content)
+            val streamingRow = viewModel.uiState.value.messages.last { it.role == MessageRole.ASSISTANT }
+            assertEquals(MessageStatus.STREAMING, streamingRow.status)
+            assertEquals("Partial answ", streamingRow.content)
 
             // Second send mid-generation — interrupts the run, keeps the partial.
             viewModel.onTextChange("actually, quick question")
             viewModel.sendMessage()
             advanceUntilIdle()
-            testScheduler.advanceTimeBy(150)
-            advanceUntilIdle()
 
             val state = viewModel.uiState.value
             assertTrue(state.isStreaming)
             assertEquals(null, state.pendingConfirmation)
+            assertFalse(state.isAgentRunning)
             coVerify(atLeast = 1) {
                 conversationRepository.upsertMessage(
                     match {
-                        it.role == MessageRole.ASSISTANT &&
+                        it.id == streamingRow.id &&
                             it.content == "Partial answ" &&
                             it.status == MessageStatus.STOPPED
                     },
