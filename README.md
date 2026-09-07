@@ -1,114 +1,124 @@
 # Jarvis — Personal AI Assistant for Android
 
-A privacy-first AI assistant that lives on your phone. Connect any OpenAI-compatible, Anthropic, or Google Gemini provider (bring-your-own-key), or run a model entirely on-device. Includes an agent engine with real device tools (calendar, contacts, SMS, alarms, files) behind a permission and confirmation gate, voice mode, and a clean iOS-inspired design language.
+A privacy-first, local-capable AI assistant crafted for Android. Connect any OpenAI-compatible, Anthropic, or Google Gemini provider (bring-your-own-key), or run on-device LiteRT-LM models with zero cloud dependency. Includes an autonomous ReAct agent engine with verified device tools, Power Bridges (Accessibility & Shizuku SPI), full-screen voice mode, local model benchmarking, and an iOS-inspired Material 3 design system.
 
-**Status:** v0.1.2, active development. Cloud chat, provider management, on-device models, history, agent tools, voice mode, onboarding, and permissions are implemented and unit-tested.
+**Status:** Active development. Cloud multi-provider chat, local LiteRT-LM runtime & benchmarking, agent tools & power bridges, conversation history, voice mode, memory, routines, control center, onboarding, and permissions center are fully implemented and unit-tested.
 
 ---
 
-## ✨ Features
+## ✨ Key Features
 
-- **Multi-provider chat** — streaming (SSE) completions via OpenAI-compatible, Anthropic, and Gemini adapters. Providers are fully user-managed: add, edit, verify (live `/models` check), delete, and set defaults in Settings.
-- **On-device models** — import or download LiteRT-LM models (`.litertlm` / `.task`) for fully offline chat. The store is checksum-verified, refresh-safe against concurrent imports, and shows real disk usage. No local HTTP servers involved.
-- **Smart routing** — per-chat route selector (Auto / On-device / Cloud). Auto classifies each message: quick factual or simple math goes on-device, everything else to the cloud, with forced-fallback notices when the local model isn't ready.
-- **Think mode** — Off / Auto / On. When on, `reasoning_effort` is sent to the provider; Auto applies a heuristic (math, logic, multi-step questions).
-- **Agent engine** — ReAct-style loop over a typed tool registry: alarms, calendar (read/write), contacts, SMS, calls, files, media volume, system info, web fetch. Tools run in permission tiers (read-only / reversible-write / sensitive); sensitive calls pause for user confirmation, and every call is written to an append-only audit log with redacted arguments.
-- **Voice mode** — full-screen voice UI backed by Android or OpenAI STT/TTS with audio record/playback.
-- **History** — search, rename, delete, time-grouped conversations persisted in Room; streaming writes are debounced and survive process death.
-- **Permissions center** — Settings screen surfacing all seven runtime permissions (mic, notifications, camera, calendar, contacts, SMS, phone) with per-permission state and recovery UX; agent tools request lazily on first use.
-- **Privacy-first** — API keys live in `EncryptedSharedPreferences` (AES-256-GCM, Android Keystore), never in the database, logs, or UI. Chat works over HTTPS only. Audit-log parameters are redacted.
-- **Design system** — token-driven Compose system in `:core:designsystem`: monochrome surfaces with a single blue accent (`#3D63F6`), SF-style type ramp, dark theme included.
+- **Multi-Provider Cloud AI** — Streaming (SSE) completions via OpenAI-compatible, Anthropic (Claude), and Google Gemini adapters. Fully user-managed: add, edit, test endpoints (`/models` probe), delete, and set default fallback models in Settings.
+- **On-Device LLM & Benchmarking** — Download or import LiteRT-LM models (`.litertlm` / `.task`) for 100% private, offline inference. Includes a built-in benchmarking engine measuring Time to First Token (TTFT), decode speed (tokens/sec), and memory footprint.
+- **Smart Model Routing** — Per-conversation or automatic routing (Auto / On-Device / Cloud). Auto dynamically classifies prompt complexity: quick factual lookups and simple math route on-device, while complex reasoning flows to the cloud with automatic fallback.
+- **ReAct Agent Engine & Tool Registry** — Multi-step autonomous tool execution with typed parameters: alarms, calendar (read/write), contacts, SMS, phone calls, files, media volume, system info, and web fetch.
+- **Power Bridges & Control Center** — Privileged system automation via Android Accessibility Service and optional Shizuku SPI, governed by an immutable policy engine and confirmation gates.
+- **Full-Screen Voice Mode** — Conversational voice UI backed by Android SpeechRecognizer/TTS or OpenAI Whisper/TTS with real-time waveform feedback.
+- **Long-Term Memory & Assistant Facts** — User preferences, facts, and personalized context stored in Room and injected into conversational prompts.
+- **Scheduled Routines & Background Tasks** — Automation routines scheduled with WorkManager that run periodic checks or smart morning/evening briefings.
+- **Interactive Onboarding** — Segmented step-by-step progress indicator guiding users through value propositions, intelligence selection (Cloud vs. Local), and runtime permission configuration.
+- **Privacy & Security First** — API keys reside exclusively in Android Keystore-backed `EncryptedSharedPreferences` (AES-256-GCM). Chat operates strictly over TLS. Sensitive actions require explicit user approval, and tool audit logs redact parameters.
+- **Theme-Aligned Design System** — Cohesive Material 3 typography and dark/light palettes with signature `#3D63F6` cobalt blue accent, custom adaptive icons, brand marks, and tactile micro-interactions.
+
+---
+
+## 🏗️ Multi-Module Architecture
+
+The project adheres to Clean Architecture and MVVM/MVI principles: **Presentation $\rightarrow$ ViewModel $\rightarrow$ Domain $\rightarrow$ Core Services**.
+
+```
+:app                         ← Application entry point, Hilt DI root, Jetpack Compose NavHost
+:core
+  :common                    ← Domain models (Message, Conversation, ProviderConfig), Dispatchers
+  :designsystem              ← Theme tokens, typography, custom icons, JarvisMark, shared UI
+  :network                   ← LlmProvider (OpenAI, Anthropic, Gemini), SSE streaming, ProviderManager
+  :database                  ← Room database, entities, DAOs, migrations, ApiKeyStore (AES-256-GCM)
+  :agent                     ← ReAct AgentEngine, ToolRegistry, permission tiers, audit logger
+  :voice                     ← Voice engine, SttProvider/TtsProvider (Android & OpenAI)
+  :ml                        ← LiteRT-LM on-device runtime, model catalog, benchmark runner
+  :navigation                ← Type-safe navigation routes
+  :preferences               ← Proto/DataStore user preferences & theme settings
+:feature
+  :chat                      ← ChatViewModel (MVI), ChatScreen, HistoryDrawer, VoiceMode, Markdown
+  :settings                  ← SettingsViewModel, Provider management, Control Center, Memory,
+                               Routines, Diagnostics, Onboarding, Permissions, About
+```
+
+---
 
 ## 🚀 Quick Start
 
-**Prerequisites:** Android Studio Ladybug (2024.2)+, JDK 17, Android SDK Platform 35, and a device/emulator on API 29+.
+### Prerequisites
+- **Android Studio** Ladybug (2024.2+) or newer
+- **JDK 17**
+- **Android SDK** Platform 35 (minSdk 29, targetSdk 35)
+- Physical device or emulator running Android 10+ (API 29+)
+
+### Build & Install
 
 ```bash
-git clone <repo-url> jarvis
-cd jarvis
+# Clone the repository
+git clone https://github.com/Abhishek-karma/Jarvis.git
+cd Jarvis
+
+# Build debug APK
 ./gradlew :app:assembleDebug
-```
 
-Install on a connected device:
-
-```bash
+# Install to connected device
 ./gradlew :app:installDebug
 ```
 
-Then: complete onboarding, open **Settings → Providers → +**, paste your provider's base URL and API key, tap **Verify & Save**. Keys are entered at runtime through the in-app UI — never in `local.properties` or build config.
+After launching:
+1. Complete the onboarding walkthrough.
+2. Open **Settings $\rightarrow$ Cloud AI Providers $\rightarrow$ Add Provider**, configure your API endpoint and key, and tap **Verify & Save**.
+3. (Optional) In **Settings $\rightarrow$ Local AI Models**, download or import a LiteRT-LM model to enable offline AI.
 
-## 🧪 Running Tests
+---
 
-All JVM unit tests:
+## 🧪 Testing & Verification
+
+Run all unit tests across modules:
 
 ```bash
-./gradlew :feature:chat:testDebugUnitTest :feature:settings:testDebugUnitTest :core:network:testDebugUnitTest
+./gradlew :feature:chat:testDebugUnitTest :feature:settings:testDebugUnitTest :core:network:testDebugUnitTest :core:ml:testDebugUnitTest
 ```
 
-Run one test class (from the module directory):
+Run tests for a single module or class:
 
 ```bash
-./gradlew :core:network:testDebugUnitTest --tests "*OpenAiCompatibleProviderTest*"
+./gradlew :feature:settings:testDebugUnitTest --tests "*OnboardingViewModelTest*"
 ```
 
-> **Gotcha:** JUnit 5 tests are only discovered when the module's `android { testOptions { unitTests.all { it.useJUnitPlatform() } } }` block is present. New modules with tests need both the JUnit 5 deps and this block.
+- **Network Tests:** MockWebServer contract tests verify streaming SSE parsing without burning live API credits.
+- **ML & Benchmarking Tests:** Verify checksum validation, model catalog state, and local engine activation.
+- **ViewModel Tests:** Test coroutines and Turbine flows for deterministic state verification.
 
-Provider adapters are contract-tested against MockWebServer with recorded fixtures in `core/network/src/test/resources/fixtures/` — no real endpoints, no API credits burned. Lint runs in CI (`./gradlew lint`).
-
-## 🏗️ Architecture
-
-Multi-module and layered: **Presentation → ViewModel → Domain → `:core:*`**. Features never depend on each other.
-
-```
-:app                         ← application module, Hilt DI graph root, NavHost
-:core
-  :common                    ← domain models (Message, Conversation, ProviderConfig), dispatchers
-  :designsystem              ← theme, tokens, typography, shared Compose components
-  :network                   ← LlmProvider + OpenAI-compatible / Anthropic / Gemini adapters,
-                               ProviderManager (adapter cache), NetworkModule
-  :database                  ← Room (entities, DAOs, migrations), repositories,
-                               ApiKeyStore (EncryptedSharedPreferences, AES-256-GCM)
-  :agent                     ← AgentEngine (ReAct), ToolRegistry, permission tiers, audit logger
-  :voice                     ← SttProvider / TtsProvider interfaces + Android & OpenAI impls
-  :ml                        ← on-device LLM (LiteRT-LM), model catalog, checksum-verified store
-  :navigation                ← Routes only
-  :preferences               ← DataStore-backed user preferences
-:feature
-  :chat                      ← ChatViewModel (MVI), ChatScreen, HistoryDrawerScreen,
-                               VoiceModeScreen, routing classifier, markdown renderer
-  :settings                  ← SettingsViewModel, SettingsScreen, ProvidersListScreen,
-                               ProviderEditScreen, Onboarding, Permissions, About
-```
-
-**Key conventions**
-
-- **DI:** Hilt everywhere. `@HiltViewModel` + `@Inject constructor` for ViewModels; `:core:database` binds the `ConversationRepository` interface to `ChatRepository` via `@Binds`.
-- **State:** MVI — each ViewModel exposes an immutable `UiState` `StateFlow` and a sealed event API; UI collects via `collectAsStateWithLifecycle()`.
-- **Version catalog:** every dependency pin lives in `gradle/libs.versions.toml`, accessed as `libs.<name>`.
-- **API keys** never go in Room — only in `ApiKeyStore`. Provider configs (no key) live in the `providers` Room table.
-- **Design tokens only** — spacing, radius, type, and color come from `:core:designsystem` tokens; no raw dp/sp/color literals in feature code.
-- **Adding a provider** = implement `LlmProvider` + a settings entry; no changes to `:feature:chat`.
+---
 
 ## 🧩 Tech Stack
 
-| Area | Choice |
-|------|--------|
-| Language | Kotlin 2.2, Jetpack Compose (BOM 2024.12.01), Material 3 |
-| DI | Hilt 2.58 + KSP |
-| Persistence | Room 2.8 (schema v3 + migrations), DataStore, EncryptedSharedPreferences |
-| Networking | OkHttp 4.12 (SSE streaming), Moshi, kotlinx-serialization |
-| On-device ML | LiteRT LM 0.15 |
-| Async | kotlinx-coroutines 1.11, Flow |
-| Tests | JUnit 5, MockK, Turbine, MockWebServer |
-| SDK | minSdk 29, target/compile 35, Java 17 |
+| Component | Implementation |
+|---|---|
+| **Language & UI** | Kotlin 2.2, Jetpack Compose (BOM 2024.12.01), Material Design 3 |
+| **Dependency Injection** | Hilt 2.58 + KSP |
+| **Local Database** | Room 2.8 with automated schema migrations & DataStore |
+| **Networking & Streaming** | OkHttp 4.12 (Server-Sent Events), Moshi, kotlinx.serialization |
+| **On-Device ML** | LiteRT-LM 0.15 on-device inference runtime |
+| **Concurrency** | Kotlin Coroutines 1.11, StateFlow, SharedFlow |
+| **Security** | Android Keystore, EncryptedSharedPreferences (AES-256-GCM) |
+| **Testing** | JUnit 5, MockK, Turbine, MockWebServer |
 
-## 📐 Build Config
+---
 
-- **applicationId:** `com.aistudio.jarvis.abpk`
-- **versionName:** `0.1.2` (versionCode 3)
-- **Variants:** `debug`, `release` (R8 + resource shrinking, `isMinifyEnabled = true`)
-- **CI:** lint → unit tests → assembleDebug (`.github/workflows/ci.yml`), plus release workflow (`.github/workflows/release.yml`) and nightly workflow
+## 📐 Build Configuration
+
+- **Application ID:** `com.aistudio.jarvis.abpk`
+- **Compile / Target SDK:** 35
+- **Minimum SDK:** 29 (Android 10)
+- **Release Optimization:** R8 shrinking and code minification enabled (`isMinifyEnabled = true`)
+
+---
 
 ## 📄 License
 
-Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
+Licensed under the [Apache License, Version 2.0](LICENSE).
