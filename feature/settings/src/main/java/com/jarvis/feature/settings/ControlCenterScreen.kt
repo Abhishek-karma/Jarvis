@@ -2,9 +2,7 @@ package com.jarvis.feature.settings
 
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,25 +12,25 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material.icons.outlined.OpenInNew
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,9 +42,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -55,9 +50,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -68,6 +62,12 @@ import com.jarvis.core.agent.bridge.BridgeStatus
 import com.jarvis.core.agent.bridge.BridgeTier
 import com.jarvis.core.agent.bridge.BridgeTierInfo
 import com.jarvis.core.designsystem.JarvisColors
+import com.jarvis.core.designsystem.JarvisConfirmDialog
+import com.jarvis.core.designsystem.JarvisHeader
+import com.jarvis.core.designsystem.JarvisIconTile
+import com.jarvis.core.designsystem.JarvisListSection
+import com.jarvis.core.designsystem.JarvisShapes
+import com.jarvis.core.designsystem.JarvisText
 import com.jarvis.core.designsystem.Spacing
 
 @Composable
@@ -85,8 +85,9 @@ fun ControlCenterRoute(
                 is ControlCenterEvent.ShowToast -> snackbarHostState.showSnackbar(event.message)
                 is ControlCenterEvent.OpenShizukuApp -> {
                     try {
-                        val launchIntent = context.packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
-                            ?: context.packageManager.getLaunchIntentForPackage("moe.shizuku.manager")
+                        val launchIntent =
+                            context.packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
+                                ?: context.packageManager.getLaunchIntentForPackage("moe.shizuku.manager")
                         if (launchIntent != null) {
                             context.startActivity(launchIntent)
                         } else {
@@ -126,39 +127,28 @@ fun ControlCenterScreen(
     var showExpertWarningDialog by remember { mutableStateOf(false) }
 
     if (showExpertWarningDialog) {
-        AlertDialog(
-            onDismissRequest = { showExpertWarningDialog = false },
-            title = { Text("Enable Expert Shell Mode?") },
-            text = {
-                Text(
-                    "Expert shell mode allows the assistant to execute policy-checked system commands when a privileged bridge is active.\n\nPermanently dangerous destructive operations (e.g. root wiping, filesystem format) remain strictly blocked by the deterministic CommandPolicyEngine."
-                )
+        JarvisConfirmDialog(
+            title = "Enable Expert Shell Mode?",
+            message = "Expert shell mode allows the assistant to execute policy-governed system commands when an elevated bridge is active.\n\nPermanently destructive operations (such as root wipes and filesystem formatting) remain strictly blocked by the deterministic safety engine.",
+            confirmLabel = "Enable Expert Mode",
+            destructive = false,
+            onConfirm = {
+                showExpertWarningDialog = false
+                onToggleExpertMode(true)
             },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showExpertWarningDialog = false
-                        onToggleExpertMode(true)
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = JarvisColors.Accent.primary),
-                ) {
-                    Text("Enable Expert Mode")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showExpertWarningDialog = false }) {
-                    Text("Cancel")
-                }
-            },
+            onDismiss = { showExpertWarningDialog = false },
         )
     }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Device Control Center", fontWeight = FontWeight.SemiBold) },
+            JarvisHeader(
+                title = "Device Control Center",
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.testTag("control_center_back_button"),
+                    ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
@@ -166,58 +156,51 @@ fun ControlCenterScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onRefresh) {
+                    IconButton(
+                        onClick = onRefresh,
+                        modifier = Modifier.testTag("control_center_refresh_button"),
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.Refresh,
+                            imageVector = Icons.Outlined.Refresh,
                             contentDescription = "Refresh Bridges",
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = Spacing.md),
-            verticalArrangement = Arrangement.spacedBy(Spacing.md),
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = Spacing.huge),
         ) {
-            item {
-                Spacer(modifier = Modifier.height(Spacing.xs))
-                ActiveTierBanner(activeTier = uiState.activeTier)
+            // Section 1: Active Tier Banner
+            JarvisListSection(title = "ACTIVE PRIVILEGE TIER") {
+                ActiveTierRow(activeTier = uiState.activeTier)
             }
 
-            item {
-                Text(
-                    text = "Privilege Tier Ladder",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
+            // Section 2: Bridges Ladder
+            JarvisListSection(title = "PRIVILEGE BRIDGES") {
+                uiState.tiers.forEachIndexed { index, tierInfo ->
+                    BridgeTierItem(
+                        tierInfo = tierInfo,
+                        onLaunchShizuku = if (tierInfo.tier == BridgeTier.SHIZUKU) onLaunchShizuku else null,
+                    )
+                    if (index < uiState.tiers.size - 1) {
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant,
+                            modifier = Modifier.padding(horizontal = Spacing.lg),
+                        )
+                    }
+                }
             }
 
-            items(uiState.tiers) { tierInfo ->
-                BridgeTierCard(
-                    tierInfo = tierInfo,
-                    onLaunchShizuku = if (tierInfo.tier == BridgeTier.SHIZUKU) onLaunchShizuku else null,
-                )
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(Spacing.xs))
-                Text(
-                    text = "Expert & Safety Controls",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-
-            item {
-                ExpertModeCard(
+            // Section 3: Expert Shell Mode
+            JarvisListSection(title = "EXPERT MODE & BRIDGE TOGGLES") {
+                ExpertShellToggleRow(
                     isExpertMode = uiState.isExpertModeEnabled,
                     onToggle = { enabled ->
                         if (enabled) {
@@ -227,158 +210,121 @@ fun ControlCenterScreen(
                         }
                     },
                 )
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    modifier = Modifier.padding(horizontal = Spacing.lg),
+                )
+                ShizukuBridgeToggleRow(
+                    isShizukuEnabled = uiState.isShizukuEnabled,
+                    onToggle = onToggleShizuku,
+                )
             }
 
-            item {
-                PolicyEngineSummaryCard(blockedRules = uiState.blockedRulesSummary)
+            // Section 4: Policy Engine Invariants
+            JarvisListSection(title = "DETERMINISTIC POLICY ENGINE") {
+                PolicyEngineSummaryContent(blockedRules = uiState.blockedRulesSummary)
             }
 
-            item {
-                ShizukuSetupGuideCard(onLaunchShizuku = onLaunchShizuku)
-                Spacer(modifier = Modifier.height(Spacing.xl))
+            // Section 5: Setup Guide
+            JarvisListSection(title = "SHIZUKU SETUP GUIDE") {
+                ShizukuSetupGuideContent(onLaunchShizuku = onLaunchShizuku)
             }
         }
     }
 }
 
 @Composable
-fun ActiveTierBanner(activeTier: BridgeTier) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (activeTier == BridgeTier.SHIZUKU) JarvisColors.Accent.primary.copy(alpha = 0.15f)
-            else MaterialTheme.colorScheme.surfaceVariant,
-        ),
+private fun ActiveTierRow(activeTier: BridgeTier) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(Spacing.lg),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(Spacing.md),
-            verticalAlignment = Alignment.CenterVertically,
+        JarvisIconTile(
+            icon = Icons.Outlined.Shield,
+            tinted = activeTier != BridgeTier.SANDBOX,
+        )
+        Spacer(modifier = Modifier.width(Spacing.md))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = activeTier.displayName,
+                style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = when (activeTier) {
+                    BridgeTier.SANDBOX -> "Operating within unprivileged app sandbox"
+                    BridgeTier.SHIZUKU -> "ADB-level device control active via Shizuku"
+                    BridgeTier.ROOT -> "Direct superuser root access active"
+                },
+                style = JarvisText.Metadata,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        Surface(
+            shape = JarvisShapes.pill,
+            color = if (activeTier != BridgeTier.SANDBOX) {
+                JarvisColors.Accent.primarySoft
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            },
         ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(if (activeTier == BridgeTier.SHIZUKU) JarvisColors.Accent.primary else Color(0xFF64748B)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Security,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp),
-                )
-            }
-            Spacer(modifier = Modifier.width(Spacing.md))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Current Active Tier",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = activeTier.displayName,
-                    style = MaterialTheme.typography.titleMedium,
+            Text(
+                text = if (activeTier != BridgeTier.SANDBOX) "ELEVATED" else "STANDARD",
+                style = JarvisText.Metadata.copy(
                     fontWeight = FontWeight.Bold,
-                )
-            }
+                    fontSize = 11.sp,
+                ),
+                color = if (activeTier != BridgeTier.SANDBOX) {
+                    JarvisColors.Accent.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs),
+            )
         }
     }
 }
 
 @Composable
-fun BridgeTierCard(
+private fun BridgeTierItem(
     tierInfo: BridgeTierInfo,
     onLaunchShizuku: (() -> Unit)? = null,
 ) {
-    val statusColor = when (tierInfo.status) {
-        BridgeStatus.AVAILABLE -> Color(0xFF10B981)
-        BridgeStatus.SERVICE_STOPPED -> Color(0xFFF59E0B)
-        BridgeStatus.NOT_INSTALLED -> Color(0xFFEF4444)
-        BridgeStatus.PERMISSION_DENIED -> Color(0xFFEF4444)
-        BridgeStatus.UNSUPPORTED -> Color(0xFF94A3B8)
+    val (statusColor, statusBg, statusIcon) = when (tierInfo.status) {
+        BridgeStatus.AVAILABLE -> Triple(
+            JarvisColors.Semantic.success,
+            JarvisColors.Semantic.success.copy(alpha = 0.12f),
+            Icons.Outlined.CheckCircle,
+        )
+        BridgeStatus.SERVICE_STOPPED -> Triple(
+            JarvisColors.Semantic.warning,
+            JarvisColors.Semantic.warning.copy(alpha = 0.12f),
+            Icons.Outlined.WarningAmber,
+        )
+        BridgeStatus.NOT_INSTALLED,
+        BridgeStatus.PERMISSION_DENIED -> Triple(
+            JarvisColors.Semantic.error,
+            JarvisColors.Semantic.error.copy(alpha = 0.12f),
+            Icons.Outlined.ErrorOutline,
+        )
+        BridgeStatus.UNSUPPORTED -> Triple(
+            MaterialTheme.colorScheme.onSurfaceVariant,
+            MaterialTheme.colorScheme.surfaceContainerHigh,
+            Icons.Outlined.HelpOutline,
+        )
     }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-    ) {
-        Column(modifier = Modifier.padding(Spacing.md)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(statusColor),
-                    )
-                    Spacer(modifier = Modifier.width(Spacing.sm))
-                    Text(
-                        text = tierInfo.name,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = statusColor.copy(alpha = 0.12f),
-                ) {
-                    Text(
-                        text = tierInfo.status.name.replace("_", " "),
-                        color = statusColor,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(Spacing.xs))
-            Text(
-                text = tierInfo.status.message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            if (onLaunchShizuku != null && tierInfo.status != BridgeStatus.AVAILABLE) {
-                Spacer(modifier = Modifier.height(Spacing.sm))
-                OutlinedButton(
-                    onClick = onLaunchShizuku,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Configure Shizuku Companion")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun ExpertModeCard(
-    isExpertMode: Boolean,
-    onToggle: (Boolean) -> Unit,
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(Spacing.lg),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(Spacing.md),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
@@ -386,80 +332,220 @@ fun ExpertModeCard(
                 modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    imageVector = Icons.Default.Terminal,
-                    contentDescription = null,
-                    tint = JarvisColors.Accent.primary,
-                    modifier = Modifier.size(28.dp),
+                JarvisIconTile(
+                    icon = if (tierInfo.tier == BridgeTier.SHIZUKU) Icons.Outlined.Security else Icons.Outlined.Code,
+                    tinted = tierInfo.status == BridgeStatus.AVAILABLE,
                 )
                 Spacer(modifier = Modifier.width(Spacing.md))
                 Column {
                     Text(
-                        text = "Expert Shell Mode",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
+                        text = tierInfo.name,
+                        style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "Allows policy-governed shell command tools",
-                        style = MaterialTheme.typography.bodySmall,
+                        text = tierInfo.status.message,
+                        style = JarvisText.Metadata,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
 
-            Switch(
-                checked = isExpertMode,
-                onCheckedChange = onToggle,
-                colors = SwitchDefaults.colors(checkedThumbColor = JarvisColors.Accent.primary),
-            )
+            Surface(
+                shape = JarvisShapes.pill,
+                color = statusBg,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = Spacing.sm, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = statusIcon,
+                        contentDescription = null,
+                        tint = statusColor,
+                        modifier = Modifier.size(13.dp),
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = tierInfo.status.name.replace("_", " "),
+                        color = statusColor,
+                        style = JarvisText.Metadata.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp,
+                        ),
+                    )
+                }
+            }
+        }
+
+        if (tierInfo.tier == BridgeTier.SHIZUKU && tierInfo.status != BridgeStatus.AVAILABLE && onLaunchShizuku != null) {
+            Spacer(modifier = Modifier.height(Spacing.md))
+            OutlinedButton(
+                onClick = onLaunchShizuku,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.OpenInNew,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(modifier = Modifier.width(Spacing.xs))
+                Text("Open / Pair Shizuku Companion", style = JarvisText.Button)
+            }
         }
     }
 }
 
 @Composable
-fun PolicyEngineSummaryCard(blockedRules: List<String>) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        ),
+private fun ExpertShellToggleRow(
+    isExpertMode: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(Spacing.lg),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Column(modifier = Modifier.padding(Spacing.md)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.Security,
-                    contentDescription = null,
-                    tint = Color(0xFF10B981),
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(modifier = Modifier.width(Spacing.xs))
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            JarvisIconTile(
+                icon = Icons.Outlined.Terminal,
+                tinted = isExpertMode,
+            )
+            Spacer(modifier = Modifier.width(Spacing.md))
+            Column {
                 Text(
-                    text = "CommandPolicyEngine Invariants",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
+                    text = "Expert Shell Mode",
+                    style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Allows policy-governed shell command tools",
+                    style = JarvisText.Metadata,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Spacer(modifier = Modifier.height(Spacing.xs))
-            Text(
-                text = "The following dangerous patterns are permanently blocked by code-level regexes:",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        }
+
+        Switch(
+            checked = isExpertMode,
+            onCheckedChange = onToggle,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = JarvisColors.Accent.primary,
+                checkedTrackColor = JarvisColors.Accent.primarySoft,
+            ),
+        )
+    }
+}
+
+@Composable
+private fun ShizukuBridgeToggleRow(
+    isShizukuEnabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(Spacing.lg),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            JarvisIconTile(
+                icon = Icons.Outlined.Security,
+                tinted = isShizukuEnabled,
             )
-            Spacer(modifier = Modifier.height(Spacing.xs))
-            blockedRules.forEach { rule ->
-                Row(
-                    modifier = Modifier.padding(vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("• ", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
-                    Text(
-                        text = rule,
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                        ),
-                    )
+            Spacer(modifier = Modifier.width(Spacing.md))
+            Column {
+                Text(
+                    text = "Shizuku Integration",
+                    style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Probe and route elevated operations through Shizuku",
+                    style = JarvisText.Metadata,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        Switch(
+            checked = isShizukuEnabled,
+            onCheckedChange = onToggle,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = JarvisColors.Accent.primary,
+                checkedTrackColor = JarvisColors.Accent.primarySoft,
+            ),
+        )
+    }
+}
+
+@Composable
+private fun PolicyEngineSummaryContent(blockedRules: List<String>) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(Spacing.lg),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Outlined.CheckCircle,
+                contentDescription = null,
+                tint = JarvisColors.Semantic.success,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(Spacing.sm))
+            Text(
+                text = "Safety Engine Invariants",
+                style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        Spacer(modifier = Modifier.height(Spacing.xs))
+        Text(
+            text = "Dangerous patterns permanently blocked at the code level:",
+            style = JarvisText.Metadata,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(Spacing.sm))
+
+        Surface(
+            shape = JarvisShapes.card,
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(modifier = Modifier.padding(Spacing.md)) {
+                blockedRules.forEach { rule ->
+                    Row(
+                        modifier = Modifier.padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "• ",
+                            color = JarvisColors.Semantic.error,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = rule,
+                            style = JarvisText.Metadata.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                            ),
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
                 }
             }
         }
@@ -467,34 +553,38 @@ fun PolicyEngineSummaryCard(blockedRules: List<String>) {
 }
 
 @Composable
-fun ShizukuSetupGuideCard(onLaunchShizuku: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+private fun ShizukuSetupGuideContent(onLaunchShizuku: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(Spacing.lg),
     ) {
-        Column(modifier = Modifier.padding(Spacing.md)) {
-            Text(
-                text = "How to set up Shizuku",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
+        Text(
+            text = "Setting up Shizuku on your device",
+            style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(modifier = Modifier.height(Spacing.xs))
+        Text(
+            text = "1. Install Shizuku from GitHub, F-Droid, or Google Play.\n2. Enable Developer Options & Wireless Debugging in Android Settings.\n3. Open Shizuku, pair Wireless Debugging, and start the service.\n4. Authorize Jarvis when the permission popup appears.",
+            style = JarvisText.Body,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            lineHeight = 20.sp,
+        )
+        Spacer(modifier = Modifier.height(Spacing.md))
+        Button(
+            onClick = onLaunchShizuku,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = JarvisColors.Accent.primary),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.OpenInNew,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
             )
-            Spacer(modifier = Modifier.height(Spacing.xs))
-            Text(
-                text = "1. Install Shizuku from GitHub/F-Droid or Google Play.\n2. Enable Developer Options & Wireless Debugging on your phone.\n3. Open Shizuku, pair Wireless Debugging, and tap Start.\n4. Authorize Jarvis when prompted.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                lineHeight = 20.sp,
-            )
-            Spacer(modifier = Modifier.height(Spacing.sm))
-            Button(
-                onClick = onLaunchShizuku,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = JarvisColors.Accent.primary),
-            ) {
-                Text("Get / Launch Shizuku")
-            }
+            Spacer(modifier = Modifier.width(Spacing.xs))
+            Text("Open / Download Shizuku", style = JarvisText.Button)
         }
     }
 }
