@@ -283,6 +283,7 @@ class ChatViewModel
                 RoutingReason.FORCED_LOCAL,
                 RoutingReason.PRIVACY_LOCAL,
                 RoutingReason.LIGHT_LOCAL,
+                RoutingReason.PROFILE_PRIVATE_LOCAL,
                 -> RouteBadge(RoutingOverride.LOCAL, "On-device")
 
                 RoutingReason.FORCED_CLOUD,
@@ -290,6 +291,8 @@ class ChatViewModel
                 RoutingReason.HEAVY_GENERATIVE_CLOUD,
                 RoutingReason.DEFAULT_CLOUD,
                 RoutingReason.FORCED_LOCAL_FALLBACK,
+                RoutingReason.VISION_CLOUD,
+                RoutingReason.CONTEXT_LIMIT_CLOUD,
                 -> RouteBadge(RoutingOverride.CLOUD, "Cloud")
 
                 null -> null

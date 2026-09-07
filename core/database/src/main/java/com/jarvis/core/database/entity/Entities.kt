@@ -147,3 +147,27 @@ data class ReversibleActionEntity(
     val isReverted: Boolean = false,
 )
 
+/** Local diagnostic trace for inspecting slow/failed requests without cloud telemetry. */
+@Entity(
+    tableName = "request_diagnostics",
+    indices = [Index("timestamp"), Index("providerId"), Index("route")],
+)
+data class RequestDiagnosticsEntity(
+    @PrimaryKey val id: String,
+    val requestId: String,
+    val timestamp: Long = System.currentTimeMillis(),
+    val providerId: String,
+    val model: String,
+    val route: String,
+    val latencyMs: Long,
+    val firstTokenLatencyMs: Long? = null,
+    val promptTokens: Int = 0,
+    val completionTokens: Int = 0,
+    val totalTokens: Int = 0,
+    val retries: Int = 0,
+    val fallbacks: String = "",
+    val toolCount: Int = 0,
+    val failureClass: String? = null,
+    val errorMessage: String? = null,
+)
+

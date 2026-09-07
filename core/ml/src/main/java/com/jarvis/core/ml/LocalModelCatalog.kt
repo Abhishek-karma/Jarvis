@@ -27,6 +27,10 @@ data class LocalModelSpec(
     val description: String = "",
     /** Short capability chips rendered under the description ("Text", "8 GB+", …). */
     val tags: List<String> = emptyList(),
+    val sizeBytes: Long = 0L,
+    val ramRequirementBytes: Long = 0L,
+    val contextLength: Int = 4096,
+    val supportedCapabilities: List<String> = listOf("text"),
 )
 
 @JsonClass(generateAdapter = true)

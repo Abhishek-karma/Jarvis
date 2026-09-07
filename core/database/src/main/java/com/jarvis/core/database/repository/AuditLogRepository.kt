@@ -142,3 +142,33 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_reversible_actions_isReverted` ON `reversible_actions` (`isReverted`)")
     }
 }
+
+/** v4 → v5: Phase 3 local request diagnostics table. */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `request_diagnostics` (" +
+                "`id` TEXT NOT NULL PRIMARY KEY, " +
+                "`requestId` TEXT NOT NULL, " +
+                "`timestamp` INTEGER NOT NULL, " +
+                "`providerId` TEXT NOT NULL, " +
+                "`model` TEXT NOT NULL, " +
+                "`route` TEXT NOT NULL, " +
+                "`latencyMs` INTEGER NOT NULL, " +
+                "`firstTokenLatencyMs` INTEGER, " +
+                "`promptTokens` INTEGER NOT NULL, " +
+                "`completionTokens` INTEGER NOT NULL, " +
+                "`totalTokens` INTEGER NOT NULL, " +
+                "`retries` INTEGER NOT NULL, " +
+                "`fallbacks` TEXT NOT NULL, " +
+                "`toolCount` INTEGER NOT NULL, " +
+                "`failureClass` TEXT, " +
+                "`errorMessage` TEXT" +
+                ")",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_request_diagnostics_timestamp` ON `request_diagnostics` (`timestamp`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_request_diagnostics_providerId` ON `request_diagnostics` (`providerId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_request_diagnostics_route` ON `request_diagnostics` (`route`)")
+    }
+}
+

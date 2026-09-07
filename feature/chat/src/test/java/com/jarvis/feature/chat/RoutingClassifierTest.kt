@@ -199,4 +199,72 @@ class RoutingClassifierTest {
             ),
         )
     }
+
+    @Test
+    fun `v2 - private profile routes on-device with ready model`() {
+        val decision = RoutingClassifier.classify(
+            RoutingContext(
+                message = "Write some code",
+                localModelReady = true,
+                modelProfile = "private",
+            ),
+        )
+        assertEquals(RoutingOverride.LOCAL, decision.route)
+        assertEquals(RoutingReason.PROFILE_PRIVATE_LOCAL, decision.reason)
+        assertEquals("private", decision.factors["profile"])
+    }
+
+    @Test
+    fun `v2 - image attachments route to cloud vision model`() {
+        val decision = RoutingClassifier.classify(
+            RoutingContext(
+                message = "What is in this picture?",
+                localModelReady = true,
+                hasAttachments = true,
+            ),
+        )
+        assertEquals(RoutingOverride.CLOUD, decision.route)
+        assertEquals(RoutingReason.VISION_CLOUD, decision.reason)
+    }
+
+    @Test
+    fun `v2 - exceeding local context limit offloads to cloud`() {
+        val decision = RoutingClassifier.classify(
+            RoutingContext(
+                message = "Continue our discussion",
+                localModelReady = true,
+                estimatedTokens = 6000,
+                localContextLimit = 4096,
+            ),
+        )
+        assertEquals(RoutingOverride.CLOUD, decision.route)
+        assertEquals(RoutingReason.CONTEXT_LIMIT_CLOUD, decision.reason)
+    }
+
+    @Test
+    fun `v2 - offline state routes to local when model is ready`() {
+        val decision = RoutingClassifier.classify(
+            RoutingContext(
+                message = "Help me organize my notes",
+                localModelReady = true,
+                isOnline = false,
+            ),
+        )
+        assertEquals(RoutingOverride.LOCAL, decision.route)
+        assertEquals(RoutingReason.LIGHT_LOCAL, decision.reason)
+    }
+
+    @Test
+    fun `v2 - cloud backoff fallback routes to local model`() {
+        val decision = RoutingClassifier.classify(
+            RoutingContext(
+                message = "Quick question",
+                localModelReady = true,
+                hasHealthyCloudProviders = false,
+            ),
+        )
+        assertEquals(RoutingOverride.LOCAL, decision.route)
+        assertEquals(RoutingReason.LIGHT_LOCAL, decision.reason)
+    }
 }
+

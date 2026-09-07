@@ -9,6 +9,7 @@ import com.jarvis.core.database.entity.ConversationEntity
 import com.jarvis.core.database.entity.MemoryEntity
 import com.jarvis.core.database.entity.MessageEntity
 import com.jarvis.core.database.entity.ProviderEntity
+import com.jarvis.core.database.entity.RequestDiagnosticsEntity
 import com.jarvis.core.database.entity.ReversibleActionEntity
 import com.jarvis.core.database.entity.RoutineEntity
 import com.jarvis.core.database.entity.TaskEntity
@@ -196,3 +197,19 @@ interface ReversibleActionDao {
     @Query("UPDATE reversible_actions SET isReverted = 1 WHERE id = :id")
     suspend fun markReverted(id: String)
 }
+
+@Dao
+interface RequestDiagnosticsDao {
+    @Query("SELECT * FROM request_diagnostics ORDER BY timestamp DESC LIMIT :limit")
+    fun observeRecent(limit: Int = 50): Flow<List<RequestDiagnosticsEntity>>
+
+    @Query("SELECT * FROM request_diagnostics ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun getRecent(limit: Int = 50): List<RequestDiagnosticsEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(entity: RequestDiagnosticsEntity)
+
+    @Query("DELETE FROM request_diagnostics")
+    suspend fun clearAll()
+}
+

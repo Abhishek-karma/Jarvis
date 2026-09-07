@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Layers
@@ -74,6 +75,7 @@ fun SettingsScreen(
     onOpenPermissions: () -> Unit = {},
     onOpenMemory: () -> Unit = {},
     onOpenRoutines: () -> Unit = {},
+    onOpenDiagnostics: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val prefs by viewModel.prefsState.collectAsStateWithLifecycle()
@@ -309,8 +311,14 @@ fun SettingsScreen(
                 }
             }
 
-            if (matches("about", "version", "privacy", "credits", "jarvis", "permissions", "microphone", "camera", "notifications", "update")) {
+            if (matches("about", "version", "privacy", "credits", "jarvis", "permissions", "microphone", "camera", "notifications", "update", "diagnostics", "health", "trace")) {
                 JarvisListSection(title = "System") {
+                    NavRow(
+                        icon = Icons.Outlined.BugReport,
+                        title = "Diagnostics & Intelligence",
+                        subtitle = "Request traces, model profiles & health signals",
+                        onClick = onOpenDiagnostics,
+                    )
                     NavRow(
                         icon = Icons.Outlined.Mic,
                         title = "Permissions",

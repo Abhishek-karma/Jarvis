@@ -9,6 +9,7 @@ import com.jarvis.core.database.dao.ConversationDao
 import com.jarvis.core.database.dao.MemoryDao
 import com.jarvis.core.database.dao.MessageDao
 import com.jarvis.core.database.dao.ProviderDao
+import com.jarvis.core.database.dao.RequestDiagnosticsDao
 import com.jarvis.core.database.dao.ReversibleActionDao
 import com.jarvis.core.database.dao.RoutineDao
 import com.jarvis.core.database.dao.TaskDao
@@ -17,12 +18,14 @@ import com.jarvis.core.database.entity.ConversationEntity
 import com.jarvis.core.database.entity.MemoryEntity
 import com.jarvis.core.database.entity.MessageEntity
 import com.jarvis.core.database.entity.ProviderEntity
+import com.jarvis.core.database.entity.RequestDiagnosticsEntity
 import com.jarvis.core.database.entity.ReversibleActionEntity
 import com.jarvis.core.database.entity.RoutineEntity
 import com.jarvis.core.database.entity.TaskEntity
 import com.jarvis.core.database.repository.MIGRATION_1_2
 import com.jarvis.core.database.repository.MIGRATION_2_3
 import com.jarvis.core.database.repository.MIGRATION_3_4
+import com.jarvis.core.database.repository.MIGRATION_4_5
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -40,8 +43,9 @@ import javax.inject.Singleton
         TaskEntity::class,
         RoutineEntity::class,
         ReversibleActionEntity::class,
+        RequestDiagnosticsEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class JarvisDatabase : RoomDatabase() {
@@ -53,9 +57,10 @@ abstract class JarvisDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
     abstract fun routineDao(): RoutineDao
     abstract fun reversibleActionDao(): ReversibleActionDao
+    abstract fun requestDiagnosticsDao(): RequestDiagnosticsDao
 
     companion object {
-        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
     }
 }
 
@@ -101,4 +106,8 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideReversibleActionDao(db: JarvisDatabase): ReversibleActionDao = db.reversibleActionDao()
+
+    @Provides
+    @Singleton
+    fun provideRequestDiagnosticsDao(db: JarvisDatabase): RequestDiagnosticsDao = db.requestDiagnosticsDao()
 }

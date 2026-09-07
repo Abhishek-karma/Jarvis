@@ -49,6 +49,9 @@ class UserPreferencesRepository
 
             /** Whether assistant memory retention and context injection is active. */
             val MEMORY_ENABLED = booleanPreferencesKey("memory_enabled")
+
+            /** "fast" | "balanced" | "reasoning" | "private" | "coding" | "vision" */
+            val MODEL_PROFILE = stringPreferencesKey("model_profile")
         }
 
 
@@ -132,6 +135,12 @@ class UserPreferencesRepository
 
         suspend fun setMemoryEnabled(enabled: Boolean) {
             dataStore.edit { it[Keys.MEMORY_ENABLED] = enabled }
+        }
+
+        val modelProfile: Flow<String> = dataStore.data.map { it[Keys.MODEL_PROFILE] ?: "balanced" }
+
+        suspend fun setModelProfile(profile: String) {
+            dataStore.edit { it[Keys.MODEL_PROFILE] = profile.lowercase() }
         }
 
         companion object {
