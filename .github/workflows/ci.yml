@@ -16,9 +16,22 @@ env:
   JAVA_DISTRIBUTION: 'temurin'
 
 jobs:
+  guardrails:
+    name: Architecture Guardrails
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run Architecture Guardrail Check
+        run: python3 tools/check_architecture.py
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    needs: [guardrails]
     steps:
       - uses: actions/checkout@v4
 

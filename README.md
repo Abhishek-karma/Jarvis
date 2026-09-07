@@ -2,7 +2,7 @@
 
 A privacy-first AI assistant that lives on your phone. Connect any OpenAI-compatible, Anthropic, or Google Gemini provider (bring-your-own-key), or run a model entirely on-device. Includes an agent engine with real device tools (calendar, contacts, SMS, alarms, files) behind a permission and confirmation gate, voice mode, and a clean iOS-inspired design language.
 
-**Status:** v0.1, active development. Cloud chat, provider management, on-device models, history, agent tools, voice mode, onboarding, and permissions are implemented and unit-tested.
+**Status:** v0.1.2, active development. Cloud chat, provider management, on-device models, history, agent tools, voice mode, onboarding, and permissions are implemented and unit-tested.
 
 ---
 
@@ -104,11 +104,11 @@ Multi-module and layered: **Presentation → ViewModel → Domain → `:core:*`*
 
 ## 📐 Build Config
 
-- **applicationId:** `com.jarvis.app`
-- **versionName:** `0.1.0` (versionCode 1)
+- **applicationId:** `com.aistudio.jarvis.abpk`
+- **versionName:** `0.1.2` (versionCode 3)
 - **Variants:** `debug`, `release` (R8 + resource shrinking, `isMinifyEnabled = true`)
-- **CI:** lint → unit tests → assembleDebug (`.github/workflows/ci.yml`), plus a nightly workflow
+- **CI:** lint → unit tests → assembleDebug (`.github/workflows/ci.yml`), plus release workflow (`.github/workflows/release.yml`) and nightly workflow
 
 ## 📄 License
 
-Not yet specified — see the project owner before distributing.
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.

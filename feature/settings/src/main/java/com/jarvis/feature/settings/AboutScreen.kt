@@ -126,6 +126,7 @@ fun AboutScreen(onBack: () -> Unit) {
 
             JarvisListSection(title = "Project") {
                 ProjectSourceRow()
+                ProjectLicenseRow()
             }
 
 
@@ -214,11 +215,40 @@ private fun ProjectSourceRow() {
         }
         Icon(
             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-
-
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(Spacing.lgPlus),
         )
     }
 }
+
+@Composable
+private fun ProjectLicenseRow() {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 62.dp)
+                .padding(horizontal = Spacing.lg, vertical = Spacing.md),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        JarvisIconTile(Icons.Outlined.Code)
+        Spacer(modifier = Modifier.width(Spacing.md))
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs, Alignment.CenterVertically),
+        ) {
+            Text(
+                text = "License",
+                style = JarvisText.Body,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "Apache-2.0",
+                style = JarvisText.Metadata,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+

@@ -21,6 +21,7 @@ hiltNavigationCompose = "1.2.0"
 # With 1.9.0 the app crashes (NoSuchMethodError) the moment a local-model reply finishes.
 coroutines = "1.11.0"
 junit5 = "5.11.3"
+junitPlatform = "1.11.3"
 mockk = "1.13.13"
 turbine = "1.2.0"
 mockwebserver = "4.12.0"
@@ -78,6 +79,7 @@ kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 # Test
 junit5-api = { group = "org.junit.jupiter", name = "junit-jupiter-api", version.ref = "junit5" }
 junit5-engine = { group = "org.junit.jupiter", name = "junit-jupiter-engine", version.ref = "junit5" }
+junit-platform-launcher = { group = "org.junit.platform", name = "junit-platform-launcher", version.ref = "junitPlatform" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 androidx-test-core = { group = "androidx.test", name = "core-ktx", version.ref = "androidxTestCore" }

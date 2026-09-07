@@ -7,3 +7,15 @@ plugins {
     alias(libs.plugins.ksp) apply false
     alias(libs.plugins.hilt) apply false
 }
+
+subprojects {
+    val testAgentConf = configurations.create("testByteBuddyAgent")
+    dependencies.add("testByteBuddyAgent", "net.bytebuddy:byte-buddy-agent:1.14.17")
+    tasks.withType<Test>().configureEach {
+        jvmArgs("-XX:+EnableDynamicAgentLoading", "-Djdk.attach.allowAttachSelf=true")
+        doFirst {
+            val agentJar = testAgentConf.singleFile.absolutePath
+            jvmArgs("-javaagent:$agentJar")
+        }
+    }
+}
