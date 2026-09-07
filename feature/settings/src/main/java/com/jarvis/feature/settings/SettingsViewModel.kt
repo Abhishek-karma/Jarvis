@@ -131,17 +131,17 @@ class SettingsViewModel
                 _updateCheck.value = UpdateCheckState.Checking
                 _updateCheck.value =
                     when (val result = updateChecker.check(_prefsState.value.appVersion)) {
-                        is UpdateCheckResult.UpdateAvailable -> {
-
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(result.apkUrl)),
-                            )
-                            UpdateCheckState.Available(result.latestVersion)
-                        }
+                        is UpdateCheckResult.UpdateAvailable ->
+                            UpdateCheckState.Available(result.latestVersion, result.apkUrl)
                         UpdateCheckResult.UpToDate -> UpdateCheckState.UpToDate
                         UpdateCheckResult.Unavailable -> UpdateCheckState.Failed
                     }
             }
+        }
+
+        /** Opens the APK download in the browser; called from the UI with an activity context. */
+        fun openUpdateDownload(url: String) {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
 
         /** On-device model status (download progress, ready, errors) for the Providers screen. */

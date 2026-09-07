@@ -8,8 +8,11 @@ sealed interface UpdateCheckState {
     /** Check in flight. */
     data object Checking : UpdateCheckState
 
-    /** A newer release exists — the APK was opened in the browser. */
-    data class Available(val version: String) : UpdateCheckState
+    /** A newer release exists — [apkUrl] opens the download. */
+    data class Available(
+        val version: String,
+        val apkUrl: String,
+    ) : UpdateCheckState
 
     /** This build is the newest release. */
     data object UpToDate : UpdateCheckState

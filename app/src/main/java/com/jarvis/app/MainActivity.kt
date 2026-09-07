@@ -31,12 +31,17 @@ import com.jarvis.feature.settings.ProviderEditScreen
 import com.jarvis.feature.settings.ProvidersListScreen
 import com.jarvis.feature.settings.PermissionsScreen
 import com.jarvis.feature.settings.SettingsScreen
+import com.jarvis.app.update.UpdateViewModel
 import dagger.hilt.android.AndroidEntryPoint
+import androidx.activity.viewModels
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     /** Holds the system splash until the first-run flag has been read from DataStore. */
     private var keepSplashOnScreen = true
+
+    /** Throttled startup update check — posts a notification when a newer release exists. */
+    private val updateViewModel: UpdateViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
 

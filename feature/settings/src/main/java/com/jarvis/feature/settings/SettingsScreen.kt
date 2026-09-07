@@ -338,6 +338,7 @@ fun SettingsScreen(
                     UpdateRow(
                         state = viewModel.updateCheck.collectAsStateWithLifecycle().value,
                         onCheck = viewModel::checkForUpdates,
+                        onDownload = viewModel::openUpdateDownload,
                     )
                 }
             }
@@ -370,6 +371,7 @@ fun SettingsScreen(
 private fun UpdateRow(
     state: UpdateCheckState,
     onCheck: () -> Unit,
+    onDownload: (String) -> Unit,
 ) {
     val subtitle =
         when (state) {
@@ -383,7 +385,14 @@ private fun UpdateRow(
         icon = Icons.Outlined.SystemUpdate,
         title = "App updates",
         subtitle = subtitle,
-        onClick = onCheck,
+        onClick = {
+            val current = state
+            if (current is UpdateCheckState.Available) {
+                onDownload(current.apkUrl)
+            } else {
+                onCheck()
+            }
+        },
     )
 }
 
