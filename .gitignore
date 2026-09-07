@@ -36,4 +36,4 @@ keystore.properties
 
 # ── Local QA harness / scratch ──
 build/qa/
-docs/
+tools/strip_comments.py
