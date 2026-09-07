@@ -76,6 +76,7 @@ fun SettingsScreen(
     onOpenMemory: () -> Unit = {},
     onOpenRoutines: () -> Unit = {},
     onOpenDiagnostics: () -> Unit = {},
+    onOpenControlCenter: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val prefs by viewModel.prefsState.collectAsStateWithLifecycle()
@@ -227,7 +228,7 @@ fun SettingsScreen(
                 }
             }
 
-            if (matches("memory", "assistant", "preferences", "facts", "routines", "tasks", "automation", "schedule")) {
+            if (matches("memory", "assistant", "preferences", "facts", "routines", "tasks", "automation", "schedule", "bridge", "shizuku", "device", "control")) {
                 JarvisListSection(title = "Assistant & Automation") {
                     NavRow(
                         icon = Icons.Outlined.Psychology,
@@ -240,6 +241,12 @@ fun SettingsScreen(
                         title = "Routines & Tasks",
                         subtitle = "Scheduled automations and background jobs",
                         onClick = onOpenRoutines,
+                    )
+                    NavRow(
+                        icon = Icons.Outlined.Shield,
+                        title = "Device Control Center",
+                        subtitle = "Privilege bridges, Shizuku & safety policy",
+                        onClick = onOpenControlCenter,
                     )
                 }
             }

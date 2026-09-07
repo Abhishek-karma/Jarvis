@@ -47,6 +47,10 @@ object VoiceModule {
 
 
     @Provides
+    @Singleton
+    fun provideVoiceStateMachine(): VoiceStateMachine = VoiceStateMachine()
+
+    @Provides
     @Named("openai_tts")
     fun provideOpenAiTtsProvider(
         @Named("llm") client: OkHttpClient,

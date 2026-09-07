@@ -13,6 +13,7 @@ object Routes {
     const val MEMORY = "settings/memory"
     const val ROUTINES = "settings/routines"
     const val DIAGNOSTICS = "settings/diagnostics"
+    const val CONTROL_CENTER = "settings/control_center"
 
     /** Chat route with an optional conversationId argument. */
     const val CHAT_ARG_CONVERSATION_ID = "conversationId"

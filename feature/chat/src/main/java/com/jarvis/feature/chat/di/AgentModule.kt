@@ -19,12 +19,18 @@ import android.telephony.SmsManager
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import com.jarvis.core.agent.AssistantNotificationManager
+import com.jarvis.core.agent.AttachmentProcessor
 import com.jarvis.core.agent.AuditLogger
 import com.jarvis.core.agent.ReversibleActionExecutor
 import com.jarvis.core.agent.RoutineScheduler
 import com.jarvis.core.agent.TaskEngine
 import com.jarvis.core.agent.ToolRegistry
+import com.jarvis.core.agent.bridge.BridgeCoordinator
+import com.jarvis.core.agent.bridge.CommandPolicyEngine
+import com.jarvis.core.agent.bridge.SandboxBridge
+import com.jarvis.core.agent.bridge.ShizukuBridge
 import com.jarvis.core.agent.tools.AlarmTools
+import com.jarvis.core.agent.tools.BridgeTools
 import com.jarvis.core.agent.tools.CalendarTools
 import com.jarvis.core.agent.tools.CalendarTools.CalendarEvent
 import com.jarvis.core.agent.tools.CalendarTools.CalendarEventDraft
@@ -65,12 +71,42 @@ import javax.inject.Singleton
 object AgentModule {
     @Provides
     @Singleton
+    fun provideCommandPolicyEngine(): CommandPolicyEngine = CommandPolicyEngine()
+
+    @Provides
+    @Singleton
+    fun provideSandboxBridge(@ApplicationContext context: Context): SandboxBridge = SandboxBridge(context)
+
+    @Provides
+    @Singleton
+    fun provideShizukuBridge(@ApplicationContext context: Context): ShizukuBridge = ShizukuBridge(context)
+
+    @Provides
+    @Singleton
+    fun provideBridgeCoordinator(
+        sandboxBridge: SandboxBridge,
+        shizukuBridge: ShizukuBridge,
+        policyEngine: CommandPolicyEngine,
+    ): BridgeCoordinator = BridgeCoordinator(
+        sandboxBridge = sandboxBridge,
+        shizukuBridge = shizukuBridge,
+        policyEngine = policyEngine,
+    )
+
+    @Provides
+    @Singleton
+    fun provideAttachmentProcessor(@ApplicationContext context: Context): AttachmentProcessor =
+        AttachmentProcessor(context)
+
+    @Provides
+    @Singleton
     fun provideToolRegistry(
         @ApplicationContext context: Context,
         okHttpClient: OkHttpClient,
         memoryRepository: MemoryRepository,
         taskRepository: TaskRepository,
         actionRepository: ReversibleActionRepository,
+        bridgeCoordinator: BridgeCoordinator,
     ): ToolRegistry =
         ToolRegistry().apply {
             SystemInfoTools
@@ -124,6 +160,10 @@ object AgentModule {
 
             TaskTools
                 .all(taskRepository)
+                .forEach { register(it) }
+
+            BridgeTools
+                .all(bridgeCoordinator)
                 .forEach { register(it) }
         }
 

@@ -26,6 +26,7 @@ import com.jarvis.core.preferences.ThemeMode
 import com.jarvis.feature.chat.ChatRoute
 import com.jarvis.feature.chat.VoiceModeRoute
 import com.jarvis.feature.settings.AboutScreen
+import com.jarvis.feature.settings.ControlCenterRoute
 import com.jarvis.feature.settings.DiagnosticsScreen
 import com.jarvis.feature.settings.MemoryScreen
 import com.jarvis.feature.settings.OnboardingRoute
@@ -139,7 +140,11 @@ private fun JarvisNavHost(startOnboarding: Boolean) {
                 onOpenMemory = { navController.navigate(Routes.MEMORY) },
                 onOpenRoutines = { navController.navigate(Routes.ROUTINES) },
                 onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
+                onOpenControlCenter = { navController.navigate(Routes.CONTROL_CENTER) },
             )
+        }
+        composable(Routes.CONTROL_CENTER) {
+            ControlCenterRoute(onBack = { navController.popBackStack() })
         }
         composable(Routes.MEMORY) {
             MemoryScreen(onBack = { navController.popBackStack() })

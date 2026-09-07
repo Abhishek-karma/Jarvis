@@ -52,6 +52,12 @@ class UserPreferencesRepository
 
             /** "fast" | "balanced" | "reasoning" | "private" | "coding" | "vision" */
             val MODEL_PROFILE = stringPreferencesKey("model_profile")
+
+            /** Whether expert shell tool execution is enabled. */
+            val EXPERT_SHELL_ENABLED = booleanPreferencesKey("expert_shell_enabled")
+
+            /** Whether Shizuku bridge integration is enabled. */
+            val SHIZUKU_ENABLED = booleanPreferencesKey("shizuku_enabled")
         }
 
 
@@ -141,6 +147,18 @@ class UserPreferencesRepository
 
         suspend fun setModelProfile(profile: String) {
             dataStore.edit { it[Keys.MODEL_PROFILE] = profile.lowercase() }
+        }
+
+        val expertShellEnabled: Flow<Boolean> = dataStore.data.map { it[Keys.EXPERT_SHELL_ENABLED] ?: false }
+
+        suspend fun setExpertShellEnabled(enabled: Boolean) {
+            dataStore.edit { it[Keys.EXPERT_SHELL_ENABLED] = enabled }
+        }
+
+        val shizukuEnabled: Flow<Boolean> = dataStore.data.map { it[Keys.SHIZUKU_ENABLED] ?: true }
+
+        suspend fun setShizukuEnabled(enabled: Boolean) {
+            dataStore.edit { it[Keys.SHIZUKU_ENABLED] = enabled }
         }
 
         companion object {
