@@ -6,14 +6,23 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.jarvis.core.database.dao.AuditLogDao
 import com.jarvis.core.database.dao.ConversationDao
+import com.jarvis.core.database.dao.MemoryDao
 import com.jarvis.core.database.dao.MessageDao
 import com.jarvis.core.database.dao.ProviderDao
+import com.jarvis.core.database.dao.ReversibleActionDao
+import com.jarvis.core.database.dao.RoutineDao
+import com.jarvis.core.database.dao.TaskDao
 import com.jarvis.core.database.entity.AuditLogEntity
 import com.jarvis.core.database.entity.ConversationEntity
+import com.jarvis.core.database.entity.MemoryEntity
 import com.jarvis.core.database.entity.MessageEntity
 import com.jarvis.core.database.entity.ProviderEntity
+import com.jarvis.core.database.entity.ReversibleActionEntity
+import com.jarvis.core.database.entity.RoutineEntity
+import com.jarvis.core.database.entity.TaskEntity
 import com.jarvis.core.database.repository.MIGRATION_1_2
 import com.jarvis.core.database.repository.MIGRATION_2_3
+import com.jarvis.core.database.repository.MIGRATION_3_4
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -27,18 +36,26 @@ import javax.inject.Singleton
         MessageEntity::class,
         ProviderEntity::class,
         AuditLogEntity::class,
+        MemoryEntity::class,
+        TaskEntity::class,
+        RoutineEntity::class,
+        ReversibleActionEntity::class,
     ],
-    version = 3,
-    exportSchema = true,
+    version = 4,
+    exportSchema = false,
 )
 abstract class JarvisDatabase : RoomDatabase() {
     abstract fun conversationDao(): ConversationDao
     abstract fun messageDao(): MessageDao
     abstract fun providerDao(): ProviderDao
     abstract fun auditLogDao(): AuditLogDao
+    abstract fun memoryDao(): MemoryDao
+    abstract fun taskDao(): TaskDao
+    abstract fun routineDao(): RoutineDao
+    abstract fun reversibleActionDao(): ReversibleActionDao
 
     companion object {
-        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
+        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
     }
 }
 
@@ -68,4 +85,20 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideAuditLogDao(db: JarvisDatabase): AuditLogDao = db.auditLogDao()
+
+    @Provides
+    @Singleton
+    fun provideMemoryDao(db: JarvisDatabase): MemoryDao = db.memoryDao()
+
+    @Provides
+    @Singleton
+    fun provideTaskDao(db: JarvisDatabase): TaskDao = db.taskDao()
+
+    @Provides
+    @Singleton
+    fun provideRoutineDao(db: JarvisDatabase): RoutineDao = db.routineDao()
+
+    @Provides
+    @Singleton
+    fun provideReversibleActionDao(db: JarvisDatabase): ReversibleActionDao = db.reversibleActionDao()
 }

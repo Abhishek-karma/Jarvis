@@ -46,6 +46,9 @@ class UserPreferencesRepository
 
             /** Last successful update check (epoch millis) — throttles startup checks to daily. */
             val LAST_UPDATE_CHECK = longPreferencesKey("last_update_check")
+
+            /** Whether assistant memory retention and context injection is active. */
+            val MEMORY_ENABLED = booleanPreferencesKey("memory_enabled")
         }
 
 
@@ -123,6 +126,12 @@ class UserPreferencesRepository
 
         suspend fun markUpdateChecked() {
             dataStore.edit { it[Keys.LAST_UPDATE_CHECK] = System.currentTimeMillis() }
+        }
+
+        val memoryEnabled: Flow<Boolean> = dataStore.data.map { it[Keys.MEMORY_ENABLED] ?: true }
+
+        suspend fun setMemoryEnabled(enabled: Boolean) {
+            dataStore.edit { it[Keys.MEMORY_ENABLED] = enabled }
         }
 
         companion object {

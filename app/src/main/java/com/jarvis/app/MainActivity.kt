@@ -26,10 +26,12 @@ import com.jarvis.core.preferences.ThemeMode
 import com.jarvis.feature.chat.ChatRoute
 import com.jarvis.feature.chat.VoiceModeRoute
 import com.jarvis.feature.settings.AboutScreen
+import com.jarvis.feature.settings.MemoryScreen
 import com.jarvis.feature.settings.OnboardingRoute
 import com.jarvis.feature.settings.ProviderEditScreen
 import com.jarvis.feature.settings.ProvidersListScreen
 import com.jarvis.feature.settings.PermissionsScreen
+import com.jarvis.feature.settings.RoutinesScreen
 import com.jarvis.feature.settings.SettingsScreen
 import com.jarvis.app.update.UpdateViewModel
 import dagger.hilt.android.AndroidEntryPoint
@@ -133,7 +135,15 @@ private fun JarvisNavHost(startOnboarding: Boolean) {
                 onOpenProviders = { navController.navigate(Routes.PROVIDERS_LIST) },
                 onOpenAbout = { navController.navigate(Routes.ABOUT) },
                 onOpenPermissions = { navController.navigate(Routes.PERMISSIONS) },
+                onOpenMemory = { navController.navigate(Routes.MEMORY) },
+                onOpenRoutines = { navController.navigate(Routes.ROUTINES) },
             )
+        }
+        composable(Routes.MEMORY) {
+            MemoryScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.ROUTINES) {
+            RoutinesScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.ABOUT) {
             AboutScreen(onBack = { navController.popBackStack() })

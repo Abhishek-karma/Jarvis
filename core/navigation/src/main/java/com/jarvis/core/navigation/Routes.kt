@@ -10,6 +10,8 @@ object Routes {
     const val PERMISSIONS = "settings/permissions"
     const val PROVIDERS_LIST = "providers"
     const val PROVIDER_EDIT = "provider/edit"
+    const val MEMORY = "settings/memory"
+    const val ROUTINES = "settings/routines"
 
     /** Chat route with an optional conversationId argument. */
     const val CHAT_ARG_CONVERSATION_ID = "conversationId"

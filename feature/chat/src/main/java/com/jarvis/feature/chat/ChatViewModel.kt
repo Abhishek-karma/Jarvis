@@ -21,6 +21,7 @@ import com.jarvis.core.common.ProviderConfig
 import com.jarvis.core.common.RoutingOverride
 import com.jarvis.core.common.ThinkMode
 import com.jarvis.core.database.repository.ConversationRepository
+import com.jarvis.core.database.repository.MemoryRepository
 import com.jarvis.core.ml.LocalConnectivity
 import com.jarvis.core.ml.LocalLlmRuntime
 import com.jarvis.core.ml.LocalModelState
@@ -52,6 +53,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -74,6 +76,7 @@ class ChatViewModel
         private val localLlmRuntime: LocalLlmRuntime,
         private val connectivity: LocalConnectivity,
         private val userPreferences: UserPreferencesRepository,
+        private val memoryRepository: MemoryRepository,
         savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow(ChatUiState())
@@ -764,12 +767,23 @@ class ChatViewModel
 
                     disabledTools = if (webAllowed) emptySet() else WebTools.manifestNames.toSet(),
                 )
+            val memoryEnabled = userPreferences.memoryEnabled.first()
+            val memoryContext = if (memoryEnabled) {
+                val activeMemories = memoryRepository.getActive()
+                val isLocal = _uiState.value.activeRoute == RoutingOverride.LOCAL
+                val eligibleMemories = if (isLocal) activeMemories else activeMemories.filterNot { it.isPrivate }
+                if (eligibleMemories.isNotEmpty()) {
+                    eligibleMemories.joinToString("\n") { "- [${it.category.name}]: ${it.content}" }
+                } else null
+            } else null
+
             val request =
                 AgentRunRequest(
                     provider = provider,
                     modelId = model,
                     messages = history,
                     reasoningRequested = reasoningRequested,
+                    memoryContext = memoryContext,
                 )
 
 

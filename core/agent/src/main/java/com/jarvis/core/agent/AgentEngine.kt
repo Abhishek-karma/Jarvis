@@ -20,6 +20,8 @@ data class AgentRunRequest(
     val agentRunId: String? = null,
     /** Derived reasoning flag — the last user turn's ThinkModeHeuristic decision. */
     val reasoningRequested: Boolean = false,
+    /** Injected memory facts/preferences (filtered by privacy rules). */
+    val memoryContext: String? = null,
 )
 
 
@@ -52,12 +54,18 @@ class AgentEngine(
                 steps++
                 emit(AgentEvent.IterationStarted(steps))
 
+                val effectiveSystemPrompt = if (request.memoryContext.isNullOrBlank()) {
+                    SYSTEM_PROMPT
+                } else {
+                    "$SYSTEM_PROMPT\n\n[Assistant Memory Context]\n${request.memoryContext}"
+                }
+
                 val streamEvents =
                     request.provider
                         .streamChat(
                             ChatRequest(
                                 conversationHistory = baseHistory + turnLog,
-                                systemPrompt = SYSTEM_PROMPT,
+                                systemPrompt = effectiveSystemPrompt,
                                 model = request.modelId,
                                 reasoningRequested = request.reasoningRequested,
                                 toolsAvailable = if (supportsTools) definitions else null,

@@ -82,3 +82,85 @@ data class ModelInfo(
     val supportsVision: Boolean = false,
     val supportsReasoning: Boolean = false,
 )
+
+/** Explicit memory categories. */
+enum class MemoryCategory {
+    CONVERSATION_CONTEXT,
+    LONG_TERM_FACT,
+    EPISODIC,
+}
+
+data class Memory(
+    val id: String = UUID.randomUUID().toString(),
+    val category: MemoryCategory,
+    val content: String,
+    val source: String,
+    val confidence: Float = 1.0f,
+    val timestamp: Long = System.currentTimeMillis(),
+    val isPrivate: Boolean = false,
+    val isActive: Boolean = true,
+)
+
+/** Durable task states. */
+enum class TaskState {
+    SCHEDULED,
+    QUEUED,
+    RUNNING,
+    WAITING_FOR_CONFIRMATION,
+    COMPLETED,
+    FAILED,
+    CANCELLED,
+}
+
+enum class TaskTriggerType {
+    MANUAL,
+    SCHEDULED,
+    ROUTINE,
+}
+
+data class Task(
+    val id: String = UUID.randomUUID().toString(),
+    val title: String,
+    val goal: String,
+    val triggerType: TaskTriggerType = TaskTriggerType.MANUAL,
+    val triggerConfigJson: String? = null,
+    val state: TaskState = TaskState.QUEUED,
+    val stepsJson: String = "[]",
+    val requiredPermissionsJson: String = "[]",
+    val retries: Int = 0,
+    val maxRetries: Int = 3,
+    val resultJson: String? = null,
+    val failureReason: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
+    val lastRunAt: Long? = null,
+)
+
+enum class RoutineScheduleType {
+    ONE_TIME,
+    RECURRING,
+}
+
+data class Routine(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val goal: String,
+    val scheduleType: RoutineScheduleType = RoutineScheduleType.RECURRING,
+    val cronOrInterval: String,
+    val nextRunAt: Long? = null,
+    val enabled: Boolean = true,
+    val lastRunAt: Long? = null,
+    val lastRunStatus: String? = null,
+    val failureReason: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
+)
+
+data class ReversibleAction(
+    val id: String = UUID.randomUUID().toString(),
+    val actionType: String,
+    val target: String,
+    val inverseActionJson: String,
+    val createdAt: Long = System.currentTimeMillis(),
+    val isReverted: Boolean = false,
+)

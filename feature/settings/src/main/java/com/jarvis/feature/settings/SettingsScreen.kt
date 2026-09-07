@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Psychology
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -71,6 +72,8 @@ fun SettingsScreen(
     onOpenProviders: () -> Unit,
     onOpenAbout: () -> Unit = {},
     onOpenPermissions: () -> Unit = {},
+    onOpenMemory: () -> Unit = {},
+    onOpenRoutines: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val prefs by viewModel.prefsState.collectAsStateWithLifecycle()
@@ -86,6 +89,7 @@ fun SettingsScreen(
             listOf("mode", "local", "cloud", "providers", "internet", "offline", "on-device", "routing"),
             listOf("appearance", "theme", "light", "dark", "system", "display"),
             listOf("reasoning", "think", "thinking", "off", "auto", "on"),
+            listOf("memory", "assistant", "preferences", "facts", "routines", "tasks", "automation", "schedule"),
             listOf("agent", "cautious", "tools", "step cap", "limit"),
             listOf("about", "version", "privacy", "credits", "jarvis", "permissions", "microphone", "camera", "notifications"),
         )
@@ -218,6 +222,23 @@ fun SettingsScreen(
                             onClick = { viewModel.setThinkMode(ThinkMode.ON) },
                         )
                     }
+                }
+            }
+
+            if (matches("memory", "assistant", "preferences", "facts", "routines", "tasks", "automation", "schedule")) {
+                JarvisListSection(title = "Assistant & Automation") {
+                    NavRow(
+                        icon = Icons.Outlined.Psychology,
+                        title = "Assistant Memory",
+                        subtitle = "Facts, preferences, and privacy controls",
+                        onClick = onOpenMemory,
+                    )
+                    NavRow(
+                        icon = Icons.Outlined.Schedule,
+                        title = "Routines & Tasks",
+                        subtitle = "Scheduled automations and background jobs",
+                        onClick = onOpenRoutines,
+                    )
                 }
             }
 

@@ -74,3 +74,76 @@ data class AuditLogEntity(
     val timestamp: Long,
 )
 
+/** Explicit memory row across conversation context, long-term facts, and episodic events. */
+@Entity(
+    tableName = "memories",
+    indices = [Index("category"), Index("timestamp"), Index("isPrivate")],
+)
+data class MemoryEntity(
+    @PrimaryKey val id: String,
+    val category: String, // "CONVERSATION_CONTEXT", "LONG_TERM_FACT", "EPISODIC"
+    val content: String,
+    val source: String, // conversationId, tool, user
+    val confidence: Float = 1.0f,
+    val timestamp: Long = System.currentTimeMillis(),
+    val isPrivate: Boolean = false,
+    val isActive: Boolean = true,
+)
+
+/** Durable task state machine record. */
+@Entity(
+    tableName = "tasks",
+    indices = [Index("state"), Index("createdAt")],
+)
+data class TaskEntity(
+    @PrimaryKey val id: String,
+    val title: String,
+    val goal: String,
+    val triggerType: String, // "MANUAL", "SCHEDULED", "ROUTINE"
+    val triggerConfigJson: String? = null,
+    val state: String, // "SCHEDULED", "QUEUED", "RUNNING", "WAITING_FOR_CONFIRMATION", "COMPLETED", "FAILED", "CANCELLED"
+    val stepsJson: String = "[]",
+    val requiredPermissionsJson: String = "[]",
+    val retries: Int = 0,
+    val maxRetries: Int = 3,
+    val resultJson: String? = null,
+    val failureReason: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
+    val lastRunAt: Long? = null,
+)
+
+/** Scheduled automations & routines record. */
+@Entity(
+    tableName = "routines",
+    indices = [Index("enabled"), Index("nextRunAt")],
+)
+data class RoutineEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val goal: String,
+    val scheduleType: String, // "ONE_TIME", "RECURRING"
+    val cronOrInterval: String,
+    val nextRunAt: Long? = null,
+    val enabled: Boolean = true,
+    val lastRunAt: Long? = null,
+    val lastRunStatus: String? = null,
+    val failureReason: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
+)
+
+/** Reversible write actions for undo capabilities. */
+@Entity(
+    tableName = "reversible_actions",
+    indices = [Index("createdAt"), Index("isReverted")],
+)
+data class ReversibleActionEntity(
+    @PrimaryKey val id: String,
+    val actionType: String,
+    val target: String,
+    val inverseActionJson: String,
+    val createdAt: Long = System.currentTimeMillis(),
+    val isReverted: Boolean = false,
+)
+

@@ -27,6 +27,7 @@ android {
 dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:database"))
+    implementation(project(":core:agent"))
     implementation(project(":core:network"))
     implementation(project(":core:ml"))
     implementation(project(":core:preferences"))

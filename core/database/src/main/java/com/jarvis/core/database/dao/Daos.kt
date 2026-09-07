@@ -6,8 +6,12 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.jarvis.core.database.entity.AuditLogEntity
 import com.jarvis.core.database.entity.ConversationEntity
+import com.jarvis.core.database.entity.MemoryEntity
 import com.jarvis.core.database.entity.MessageEntity
 import com.jarvis.core.database.entity.ProviderEntity
+import com.jarvis.core.database.entity.ReversibleActionEntity
+import com.jarvis.core.database.entity.RoutineEntity
+import com.jarvis.core.database.entity.TaskEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -98,4 +102,97 @@ interface ProviderDao {
 interface AuditLogDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(entry: AuditLogEntity)
+}
+
+@Dao
+interface MemoryDao {
+    @Query("SELECT * FROM memories WHERE isActive = 1 ORDER BY timestamp DESC")
+    fun observeActive(): Flow<List<MemoryEntity>>
+
+    @Query("SELECT * FROM memories WHERE isActive = 1 AND category = :category ORDER BY timestamp DESC")
+    fun observeByCategory(category: String): Flow<List<MemoryEntity>>
+
+    @Query("SELECT * FROM memories WHERE isActive = 1 ORDER BY timestamp DESC")
+    suspend fun getActive(): List<MemoryEntity>
+
+    @Query("SELECT * FROM memories WHERE isActive = 1 AND isPrivate = 0 ORDER BY timestamp DESC")
+    suspend fun getActiveNonPrivate(): List<MemoryEntity>
+
+    @Query("SELECT * FROM memories WHERE id = :id")
+    suspend fun get(id: String): MemoryEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(memory: MemoryEntity)
+
+    @Query("UPDATE memories SET isActive = :isActive WHERE id = :id")
+    suspend fun setActive(id: String, isActive: Boolean)
+
+    @Query("DELETE FROM memories WHERE id = :id")
+    suspend fun delete(id: String)
+
+    @Query("DELETE FROM memories WHERE source = :source")
+    suspend fun deleteBySource(source: String): Int
+
+    @Query("DELETE FROM memories")
+    suspend fun clearAll()
+}
+
+@Dao
+interface TaskDao {
+    @Query("SELECT * FROM tasks ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<TaskEntity>>
+
+    @Query("SELECT * FROM tasks WHERE state = :state ORDER BY createdAt DESC")
+    fun observeByState(state: String): Flow<List<TaskEntity>>
+
+    @Query("SELECT * FROM tasks WHERE id = :id")
+    suspend fun get(id: String): TaskEntity?
+
+    @Query("SELECT * FROM tasks WHERE state IN ('SCHEDULED', 'QUEUED', 'RUNNING', 'WAITING_FOR_CONFIRMATION')")
+    suspend fun getActiveOrPendingTasks(): List<TaskEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(task: TaskEntity)
+
+    @Query("UPDATE tasks SET state = :state, failureReason = :failureReason, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateState(id: String, state: String, failureReason: String?, updatedAt: Long)
+
+    @Query("DELETE FROM tasks WHERE id = :id")
+    suspend fun delete(id: String)
+}
+
+@Dao
+interface RoutineDao {
+    @Query("SELECT * FROM routines ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<RoutineEntity>>
+
+    @Query("SELECT * FROM routines WHERE enabled = 1 ORDER BY nextRunAt ASC")
+    fun observeEnabled(): Flow<List<RoutineEntity>>
+
+    @Query("SELECT * FROM routines WHERE id = :id")
+    suspend fun get(id: String): RoutineEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(routine: RoutineEntity)
+
+    @Query("UPDATE routines SET enabled = :enabled, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun setEnabled(id: String, enabled: Boolean, updatedAt: Long)
+
+    @Query("DELETE FROM routines WHERE id = :id")
+    suspend fun delete(id: String)
+}
+
+@Dao
+interface ReversibleActionDao {
+    @Query("SELECT * FROM reversible_actions WHERE isReverted = 0 ORDER BY createdAt DESC LIMIT :limit")
+    fun observeRecent(limit: Int = 20): Flow<List<ReversibleActionEntity>>
+
+    @Query("SELECT * FROM reversible_actions WHERE id = :id")
+    suspend fun get(id: String): ReversibleActionEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(action: ReversibleActionEntity)
+
+    @Query("UPDATE reversible_actions SET isReverted = 1 WHERE id = :id")
+    suspend fun markReverted(id: String)
 }

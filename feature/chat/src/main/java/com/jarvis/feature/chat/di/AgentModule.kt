@@ -18,7 +18,11 @@ import android.provider.MediaStore
 import android.telephony.SmsManager
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
+import com.jarvis.core.agent.AssistantNotificationManager
 import com.jarvis.core.agent.AuditLogger
+import com.jarvis.core.agent.ReversibleActionExecutor
+import com.jarvis.core.agent.RoutineScheduler
+import com.jarvis.core.agent.TaskEngine
 import com.jarvis.core.agent.ToolRegistry
 import com.jarvis.core.agent.tools.AlarmTools
 import com.jarvis.core.agent.tools.CalendarTools
@@ -30,11 +34,18 @@ import com.jarvis.core.agent.tools.ContactsTools
 import com.jarvis.core.agent.tools.FilesTools
 import com.jarvis.core.agent.tools.FilesTools.FileHit
 import com.jarvis.core.agent.tools.MediaTools
+import com.jarvis.core.agent.tools.MemoryTools
 import com.jarvis.core.agent.tools.SystemInfoTools
+import com.jarvis.core.agent.tools.TaskTools
 import com.jarvis.core.agent.tools.WebTools
 import com.jarvis.core.agent.tools.WebTools.FetchedPage
+import com.jarvis.core.common.ReversibleAction
 import com.jarvis.core.database.repository.AuditLogEntry
 import com.jarvis.core.database.repository.AuditLogRepository
+import com.jarvis.core.database.repository.MemoryRepository
+import com.jarvis.core.database.repository.ReversibleActionRepository
+import com.jarvis.core.database.repository.RoutineRepository
+import com.jarvis.core.database.repository.TaskRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -57,6 +68,9 @@ object AgentModule {
     fun provideToolRegistry(
         @ApplicationContext context: Context,
         okHttpClient: OkHttpClient,
+        memoryRepository: MemoryRepository,
+        taskRepository: TaskRepository,
+        actionRepository: ReversibleActionRepository,
     ): ToolRegistry =
         ToolRegistry().apply {
             SystemInfoTools
@@ -68,7 +82,7 @@ object AgentModule {
 
             CalendarTools
                 .all(
-                    insertEvent = { draft -> insertCalendarEvent(context, draft) },
+                    insertEvent = { draft -> insertCalendarEvent(context, draft, actionRepository) },
                     queryEvents = { from, to -> queryCalendarEvents(context, from, to) },
                     insertReminder = { draft -> insertCalendarReminder(context, draft) },
                 ).forEach { register(it) }
@@ -103,6 +117,62 @@ object AgentModule {
                 .all(
                     adjust = { action, stream -> adjustVolume(context, action, stream) },
                 ).forEach { register(it) }
+
+            MemoryTools
+                .all(memoryRepository)
+                .forEach { register(it) }
+
+            TaskTools
+                .all(taskRepository)
+                .forEach { register(it) }
+        }
+
+    @Provides
+    @Singleton
+    fun provideAssistantNotificationManager(
+        @ApplicationContext context: Context,
+    ): AssistantNotificationManager = AssistantNotificationManager(context)
+
+    @Provides
+    @Singleton
+    fun provideTaskEngine(
+        taskRepository: TaskRepository,
+    ): TaskEngine = TaskEngine(taskRepository)
+
+    @Provides
+    @Singleton
+    fun provideRoutineScheduler(
+        routineRepository: RoutineRepository,
+        taskRepository: TaskRepository,
+        taskEngine: TaskEngine,
+        notificationManager: AssistantNotificationManager,
+    ): RoutineScheduler = RoutineScheduler(
+        routineRepository = routineRepository,
+        taskRepository = taskRepository,
+        taskEngine = taskEngine,
+        notifications = notificationManager,
+    )
+
+    @Provides
+    @Singleton
+    fun provideReversibleActionExecutor(
+        actionRepository: ReversibleActionRepository,
+        memoryRepository: MemoryRepository,
+        @ApplicationContext context: Context,
+    ): ReversibleActionExecutor =
+        ReversibleActionExecutor(actionRepository, memoryRepository).apply {
+            setExternalRevertHandler { actionType, target, _ ->
+                runCatching {
+                    if (actionType == "calendar_event") {
+                        val eventId = target.toLongOrNull() ?: error("Invalid calendar event ID $target")
+                        val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
+                        val deleted = context.contentResolver.delete(uri, null, null)
+                        deleted > 0
+                    } else {
+                        false
+                    }
+                }
+            }
         }
 
     @Provides
@@ -137,6 +207,7 @@ object AgentModule {
     private suspend fun insertCalendarEvent(
         context: Context,
         draft: CalendarEventDraft,
+        actionRepository: ReversibleActionRepository? = null,
     ): Result<Long> =
         runCatching {
             requirePermission(context, Manifest.permission.READ_CALENDAR)
@@ -155,7 +226,17 @@ object AgentModule {
                     CalendarContract.Events.CONTENT_URI,
                     values,
                 ) ?: error("Calendar provider refused the insert")
-            ContentUris.parseId(uri)
+            val id = ContentUris.parseId(uri)
+
+            actionRepository?.recordAction(
+                ReversibleAction(
+                    actionType = "calendar_event",
+                    target = id.toString(),
+                    inverseActionJson = "{\"action\":\"delete_event\",\"eventId\":$id}",
+                )
+            )
+
+            id
         }
 
     private suspend fun queryCalendarEvents(

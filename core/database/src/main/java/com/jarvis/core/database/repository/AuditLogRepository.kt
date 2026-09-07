@@ -67,3 +67,78 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
         db.execSQL("ALTER TABLE `providers` ADD COLUMN `model` TEXT")
     }
 }
+
+/** v3 → v4: Phase 2 assistant platform tables (memories, tasks, routines, reversible_actions). */
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `memories` (" +
+                "`id` TEXT NOT NULL PRIMARY KEY, " +
+                "`category` TEXT NOT NULL, " +
+                "`content` TEXT NOT NULL, " +
+                "`source` TEXT NOT NULL, " +
+                "`confidence` REAL NOT NULL, " +
+                "`timestamp` INTEGER NOT NULL, " +
+                "`isPrivate` INTEGER NOT NULL, " +
+                "`isActive` INTEGER NOT NULL" +
+                ")",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_memories_category` ON `memories` (`category`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_memories_timestamp` ON `memories` (`timestamp`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_memories_isPrivate` ON `memories` (`isPrivate`)")
+
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `tasks` (" +
+                "`id` TEXT NOT NULL PRIMARY KEY, " +
+                "`title` TEXT NOT NULL, " +
+                "`goal` TEXT NOT NULL, " +
+                "`triggerType` TEXT NOT NULL, " +
+                "`triggerConfigJson` TEXT, " +
+                "`state` TEXT NOT NULL, " +
+                "`stepsJson` TEXT NOT NULL, " +
+                "`requiredPermissionsJson` TEXT NOT NULL, " +
+                "`retries` INTEGER NOT NULL, " +
+                "`maxRetries` INTEGER NOT NULL, " +
+                "`resultJson` TEXT, " +
+                "`failureReason` TEXT, " +
+                "`createdAt` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, " +
+                "`lastRunAt` INTEGER" +
+                ")",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_tasks_state` ON `tasks` (`state`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_tasks_createdAt` ON `tasks` (`createdAt`)")
+
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `routines` (" +
+                "`id` TEXT NOT NULL PRIMARY KEY, " +
+                "`name` TEXT NOT NULL, " +
+                "`goal` TEXT NOT NULL, " +
+                "`scheduleType` TEXT NOT NULL, " +
+                "`cronOrInterval` TEXT NOT NULL, " +
+                "`nextRunAt` INTEGER, " +
+                "`enabled` INTEGER NOT NULL, " +
+                "`lastRunAt` INTEGER, " +
+                "`lastRunStatus` TEXT, " +
+                "`failureReason` TEXT, " +
+                "`createdAt` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL" +
+                ")",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_routines_enabled` ON `routines` (`enabled`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_routines_nextRunAt` ON `routines` (`nextRunAt`)")
+
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `reversible_actions` (" +
+                "`id` TEXT NOT NULL PRIMARY KEY, " +
+                "`actionType` TEXT NOT NULL, " +
+                "`target` TEXT NOT NULL, " +
+                "`inverseActionJson` TEXT NOT NULL, " +
+                "`createdAt` INTEGER NOT NULL, " +
+                "`isReverted` INTEGER NOT NULL" +
+                ")",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_reversible_actions_createdAt` ON `reversible_actions` (`createdAt`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_reversible_actions_isReverted` ON `reversible_actions` (`isReverted`)")
+    }
+}

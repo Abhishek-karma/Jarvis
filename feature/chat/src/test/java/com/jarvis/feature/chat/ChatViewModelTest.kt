@@ -104,7 +104,7 @@ class ChatViewModelTest {
         every { userPreferences.thinkMode } returns thinkModeFlow
         every { userPreferences.chatMode } returns MutableStateFlow(com.jarvis.core.preferences.ChatMode.CLOUD)
         every { userPreferences.localInternetAccess } returns MutableStateFlow(true)
-
+        every { userPreferences.memoryEnabled } returns MutableStateFlow(true)
 
         val savedStateHandle = androidx.lifecycle.SavedStateHandle()
 
@@ -125,6 +125,7 @@ class ChatViewModelTest {
                 localLlmRuntime = localLlmRuntime,
                 connectivity = connectivity,
                 userPreferences = userPreferences,
+                memoryRepository = io.mockk.mockk(relaxed = true),
                 savedStateHandle = savedStateHandle,
             )
     }
@@ -1007,6 +1008,7 @@ class ChatViewModelTest {
                 localLlmRuntime = localLlmRuntime,
                 connectivity = connectivity,
                 userPreferences = userPreferences,
+                memoryRepository = io.mockk.mockk(relaxed = true),
                 savedStateHandle = androidx.lifecycle.SavedStateHandle(),
             )
     }
