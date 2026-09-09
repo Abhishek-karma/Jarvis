@@ -89,12 +89,12 @@ jobs:
             exit 1
           fi
 
-          cat <<EOF > keystore.properties
-storeFile=$KEYSTORE_PATH
-storePassword=$KEYSTORE_PASSWORD
-keyAlias=$KEY_ALIAS
-keyPassword=$KEY_PASSWORD
-EOF
+          {
+            echo "storeFile=$KEYSTORE_PATH"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > keystore.properties
           chmod 600 keystore.properties
 
       - name: Assemble Release APK
