@@ -31,6 +31,10 @@ graphify-out/
 
 # ── Runtime models (downloaded on demand, not vendored) ──
 app/src/debug/assets/models-dev/
+# ── Secrets / Environment ──
+.env
+.env.*
+!.env.example
 keystore.properties
 *.jks
 *.keystore
