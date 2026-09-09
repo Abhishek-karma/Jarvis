@@ -1,0 +1,6 @@
+{
+  "name": "Jarvis",
+  "description": "AI assistant app with multi-provider chat, tools, and local models.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

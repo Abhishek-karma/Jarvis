@@ -1,0 +1,7 @@
+<resources>
+    <!--
+      Launcher/splash colors now live in values/ic_launcher_colors.xml and
+      values-night/ic_launcher_colors.xml. This file is reserved for the
+      rest of the app's color resources.
+    -->
+</resources>

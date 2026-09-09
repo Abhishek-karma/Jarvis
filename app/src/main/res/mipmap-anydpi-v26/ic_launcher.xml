@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive launcher icon — API 26+ (Android 8.0 Oreo and above).
+
+  Three layers:
+    1. background  : subtle dark gradient vector, read from @drawable/ic_launcher_background
+    2. foreground  : the Jarvis mark in brand accent (#3D63F6)
+    3. monochrome  : solid-ink version for themed icons (Android 13+)
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
+</adaptive-icon>
