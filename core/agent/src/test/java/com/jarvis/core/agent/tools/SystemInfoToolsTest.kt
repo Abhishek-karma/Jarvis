@@ -68,6 +68,25 @@ class SystemInfoToolsTest {
         }
 
     @Test
+    fun `get_current_datetime reports local date time timezone and day of week`() =
+        runBlocking {
+            val tool = SystemInfoTools.getCurrentDateTime(
+                nowMillis = { 1_700_000_000_000L },
+                zoneId = { java.time.ZoneId.of("America/New_York") },
+            )
+
+            val result = tool.execute("{}")
+
+            assertTrue(result.success)
+            assertTrue(result.observationText.contains("Tuesday"))
+            assertTrue(result.observationText.contains("2023-11-14"))
+            assertTrue(result.observationText.contains("17:13:20"))
+            assertTrue(result.observationText.contains("America/New_York"))
+            assertEquals("2023-11-14", result.structuredData?.get("date"))
+            assertEquals("Tuesday", result.structuredData?.get("day_of_week"))
+        }
+
+    @Test
     fun `all tools are read-only and register cleanly`() {
         val tools =
             SystemInfoTools.all(

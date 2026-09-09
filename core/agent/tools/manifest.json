@@ -29,6 +29,13 @@
       "description": "The current date and time in UTC (ISO-8601). Read-only.",
       "tier": "read_only",
       "parameters": { "type": "object", "properties": {}, "required": [] }
+    },
+    {
+      "name": "get_current_datetime",
+      "category": "system_info",
+      "description": "Get the current local date, time, timezone, and day of week. Read-only.",
+      "tier": "read_only",
+      "parameters": { "type": "object", "properties": {}, "required": [] }
     }
   ]
 }

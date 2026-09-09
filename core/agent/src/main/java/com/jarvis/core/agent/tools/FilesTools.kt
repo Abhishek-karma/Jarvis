@@ -9,8 +9,9 @@ object FilesTools {
     const val SEARCH_FILES = "search_files"
     const val READ_FILE = "read_file"
     const val WRITE_FILE = "write_file"
+    const val CREATE_FILE = "create_file"
 
-    val manifestNames: List<String> = listOf(SEARCH_FILES, READ_FILE, WRITE_FILE)
+    val manifestNames: List<String> = listOf(SEARCH_FILES, READ_FILE, WRITE_FILE, CREATE_FILE)
 
     /** One file hit from the device's media index. */
     data class FileHit(
@@ -24,11 +25,75 @@ object FilesTools {
         search: suspend (query: String) -> Result<List<FileHit>>,
         read: (suspend (path: String) -> Result<String>)? = null,
         write: (suspend (path: String, content: String, append: Boolean) -> Result<Unit>)? = null,
+        create: (suspend (fileName: String, content: String, location: String?) -> Result<String>)? = null,
     ): List<Tool> = buildList {
         add(searchFiles(search))
         if (read != null) add(readFile(read))
         if (write != null) add(writeFile(write))
+        if (create != null) {
+            add(createFile(create))
+        } else if (write != null) {
+            // Fallback: wire createFile to writeFile if custom create not passed
+            add(createFile { fileName, content, _ ->
+                write(fileName, content, false).map { fileName }
+            })
+        }
     }
+
+    fun createFile(create: suspend (fileName: String, content: String, location: String?) -> Result<String>): Tool =
+        object : Tool {
+            override val name = CREATE_FILE
+            override val description =
+                "Create a text file with a specified filename and content. " +
+                    "Optionally specify location ('downloads', 'documents', 'app_private'). " +
+                    "Defaults to 'downloads'. Does not require raw filesystem paths."
+            override val tier = PermissionTier.REVERSIBLE_WRITE
+            override val parametersSchemaJson = CREATE_FILE_SCHEMA
+
+            override suspend fun execute(argsJson: String): ToolResult {
+                val args = Args.parse(argsJson)
+                    ?: return ToolResult(
+                        success = false,
+                        observationText = "Arguments are not valid JSON.",
+                        error = "invalid JSON arguments",
+                    )
+                val fileName = args.string("file_name")
+                    ?: args.string("filename")
+                    ?: args.string("name")
+                    ?: args.string("path")
+                val content = args.string("content") ?: ""
+                val location = args.string("location")
+
+                if (fileName.isNullOrBlank()) {
+                    return ToolResult(
+                        success = false,
+                        observationText = "Missing argument: file_name is required.",
+                        error = "file_name is required",
+                    )
+                }
+
+                return create(fileName.trim(), content, location?.trim()).fold(
+                    onSuccess = { savedPath ->
+                        ToolResult(
+                            success = true,
+                            observationText = "Successfully created file \"$fileName\" at $savedPath.",
+                            structuredData = mapOf(
+                                "file_name" to fileName,
+                                "path" to savedPath,
+                                "bytes" to content.toByteArray().size,
+                            ),
+                        )
+                    },
+                    onFailure = { error ->
+                        ToolResult(
+                            success = false,
+                            observationText = "Could not create file \"$fileName\": ${error.message}",
+                            error = error.message ?: "File creation failed",
+                        )
+                    },
+                )
+            }
+        }
 
     fun readFile(read: suspend (String) -> Result<String>): Tool =
         object : Tool {
@@ -195,4 +260,6 @@ object FilesTools {
         """{"type":"object","properties":{"path":{"type":"string","description":"Absolute path of the file to read."}},"required":["path"]}"""
     private const val WRITE_SCHEMA =
         """{"type":"object","properties":{"path":{"type":"string","description":"Absolute path of the file to write."},"content":{"type":"string","description":"Text content to write."},"append":{"type":"boolean","description":"If true, appends to the file instead of overwriting."}},"required":["path","content"]}"""
+    private const val CREATE_FILE_SCHEMA =
+        """{"type":"object","properties":{"file_name":{"type":"string","description":"Name of the file to create (e.g. welcome.txt)."},"content":{"type":"string","description":"Text content to write into the file."},"location":{"type":"string","description":"Target directory: 'downloads' (default), 'documents', or 'app_private'."}},"required":["file_name","content"]}"""
 }

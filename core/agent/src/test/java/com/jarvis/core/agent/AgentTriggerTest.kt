@@ -43,5 +43,8 @@ class AgentTriggerTest {
         assertFalse(AgentTrigger.shouldUseAgent("how do I find my saved wifi password"))
         assertTrue(AgentTrigger.shouldUseAgent("Call mom at 5"))
         assertTrue(AgentTrigger.shouldUseAgent("Make a note about the meeting"))
+        assertTrue(AgentTrigger.shouldUseAgent("Write welcome message to file"))
+        assertTrue(AgentTrigger.shouldUseAgent("what is today's date"))
+        assertTrue(AgentTrigger.shouldUseAgent("what is the current time"))
     }
 }

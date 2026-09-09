@@ -162,6 +162,7 @@ object AgentModule {
                 search = { query -> searchFiles(context, query) },
                 read = { path -> readLocalFile(context, path) },
                 write = { path, content, append -> writeLocalFile(context, path, content, append) },
+                create = { fileName, content, location -> createNamedFile(context, fileName, content, location) },
             ),
         )
         tools.addAll(
@@ -603,7 +604,7 @@ object AgentModule {
 
     private fun ensurePublicHttpUrl(url: String) = ensurePublicHttpUrlChecked(url)
 
-    /** Fetch a URL and reduce it to readable plain text (no extra dependency: strip tags). */
+    /** Fetch a URL and reduce it to readable plain text, with GitHub repo fallback. */
     private suspend fun fetchUrl(
         client: OkHttpClient,
         url: String,
@@ -611,16 +612,68 @@ object AgentModule {
         withContext(Dispatchers.IO) {
             runCatching {
                 ensurePublicHttpUrl(url)
-                val request = Request.Builder().url(url).get().build()
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) error("HTTP ${response.code}")
-                    val contentType = response.header("Content-Type") ?: ""
+                val userAgent = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", userAgent)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain,*/*;q=0.8")
+                    .get()
+                    .build()
+
+                var response = client.newCall(request).execute()
+
+                // If GitHub returns 404/failure on a repo URL (or raw/blob), try GitHub API or README fallback
+                val gitHubRepoRegex = Regex("""^https?://(?:www\.)?github\.com/([^/]+)/([^/#?]+)(?:/.*)?$""", RegexOption.IGNORE_CASE)
+                val gitHubMatch = gitHubRepoRegex.find(url)
+
+                if ((!response.isSuccessful || response.code == 404) && gitHubMatch != null) {
+                    response.close()
+                    val owner = gitHubMatch.groupValues[1]
+                    val repo = gitHubMatch.groupValues[2].removeSuffix(".git")
+                    val fallbackUrls = listOf(
+                        "https://raw.githubusercontent.com/$owner/$repo/main/README.md",
+                        "https://raw.githubusercontent.com/$owner/$repo/master/README.md",
+                        "https://api.github.com/repos/$owner/$repo",
+                    )
+                    var fallbackPage: FetchedPage? = null
+                    for (fallbackUrl in fallbackUrls) {
+                        val fbRequest = Request.Builder()
+                            .url(fallbackUrl)
+                            .header("User-Agent", "Jarvis-Android-Assistant")
+                            .header("Accept", "application/vnd.github.v3+json, text/plain")
+                            .get()
+                            .build()
+                        val fbResp = runCatching { client.newCall(fbRequest).execute() }.getOrNull()
+                        if (fbResp != null && fbResp.isSuccessful) {
+                            val bodyText = fbResp.body?.string() ?: ""
+                            fbResp.close()
+                            if (bodyText.isNotBlank()) {
+                                fallbackPage = FetchedPage(
+                                    title = "$owner/$repo (GitHub)",
+                                    text = if (fallbackUrl.endsWith(".md")) bodyText else htmlToText(bodyText),
+                                )
+                                break
+                            }
+                        } else {
+                            fbResp?.close()
+                        }
+                    }
+                    if (fallbackPage != null) {
+                        return@runCatching fallbackPage
+                    }
+                    error("HTTP ${response.code}: Could not fetch GitHub repository at $url")
+                }
+
+                response.use { resp ->
+                    if (!resp.isSuccessful) error("HTTP ${resp.code}")
+                    val contentType = resp.header("Content-Type") ?: ""
                     if (!contentType.contains("text/", ignoreCase = true) &&
-                        !contentType.contains("json", ignoreCase = true)
+                        !contentType.contains("json", ignoreCase = true) &&
+                        !contentType.contains("markdown", ignoreCase = true)
                     ) {
                         error("Not a text page (Content-Type: ${contentType.ifBlank { "unknown" }})")
                     }
-                    val raw = response.body?.string() ?: error("Empty body")
+                    val raw = resp.body?.string() ?: error("Empty body")
                     val title =
                         Regex("<title[^>]*>(.*?)</title>", RegexOption.IGNORE_CASE)
                             .find(raw)
@@ -884,13 +937,13 @@ object AgentModule {
     ): Result<String> =
         withContext(Dispatchers.IO) {
             runCatching {
-                val file = java.io.File(path)
-                if (!file.exists()) error("File does not exist: $path")
-                if (file.isDirectory) error("Path is a directory: $path")
-                if (file.length() > 500_000) {
-                    file.bufferedReader().use { it.readText().take(500_000) + "\n...(truncated)" }
+                val resolvedFile = resolveFilePath(context, path)
+                if (!resolvedFile.exists()) error("File does not exist: $path")
+                if (resolvedFile.isDirectory) error("Path is a directory: $path")
+                if (resolvedFile.length() > 500_000) {
+                    resolvedFile.bufferedReader().use { it.readText().take(500_000) + "\n...(truncated)" }
                 } else {
-                    file.readText()
+                    resolvedFile.readText()
                 }
             }
         }
@@ -903,12 +956,95 @@ object AgentModule {
     ): Result<Unit> =
         withContext(Dispatchers.IO) {
             runCatching {
-                val file = java.io.File(path)
-                file.parentFile?.mkdirs()
+                val resolvedFile = resolveFilePath(context, path)
+                resolvedFile.parentFile?.mkdirs()
                 if (append) {
-                    file.appendText(content)
+                    resolvedFile.appendText(content)
                 } else {
+                    resolvedFile.writeText(content)
+                }
+            }
+        }
+
+    private fun resolveFilePath(context: Context, path: String): java.io.File {
+        val trimmed = path.trim()
+        val lower = trimmed.lowercase()
+        return when {
+            lower == "/download" || lower == "download" || lower == "/downloads" || lower == "downloads" -> {
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            }
+            lower.startsWith("/download/") || lower.startsWith("download/") -> {
+                val sub = trimmed.substringAfter("download/").removePrefix("/")
+                java.io.File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), sub)
+            }
+            lower.startsWith("/downloads/") || lower.startsWith("downloads/") -> {
+                val sub = trimmed.substringAfter("downloads/").removePrefix("/")
+                java.io.File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), sub)
+            }
+            lower == "/documents" || lower == "documents" -> {
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+            }
+            lower.startsWith("/documents/") || lower.startsWith("documents/") -> {
+                val sub = trimmed.substringAfter("documents/").removePrefix("/")
+                java.io.File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), sub)
+            }
+            trimmed.startsWith("/") -> java.io.File(trimmed)
+            else -> java.io.File(context.filesDir, trimmed)
+        }
+    }
+
+    private suspend fun createNamedFile(
+        context: Context,
+        fileName: String,
+        content: String,
+        location: String?,
+    ): Result<String> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val cleanName = java.io.File(fileName).name
+                val loc = location?.lowercase()?.trim() ?: "downloads"
+
+                if (loc == "app_private" || loc == "internal" || loc == "private") {
+                    val file = java.io.File(context.filesDir, cleanName)
                     file.writeText(content)
+                    return@runCatching file.absolutePath
+                }
+
+                val mimeType = when {
+                    cleanName.endsWith(".json", ignoreCase = true) -> "application/json"
+                    cleanName.endsWith(".csv", ignoreCase = true) -> "text/csv"
+                    cleanName.endsWith(".html", ignoreCase = true) || cleanName.endsWith(".htm", ignoreCase = true) -> "text/html"
+                    cleanName.endsWith(".xml", ignoreCase = true) -> "text/xml"
+                    cleanName.endsWith(".md", ignoreCase = true) -> "text/markdown"
+                    else -> "text/plain"
+                }
+
+                val isDocuments = loc == "documents" || loc == "document" || loc == "doc"
+                val relativePath = if (isDocuments) Environment.DIRECTORY_DOCUMENTS else Environment.DIRECTORY_DOWNLOADS
+
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    val values = android.content.ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, cleanName)
+                        put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                    }
+                    val collection = if (isDocuments) {
+                        MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                    } else {
+                        MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                    }
+                    val uri = context.contentResolver.insert(collection, values)
+                        ?: error("Failed to insert file into MediaStore $relativePath")
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        out.write(content.toByteArray(Charsets.UTF_8))
+                    } ?: error("Failed to open output stream for MediaStore uri $uri")
+                    "$relativePath/$cleanName"
+                } else {
+                    val baseDir = Environment.getExternalStoragePublicDirectory(relativePath)
+                    baseDir.mkdirs()
+                    val targetFile = java.io.File(baseDir, cleanName)
+                    targetFile.writeText(content)
+                    targetFile.absolutePath
                 }
             }
         }
@@ -919,16 +1055,53 @@ object AgentModule {
     ): Result<Unit> =
         runCatching {
             val pm = context.packageManager
-            val intent = pm.getLaunchIntentForPackage(target)
+            val clean = target.lowercase().trim()
+
+            // 1. Direct intent actions for common device utilities like camera/browser
+            val directIntent = when (clean) {
+                "camera", "open camera", "take a picture", "take photo" -> {
+                    val camIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+                    if (camIntent.resolveActivity(pm) != null) {
+                        camIntent
+                    } else {
+                        val mainIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                        val apps = pm.queryIntentActivities(mainIntent, 0)
+                        val camApp = apps.firstOrNull {
+                            it.activityInfo.packageName.contains("camera", ignoreCase = true) ||
+                                it.loadLabel(pm).toString().contains("camera", ignoreCase = true)
+                        }
+                        camApp?.let { pm.getLaunchIntentForPackage(it.activityInfo.packageName) }
+                    }
+                }
+                else -> null
+            }
+
+            val intent = directIntent
+                ?: pm.getLaunchIntentForPackage(target.trim())
                 ?: run {
-                    val installed = pm.getInstalledApplications(PackageManager.GET_META_DATA)
+                    val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                    val activities = pm.queryIntentActivities(launcherIntent, 0)
+                    val match = activities.firstOrNull {
+                        val label = it.loadLabel(pm).toString()
+                        label.equals(clean, ignoreCase = true)
+                    } ?: activities.firstOrNull {
+                        val label = it.loadLabel(pm).toString()
+                        label.contains(clean, ignoreCase = true)
+                    } ?: activities.firstOrNull {
+                        val pkg = it.activityInfo.packageName
+                        pkg.contains(clean, ignoreCase = true)
+                    }
+                    match?.let { pm.getLaunchIntentForPackage(it.activityInfo.packageName) }
+                }
+                ?: run {
+                    val installed = runCatching { pm.getInstalledApplications(PackageManager.GET_META_DATA) }.getOrNull() ?: emptyList()
                     val match = installed.firstOrNull {
                         val label = pm.getApplicationLabel(it).toString()
-                        label.equals(target, ignoreCase = true) || label.contains(target, ignoreCase = true)
+                        label.equals(clean, ignoreCase = true) || label.contains(clean, ignoreCase = true)
                     }
                     match?.let { pm.getLaunchIntentForPackage(it.packageName) }
-                } ?: run {
-                    val clean = target.lowercase().trim()
+                }
+                ?: run {
                     val fallbackPackage = when (clean) {
                         "youtube" -> "com.google.android.youtube"
                         "chrome", "google chrome", "browser" -> "com.android.chrome"
@@ -939,10 +1112,13 @@ object AgentModule {
                         "play store", "google play", "store" -> "com.android.vending"
                         "clock" -> "com.google.android.deskclock"
                         "calculator" -> "com.google.android.calculator"
+                        "camera" -> "com.google.android.GoogleCamera"
                         else -> null
                     }
                     fallbackPackage?.let { pm.getLaunchIntentForPackage(it) }
-                } ?: error("Could not find installed application matching \"$target\"")
+                }
+                ?: error("Could not find installed application matching \"$target\"")
+
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
         }

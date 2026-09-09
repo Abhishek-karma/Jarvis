@@ -21,6 +21,24 @@
          devices; those tools just report "unavailable" there. -->
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
+    <!-- Package visibility queries for launch_app and camera/browser resolution on API 30+ -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+        <intent>
+            <action android:name="android.media.action.VIDEO_CAPTURE" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
     <application
         android:name=".JarvisApplication"
         android:allowBackup="false"

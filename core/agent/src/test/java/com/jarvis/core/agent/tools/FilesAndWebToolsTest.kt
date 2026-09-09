@@ -132,5 +132,22 @@ class FilesAndWebToolsTest {
             assertEquals("/data/out.txt", writtenPath)
             assertEquals("hello world", writtenContent)
             assertTrue(writtenAppend)
+
+            var createdName = ""
+            var createdContent = ""
+            var createdLocation: String? = null
+            val createTool = FilesTools.createFile { name, content, loc ->
+                createdName = name
+                createdContent = content
+                createdLocation = loc
+                Result.success("Downloads/$name")
+            }
+            val createRes = createTool.execute("""{"file_name":"welcome.txt","content":"welcome to jarvis","location":"downloads"}""")
+            assertTrue(createRes.success)
+            assertEquals("welcome.txt", createdName)
+            assertEquals("welcome to jarvis", createdContent)
+            assertEquals("downloads", createdLocation)
+            assertTrue(createRes.observationText.contains("Downloads/welcome.txt"))
+            assertEquals("welcome.txt", createRes.structuredData?.get("file_name"))
         }
 }

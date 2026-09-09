@@ -4,15 +4,19 @@ import com.jarvis.core.agent.Tool
 import com.jarvis.core.agent.ToolResult
 import com.jarvis.core.common.PermissionTier
 import java.time.Instant
-
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 object SystemInfoTools {
     const val BATTERY_LEVEL = "battery_level"
     const val STORAGE_FREE = "storage_free"
     const val NETWORK_STATUS = "network_status"
     const val CURRENT_TIME = "current_time"
+    const val GET_CURRENT_DATETIME = "get_current_datetime"
 
-    val manifestNames: List<String> = listOf(BATTERY_LEVEL, STORAGE_FREE, NETWORK_STATUS, CURRENT_TIME)
+    val manifestNames: List<String> = listOf(BATTERY_LEVEL, STORAGE_FREE, NETWORK_STATUS, CURRENT_TIME, GET_CURRENT_DATETIME)
 
     /** All system-info tools, wired to the platform readers the host app provides. */
     fun all(
@@ -25,6 +29,7 @@ object SystemInfoTools {
             storageFree(storageFreeBytes),
             networkStatus(networkState),
             currentTime(),
+            getCurrentDateTime(),
         )
 
     fun batteryLevel(percent: () -> Int?): Tool =
@@ -105,6 +110,42 @@ object SystemInfoTools {
                     success = true,
                     observationText = "Current time: $iso (UTC).",
                     structuredData = mapOf("utcIso" to iso),
+                )
+            }
+        }
+
+    fun getCurrentDateTime(
+        nowMillis: () -> Long = System::currentTimeMillis,
+        zoneId: () -> ZoneId = ZoneId::systemDefault,
+    ): Tool =
+        object : Tool {
+            override val name = GET_CURRENT_DATETIME
+            override val description =
+                "Get the current local date, time, timezone, and day of week. Read-only. Does not require internet."
+            override val parametersSchemaJson = EMPTY_SCHEMA
+            override val tier = PermissionTier.READ_ONLY
+
+            override suspend fun execute(argsJson: String): ToolResult {
+                val zone = runCatching { zoneId() }.getOrDefault(ZoneId.systemDefault())
+                val zdt = ZonedDateTime.ofInstant(Instant.ofEpochMilli(nowMillis()), zone)
+                val dateStr = zdt.format(DateTimeFormatter.ISO_LOCAL_DATE)
+                val timeStr = zdt.format(DateTimeFormatter.ofPattern("HH:mm:ss", Locale.US))
+                val dayOfWeek = zdt.dayOfWeek.name.lowercase(Locale.US)
+                    .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() }
+                val timezone = zone.id
+                val iso = zdt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+
+                val text = "Current date and time: $dayOfWeek, $dateStr $timeStr ($timezone, $iso)"
+                return ToolResult(
+                    success = true,
+                    observationText = text,
+                    structuredData = mapOf(
+                        "date" to dateStr,
+                        "time" to timeStr,
+                        "day_of_week" to dayOfWeek,
+                        "timezone" to timezone,
+                        "iso" to iso,
+                    ),
                 )
             }
         }
