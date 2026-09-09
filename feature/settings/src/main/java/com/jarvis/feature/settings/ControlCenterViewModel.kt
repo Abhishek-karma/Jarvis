@@ -100,4 +100,9 @@ class ControlCenterViewModel @Inject constructor(
             _events.emit(ControlCenterEvent.OpenShizukuApp)
         }
     }
+
+    fun onRequestShizukuPermission() {
+        bridgeCoordinator.requestShizukuPermission()
+        loadState()
+    }
 }

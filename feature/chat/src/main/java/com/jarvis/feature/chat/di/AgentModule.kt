@@ -167,6 +167,7 @@ object AgentModule {
         tools.addAll(
             WebTools.all(
                 fetch = { url -> fetchUrl(okHttpClient, url) },
+                search = { query, maxResults -> searchWeb(okHttpClient, query, maxResults) },
             ),
         )
         tools.addAll(
@@ -653,6 +654,116 @@ object AgentModule {
             .replace("&quot;", "\"")
             .replace("&#39;", "'")
             .replace("&apos;", "'")
+
+    /** Search the public web using DuckDuckGo with fallback to Wikipedia API. */
+    private suspend fun searchWeb(
+        client: OkHttpClient,
+        query: String,
+        maxResults: Int,
+    ): Result<List<com.jarvis.core.agent.tools.WebTools.SearchResult>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val results = mutableListOf<com.jarvis.core.agent.tools.WebTools.SearchResult>()
+                val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
+
+                // 1. DuckDuckGo HTML search
+                try {
+                    val formBody = okhttp3.FormBody.Builder()
+                        .add("q", query)
+                        .build()
+                    val ddgRequest = Request.Builder()
+                        .url("https://html.duckduckgo.com/html/")
+                        .post(formBody)
+                        .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36")
+                        .header("Referer", "https://html.duckduckgo.com/")
+                        .build()
+
+                    client.newCall(ddgRequest).execute().use { response ->
+                        if (response.isSuccessful) {
+                            val html = response.body?.string() ?: ""
+                            val linkRegex = Regex("""class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>""", RegexOption.IGNORE_CASE)
+                            val snippetRegex = Regex("""class="result__snippet"[^>]*>(.*?)</a>""", RegexOption.IGNORE_CASE)
+
+                            val links = linkRegex.findAll(html).toList()
+                            val snippets = snippetRegex.findAll(html).toList()
+
+                            for (i in links.indices) {
+                                if (results.size >= maxResults) break
+                                val rawUrl = links[i].groupValues[1]
+                                val title = decodeHtmlEntities(links[i].groupValues[2].replace(Regex("<[^>]+>"), "").trim())
+                                val snippet = if (i < snippets.size) {
+                                    decodeHtmlEntities(snippets[i].groupValues[1].replace(Regex("<[^>]+>"), "").trim())
+                                } else ""
+
+                                // Parse DuckDuckGo redirect url if needed
+                                val resolvedUrl = if (rawUrl.contains("uddg=")) {
+                                    val match = Regex("uddg=([^&]+)").find(rawUrl)
+                                    if (match != null) java.net.URLDecoder.decode(match.groupValues[1], "UTF-8") else rawUrl
+                                } else if (rawUrl.startsWith("//")) {
+                                    "https:$rawUrl"
+                                } else {
+                                    rawUrl
+                                }
+
+                                if (title.isNotBlank() && resolvedUrl.isNotBlank()) {
+                                    results.add(
+                                        com.jarvis.core.agent.tools.WebTools.SearchResult(
+                                            title = title,
+                                            url = resolvedUrl,
+                                            snippet = snippet,
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Throwable) {
+                    android.util.Log.w("AgentModule", "DDG search attempt failed: ${e.message}")
+                }
+
+                // 2. Fallback to Wikipedia API if DDG produced zero results
+                if (results.isEmpty()) {
+                    try {
+                        val wikiUrl = "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=$encodedQuery&format=json&utf8=1"
+                        val wikiRequest = Request.Builder()
+                            .url(wikiUrl)
+                            .get()
+                            .header("User-Agent", "JarvisAssistant/1.0")
+                            .build()
+
+                        client.newCall(wikiRequest).execute().use { response ->
+                            if (response.isSuccessful) {
+                                val jsonStr = response.body?.string() ?: ""
+                                val root = org.json.JSONObject(jsonStr)
+                                val searchArr = root.optJSONObject("query")?.optJSONArray("search")
+                                if (searchArr != null) {
+                                    for (i in 0 until minOf(searchArr.length(), maxResults)) {
+                                        val item = searchArr.getJSONObject(i)
+                                        val title = item.optString("title")
+                                        val pageId = item.optLong("pageid")
+                                        val snippet = decodeHtmlEntities(
+                                            item.optString("snippet").replace(Regex("<[^>]+>"), "").trim()
+                                        )
+                                        val pageUrl = "https://en.wikipedia.org/?curid=$pageId"
+                                        results.add(
+                                            com.jarvis.core.agent.tools.WebTools.SearchResult(
+                                                title = title,
+                                                url = pageUrl,
+                                                snippet = snippet,
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Throwable) {
+                        android.util.Log.w("AgentModule", "Wikipedia search fallback failed: ${e.message}")
+                    }
+                }
+
+                results
+            }
+        }
 
 
     private suspend fun setAlarm(

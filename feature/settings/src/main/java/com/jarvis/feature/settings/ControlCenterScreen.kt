@@ -109,6 +109,7 @@ fun ControlCenterRoute(
         onToggleExpertMode = viewModel::toggleExpertMode,
         onToggleShizuku = viewModel::toggleShizuku,
         onLaunchShizuku = viewModel::onLaunchShizuku,
+        onRequestShizukuPermission = viewModel::onRequestShizukuPermission,
         snackbarHostState = snackbarHostState,
     )
 }
@@ -122,6 +123,7 @@ fun ControlCenterScreen(
     onToggleExpertMode: (Boolean) -> Unit,
     onToggleShizuku: (Boolean) -> Unit,
     onLaunchShizuku: () -> Unit,
+    onRequestShizukuPermission: () -> Unit = {},
     snackbarHostState: SnackbarHostState,
 ) {
     var showExpertWarningDialog by remember { mutableStateOf(false) }
@@ -188,6 +190,7 @@ fun ControlCenterScreen(
                     BridgeTierItem(
                         tierInfo = tierInfo,
                         onLaunchShizuku = if (tierInfo.tier == BridgeTier.SHIZUKU) onLaunchShizuku else null,
+                        onRequestShizukuPermission = if (tierInfo.tier == BridgeTier.SHIZUKU) onRequestShizukuPermission else null,
                     )
                     if (index < uiState.tiers.size - 1) {
                         HorizontalDivider(
@@ -293,6 +296,7 @@ private fun ActiveTierRow(activeTier: BridgeTier) {
 private fun BridgeTierItem(
     tierInfo: BridgeTierInfo,
     onLaunchShizuku: (() -> Unit)? = null,
+    onRequestShizukuPermission: (() -> Unit)? = null,
 ) {
     val (statusColor, statusBg, statusIcon) = when (tierInfo.status) {
         BridgeStatus.AVAILABLE -> Triple(
@@ -379,20 +383,42 @@ private fun BridgeTierItem(
             }
         }
 
-        if (tierInfo.tier == BridgeTier.SHIZUKU && tierInfo.status != BridgeStatus.AVAILABLE && onLaunchShizuku != null) {
+        if (tierInfo.tier == BridgeTier.SHIZUKU && tierInfo.status != BridgeStatus.AVAILABLE) {
             Spacer(modifier = Modifier.height(Spacing.md))
-            OutlinedButton(
-                onClick = onLaunchShizuku,
-                shape = RoundedCornerShape(12.dp),
+            Row(
                 modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.OpenInNew,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                )
-                Spacer(modifier = Modifier.width(Spacing.xs))
-                Text("Open / Pair Shizuku Companion", style = JarvisText.Button)
+                if (tierInfo.status == BridgeStatus.PERMISSION_DENIED && onRequestShizukuPermission != null) {
+                    Button(
+                        onClick = onRequestShizukuPermission,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Security,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(modifier = Modifier.width(Spacing.xs))
+                        Text("Grant Permission", style = JarvisText.Button)
+                    }
+                }
+                if (onLaunchShizuku != null) {
+                    OutlinedButton(
+                        onClick = onLaunchShizuku,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.OpenInNew,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(modifier = Modifier.width(Spacing.xs))
+                        Text("Open Shizuku", style = JarvisText.Button)
+                    }
+                }
             }
         }
     }

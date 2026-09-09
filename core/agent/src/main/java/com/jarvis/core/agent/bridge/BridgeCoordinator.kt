@@ -68,6 +68,10 @@ class BridgeCoordinator(
         return newState
     }
 
+    fun requestShizukuPermission(requestCode: Int = SHIZUKU_PERMISSION_REQUEST_CODE) {
+        shizukuBridge.requestPermission(requestCode)
+    }
+
     /**
      * Executes a typed operation via the cheapest live tier capable of fulfilling it.
      */

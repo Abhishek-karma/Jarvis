@@ -112,6 +112,7 @@ dependencies {
     ksp(libs.hilt.compiler)
 
     implementation(project(":core:agent"))
+    implementation(libs.shizuku.provider)
     implementation(libs.androidx.workmanager.ktx)
     implementation(libs.androidx.hilt.work)
     ksp(libs.androidx.hilt.compiler)

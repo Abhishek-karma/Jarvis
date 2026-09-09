@@ -4,11 +4,11 @@ import com.jarvis.core.agent.Tool
 import com.jarvis.core.agent.ToolResult
 import com.jarvis.core.common.PermissionTier
 
-
 object WebTools {
     const val FETCH_URL = "fetch_url"
+    const val SEARCH_WEB = "search_web"
 
-    val manifestNames: List<String> = listOf(FETCH_URL)
+    val manifestNames: List<String> = listOf(FETCH_URL, SEARCH_WEB)
 
     /** Fetched page content, already reduced to readable plain text. */
     data class FetchedPage(
@@ -16,9 +16,21 @@ object WebTools {
         val text: String,
     )
 
+    data class SearchResult(
+        val title: String,
+        val url: String,
+        val snippet: String,
+    )
+
     fun all(
         fetch: suspend (url: String) -> Result<FetchedPage>,
-    ): List<Tool> = listOf(fetchUrl(fetch))
+        search: (suspend (query: String, maxResults: Int) -> Result<List<SearchResult>>)? = null,
+    ): List<Tool> = buildList {
+        add(fetchUrl(fetch))
+        if (search != null) {
+            add(searchWeb(search))
+        }
+    }
 
     fun fetchUrl(fetch: suspend (String) -> Result<FetchedPage>): Tool =
         object : Tool {
@@ -79,9 +91,73 @@ object WebTools {
             }
         }
 
+    fun searchWeb(
+        search: suspend (query: String, maxResults: Int) -> Result<List<SearchResult>>,
+    ): Tool =
+        object : Tool {
+            override val name = SEARCH_WEB
+            override val description =
+                "Search the public web for real-time information, answers, links, documentation, or current events. Read-only."
+            override val tier = PermissionTier.READ_ONLY
+            override val parametersSchemaJson = SEARCH_SCHEMA
+
+            override suspend fun execute(argsJson: String): ToolResult {
+                val args = Args.parse(argsJson)
+                if (args == null) {
+                    return ToolResult(
+                        success = false,
+                        observationText = "Arguments are not valid JSON.",
+                        error = "invalid JSON arguments",
+                    )
+                }
+                val query = args.string("query")
+                if (query.isNullOrBlank()) {
+                    return ToolResult(
+                        success = false,
+                        observationText = "Missing argument: query is required.",
+                        error = "query is required",
+                    )
+                }
+                val maxResults = args.int("max_results") ?: 5
+                return search(query.trim(), maxResults.coerceIn(1, 10)).fold(
+                    onSuccess = { results ->
+                        if (results.isEmpty()) {
+                            ToolResult(
+                                success = true,
+                                observationText = "No results found for '$query'.",
+                                structuredData = mapOf("count" to 0),
+                            )
+                        } else {
+                            val text = results.joinToString("\n\n") { r ->
+                                "[${r.title}]\nURL: ${r.url}\n${r.snippet}"
+                            }
+                            ToolResult(
+                                success = true,
+                                observationText = text,
+                                structuredData = mapOf(
+                                    "count" to results.size,
+                                    "untrusted" to true,
+                                ),
+                            )
+                        }
+                    },
+                    onFailure = { error ->
+                        ToolResult(
+                            success = false,
+                            observationText = "Web search failed for '$query'.",
+                            error = error.message ?: "Search failed",
+                        )
+                    },
+                )
+            }
+        }
+
     /** Cap the text fed back into the ReAct loop — a full article would swamp the context. */
     internal const val MAX_CHARS = 6_000
 
     private const val FETCH_SCHEMA =
         """{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}"""
+
+    private const val SEARCH_SCHEMA =
+        """{"type":"object","properties":{"query":{"type":"string","description":"Search query keywords"},"max_results":{"type":"integer","description":"Maximum number of results to return (1-10)"}},"required":["query"]}"""
 }

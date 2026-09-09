@@ -12,6 +12,10 @@ android {
         minSdk = 29
     }
 
+    buildFeatures {
+        aidl = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -31,6 +35,7 @@ dependencies {
 
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.shizuku.api)
 
     testImplementation(libs.junit5.api)
     testRuntimeOnly(libs.junit5.engine)
