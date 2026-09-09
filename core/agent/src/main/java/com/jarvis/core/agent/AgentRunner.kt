@@ -454,9 +454,11 @@ class AgentRunner(
                 "You HAVE active tools to interact with the device and internet:\n" +
                 "- To check the current date, time, day of the week, or timezone, call get_current_datetime.\n" +
                 "- You CAN access the internet: use search_web to search for real-time information, links, news, or answers.\n" +
-                "- To read any website, URL, or GitHub repository, call fetch_url.\n" +
+                "- When the user asks for latest, current, today, recent, live information, current news, or current GitHub information, always use search_web or fetch_url to retrieve it.\n" +
+                "- NEVER say 'I don't have internet access' or 'I cannot access real-time information' when Jarvis has web tools available.\n" +
+                "- Never claim current information without actually obtaining a tool observation. For a specific URL, call fetch_url.\n" +
                 "- To open an app or camera, call launch_app with the app name (e.g. 'YouTube', 'Camera', 'Chrome').\n" +
-                "- To create or save files, call create_file with 'file_name' and 'content' (defaults to downloads folder, no root or raw paths needed).\n" +
+                "- To create or save files, call create_file with 'file_name' and 'content' (defaults to downloads folder, no root or raw paths needed). Do not invent arbitrary paths like /data/local/tmp or /sdcard.\n" +
                 "- Always use your native high-level tools instead of raw shell commands whenever a tool exists.\n" +
                 "Within a single turn you may call one or more tools; wait for their Observations, then keep going until the task is done, " +
                 "and answer the user directly when finished. Never claim you cannot check the date, time, internet, or files without first attempting the relevant tool. " +

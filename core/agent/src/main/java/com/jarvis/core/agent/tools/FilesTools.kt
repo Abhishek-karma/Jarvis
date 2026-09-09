@@ -11,7 +11,7 @@ object FilesTools {
     const val WRITE_FILE = "write_file"
     const val CREATE_FILE = "create_file"
 
-    val manifestNames: List<String> = listOf(SEARCH_FILES, READ_FILE, WRITE_FILE, CREATE_FILE)
+    val manifestNames: List<String> = listOf(SEARCH_FILES, READ_FILE, CREATE_FILE)
 
     /** One file hit from the device's media index. */
     data class FileHit(
@@ -29,7 +29,6 @@ object FilesTools {
     ): List<Tool> = buildList {
         add(searchFiles(search))
         if (read != null) add(readFile(read))
-        if (write != null) add(writeFile(write))
         if (create != null) {
             add(createFile(create))
         } else if (write != null) {
@@ -137,11 +136,12 @@ object FilesTools {
             }
         }
 
+    @Deprecated("Use createFile instead for safe scoped storage file creation")
     fun writeFile(write: suspend (String, String, Boolean) -> Result<Unit>): Tool =
         object : Tool {
             override val name = WRITE_FILE
             override val description =
-                "Create or write text content to a local file at the given path. Specify append=true to append."
+                "[Deprecated: use create_file instead] Create or write text content to a local file at the given path. Specify append=true to append."
             override val tier = PermissionTier.REVERSIBLE_WRITE
             override val parametersSchemaJson = WRITE_SCHEMA
 
