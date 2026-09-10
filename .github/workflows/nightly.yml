@@ -135,16 +135,19 @@ jobs:
 
       - name: Report APK sizes
         run: |
-          echo "## APK Size Report" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          $apks = Get-ChildItem -Path artifacts -Filter "*.apk" -ErrorAction SilentlyContinue
-          if ($apks) {
-            foreach ($apk in $apks) {
-              $size = (du -h $apk.FullName | select-object -First 1 -ExpandProperty Name)
-              Write-Output "| $($apk.BaseName) | $size |" | Out-File -FilePath $GITHUB_STEP_SUMMARY -Append
-            }
-          } else {
-            echo "| APK | Size |" >> $GITHUB_STEP_SUMMARY
-            echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
-            echo "| No APKs found | — |" >> $GITHUB_STEP_SUMMARY
-          }
+          echo "## APK Size Report" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| APK | Size |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+
+          found=0
+          while IFS= read -r -d '' apk; do
+            found=1
+            filename=$(basename "$apk")
+            size=$(du -h "$apk" | cut -f1)
+            echo "| $filename | $size |" >> "$GITHUB_STEP_SUMMARY"
+          done < <(find artifacts -type f -name "*.apk" -print0 2>/dev/null)
+
+          if [ "$found" -eq 0 ]; then
+            echo "| No APKs found | — |" >> "$GITHUB_STEP_SUMMARY"
+          fi
