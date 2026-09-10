@@ -185,6 +185,9 @@ class ShizukuBridge(
         val stderr: String,
     )
 
+    /** Pure, stateless policy engine used for the defense-in-depth shell re-check. */
+    private val policyEngine = CommandPolicyEngine()
+
     private val _statusFlow = MutableStateFlow(BridgeStatus.NOT_INSTALLED)
     val statusFlow: StateFlow<BridgeStatus> = _statusFlow.asStateFlow()
 
@@ -278,6 +281,28 @@ class ShizukuBridge(
     }
 
     override suspend fun execTyped(op: TypedOp): OpResult = withContext(Dispatchers.IO) {
+        // 0. Defense in depth: never execute a shell command that fails policy.
+        //    (BridgeCoordinator also checks this; re-checking here closes any path
+        //    that reaches ShizukuBridge directly without a coordinator pass.)
+        if (op is TypedOp.ShellCommand) {
+            val eval = policyEngine.evaluate(op.command)
+            if (eval.classification == PolicyClassification.BLOCKED) {
+                return@withContext OpResult.Blocked(
+                    reason = "Command blocked by security policy: ${eval.reason}",
+                    matchedPolicyRule = eval.matchedRule,
+                )
+            }
+        }
+
+        // 1. Guard the model-influenced components of typed operations before they
+        //    are interpolated into shell strings below.
+        TypedOpComponentGuard.validate(op)?.let { reason ->
+            return@withContext OpResult.Blocked(
+                reason = "Typed operation rejected by security guard: $reason",
+                matchedPolicyRule = "TypedOpComponentGuard",
+            )
+        }
+
         val status = isAvailable()
         if (!status.isOperable) {
             return@withContext OpResult.Unavailable(

@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] - 2026-09-10
+
+### Security
+- Hardened the privileged Shizuku shell boundary: shell commands are now evaluated as
+  complete shell expressions via a strict single-simple-command grammar
+  (`ShellCommandGrammar`) instead of substring/prefix matching. Safe-command text
+  embedded inside a larger shell expression (chaining, pipes, redirection, command
+  substitution, backticks, backgrounding, quoting/escaping, env-prefix assignments)
+  can no longer classify the whole expression as safe.
+- Added `TypedOpComponentGuard`: strict character-set validation of model-influenced
+  typed-operation components (package names, permissions, settings keys/values,
+  appops) before `ShizukuBridge` interpolates them into shell strings.
+- Defense in depth: `ShizukuBridge` re-checks the `CommandPolicyEngine` before any
+  privileged execution (covering paths that bypass `BridgeCoordinator`), and the
+  privileged `ShizukuUserService` refuses outright-blocked commands at the boundary.
+- `TypedOp.isReadOnly` now defers to the full policy engine instead of raw command
+  prefix checks, so `dumpsys; id`-style expressions are never treated as read-only.
+- Added adversarial regression tests covering chaining, pipes, redirection,
+  substitution, backticks, background execution, argument injection, quoting/escaping
+  bypasses, and typed-op component injection.
+
+### Changed
+- Bumped `versionName` to `0.1.9` (`versionCode = 9`).
+
 ## [0.1.8] - 2026-09-10
 
 ### Added
