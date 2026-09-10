@@ -139,11 +139,14 @@ object WebTools {
                             val text = results.joinToString("\n\n") { r ->
                                 "[${r.title}]\nURL: ${r.url}\n${r.snippet}"
                             }
+                            val truncated = text.length > MAX_CHARS
+                            val safeText = if (truncated) text.take(MAX_CHARS) + "\n...[truncated to $MAX_CHARS chars]" else text
                             ToolResult(
                                 success = true,
-                                observationText = text,
+                                observationText = safeText,
                                 structuredData = mapOf(
                                     "count" to results.size,
+                                    "truncated" to truncated,
                                     "untrusted" to true,
                                 ),
                             )

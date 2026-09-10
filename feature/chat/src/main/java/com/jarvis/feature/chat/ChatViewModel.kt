@@ -16,8 +16,6 @@ import com.jarvis.core.agent.tools.WebTools
 import com.jarvis.core.common.Conversation
 import com.jarvis.core.common.DEFAULT_CONVERSATION_TITLE
 import com.jarvis.core.common.DispatcherProvider
-import com.jarvis.core.common.Memory
-import com.jarvis.core.common.MemoryCategory
 import com.jarvis.core.common.Message
 import com.jarvis.core.common.MessageRole
 import com.jarvis.core.common.MessageStatus
@@ -25,7 +23,6 @@ import com.jarvis.core.common.ProviderConfig
 import com.jarvis.core.common.RoutingOverride
 import com.jarvis.core.common.ThinkMode
 import com.jarvis.core.database.repository.ConversationRepository
-import com.jarvis.core.database.repository.MemoryRepository
 import com.jarvis.core.ml.LocalConnectivity
 import com.jarvis.core.ml.LocalLlmRuntime
 import com.jarvis.core.ml.LocalModelState
@@ -38,13 +35,6 @@ import com.jarvis.core.network.ChatRequest
 import com.jarvis.core.network.ChatStreamEvent
 import com.jarvis.core.network.LlmProvider
 import com.jarvis.core.network.ProviderManager
-import com.jarvis.core.voice.AudioFormat
-import com.jarvis.core.voice.AudioPlayer
-import com.jarvis.core.voice.AudioRecorder
-import com.jarvis.core.voice.LiveSttSession
-import com.jarvis.core.voice.SttProvider
-import com.jarvis.core.voice.TtsProvider
-import com.jarvis.core.voice.TtsVoice
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -62,8 +52,6 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
 @HiltViewModel
@@ -73,17 +61,14 @@ class ChatViewModel
         private val conversationRepository: ConversationRepository,
         private val providerManager: ProviderManager,
         private val dispatchers: DispatcherProvider,
-        private val audioRecorder: AudioRecorder,
-        private val audioPlayer: AudioPlayer,
-        private val sttProvider: SttProvider,
-        private val ttsProvider: TtsProvider,
+        private val voiceManager: ChatVoiceManager,
         private val toolRegistry: ToolRegistry,
         private val auditLogger: AuditLogger,
         private val localModelStore: LocalModelStore,
         private val localLlmRuntime: LocalLlmRuntime,
         private val connectivity: LocalConnectivity,
         private val userPreferences: UserPreferencesRepository,
-        private val memoryRepository: MemoryRepository,
+        private val conversationContextManager: ConversationContextManager,
         savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow(ChatUiState())
@@ -119,74 +104,19 @@ class ChatViewModel
         /** Active conversation observer — cancelled when switching conversations. */
         private var messagesJob: Job? = null
 
-        /** Live mic recognition session, when the STT provider supports one. */
-        private var liveSttSession: LiveSttSession? = null
-
         /** Bridges the engine's [ConfirmationGate] to the UI: completed by [respondToConfirmation]. */
         private var pendingGate: CompletableDeferred<Boolean>? = null
 
         private val contextManager = ContextManager()
 
-        private suspend fun buildMemoryContext(): String? {
-            val memoryEnabled = userPreferences.memoryEnabled.first()
-            if (!memoryEnabled) return null
-            val activeMemories = memoryRepository.getActive()
-            val isLocal = _uiState.value.activeRoute == RoutingOverride.LOCAL
-            val eligibleMemories = if (isLocal) activeMemories else activeMemories.filterNot { it.isPrivate }
-            return if (eligibleMemories.isNotEmpty()) {
-                eligibleMemories.joinToString("\n") { "- [${it.category.name}]: ${it.content}" }
-            } else null
-        }
+        private suspend fun buildMemoryContext(): String? =
+            conversationContextManager.buildMemoryContext(_uiState.value.activeRoute)
 
-        private fun buildAssistantSystemPrompt(memoryContext: String?): String {
-            val now = SimpleDateFormat("EEEE, MMMM d, yyyy HH:mm", Locale.getDefault()).format(Date())
-            return buildString {
-                append("You are Jarvis, an intelligent, helpful personal AI assistant running on an Android mobile device.")
-                append("\nCurrent device date and time: $now.")
-                if (!memoryContext.isNullOrBlank()) {
-                    append("\n\n[Assistant Memory & User Context]\n")
-                    append(memoryContext)
-                    append("\n\nUse this context to remember the user's details, preferences, and background to personalize your responses.")
-                }
-            }
-        }
+        private fun buildAssistantSystemPrompt(memoryContext: String?): String =
+            conversationContextManager.buildAssistantSystemPrompt(memoryContext)
 
         private suspend fun extractAndSaveLearnedContext(userText: String) {
-            val memoryEnabled = userPreferences.memoryEnabled.first()
-            if (!memoryEnabled) return
-            val trimmed = userText.trim()
-
-            val patterns = listOf(
-                Regex("(?i)\\bmy name is ([a-zA-Z\\s]{2,30})\\b"),
-                Regex("(?i)\\bcall me ([a-zA-Z\\s]{2,30})\\b"),
-                Regex("(?i)\\bi live in ([a-zA-Z\\s,]{2,40})\\b"),
-                Regex("(?i)\\bmy favorite (\\w+) is ([^,.!?]+)"),
-                Regex("(?i)\\bi prefer ([^,.!?]+)"),
-                Regex("(?i)\\bremember that ([^,.!?]+)"),
-                Regex("(?i)\\bmy email is ([^\\s@]+@[^\\s@]+\\.[^\\s@]+)"),
-            )
-
-            for (pattern in patterns) {
-                val match = pattern.find(trimmed)
-                if (match != null) {
-                    val fact = match.value.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
-                    val existing = memoryRepository.getActive()
-                    if (existing.none { it.content.equals(fact, ignoreCase = true) }) {
-                        memoryRepository.upsert(
-                            Memory(
-                                category = MemoryCategory.LONG_TERM_FACT,
-                                content = fact,
-                                source = "conversation_learning",
-                                confidence = 0.9f,
-                                timestamp = System.currentTimeMillis(),
-                                isPrivate = false,
-                                isActive = true,
-                            ),
-                        )
-                    }
-                    break
-                }
-            }
+            conversationContextManager.extractAndSaveLearnedContext(userText)
         }
 
         init {
@@ -1127,112 +1057,33 @@ class ChatViewModel
         private var cachedModels: Pair<String, List<String>>? = null
 
         fun toggleRecording() {
-            if (_uiState.value.isRecording) {
-                stopRecording()
-            } else {
-                startRecording()
-            }
-        }
-
-        private fun startRecording() {
-            viewModelScope.launch(dispatchers.main) {
-                val liveSession = runCatching { sttProvider.startLiveSession() }.getOrNull()
-                if (liveSession != null) {
-                    startLiveRecording(liveSession)
-                    return@launch
-                }
-
-                try {
-                    audioRecorder.start()
-                    _uiState.update { it.copy(isRecording = true) }
-                } catch (e: SecurityException) {
-                    _uiEvents.tryEmit(ChatUiEvent.ShowError("Microphone permission required"))
-                } catch (e: IllegalStateException) {
-                    _uiEvents.tryEmit(ChatUiEvent.ShowError(e.message ?: "Could not start recording"))
-                }
-            }
-        }
-
-        private fun startLiveRecording(session: LiveSttSession) {
-            liveSttSession = session
-            _uiState.update { it.copy(isRecording = true) }
-            session.startListening(
-                onPartial = { partial ->
-                    if (partial.isNotBlank()) {
-                        _uiState.update { it.copy(composerText = partial) }
-                    }
+            voiceManager.toggleRecording(
+                scope = viewModelScope,
+                mainDispatcher = dispatchers.main,
+                ioDispatcher = dispatchers.io,
+                isCurrentlyRecording = _uiState.value.isRecording,
+                onRecordingChanged = { recording -> _uiState.update { it.copy(isRecording = recording) } },
+                onTranscribingChanged = { transcribing -> _uiState.update { it.copy(isTranscribing = transcribing) } },
+                onPartialText = { partial -> _uiState.update { it.copy(composerText = partial) } },
+                onFinalText = { text, autoSend ->
+                    _uiState.update { it.copy(composerText = text) }
+                    if (autoSend) sendMessage()
                 },
-                onResult = { finalText ->
-                    if (_uiState.value.isRecording) stopLiveSession()
-                    _uiState.update { it.copy(isTranscribing = false) }
-                    if (finalText.isNotBlank()) {
-                        _uiState.update { it.copy(composerText = finalText) }
-                        sendMessage()
-                    }
-                },
-                onError = { message ->
-                    if (_uiState.value.isRecording) stopLiveSession()
-                    _uiState.update { it.copy(isRecording = false, isTranscribing = false) }
-                    _uiEvents.tryEmit(ChatUiEvent.ShowError(message))
-                },
+                onError = { message -> _uiEvents.tryEmit(ChatUiEvent.ShowError(message)) },
             )
-        }
-
-        private fun stopLiveSession() {
-            liveSttSession?.let { session ->
-                session.stopListening()
-                viewModelScope.launch(dispatchers.main) { session.close() }
-            }
-            liveSttSession = null
-        }
-
-        private fun stopRecording() {
-            if (liveSttSession != null) {
-                _uiState.update { it.copy(isRecording = false, isTranscribing = true) }
-                liveSttSession?.stopListening()
-                viewModelScope.launch(dispatchers.main) {
-                    liveSttSession?.close()
-                    liveSttSession = null
-                    delay(LIVE_RESULT_TIMEOUT_MS)
-                    if (_uiState.value.isTranscribing) {
-                        _uiState.update { it.copy(isTranscribing = false) }
-                    }
-                }
-                return
-            }
-
-            viewModelScope.launch(dispatchers.main) {
-                _uiState.update { it.copy(isRecording = false, isTranscribing = true) }
-                val audioData =
-                    with(dispatchers.io) {
-                        runCatching { audioRecorder.stop() }.getOrNull()
-                    } ?: run {
-                        _uiState.update { it.copy(isTranscribing = false) }
-                        _uiEvents.tryEmit(ChatUiEvent.ShowNotice("Nothing was recorded"))
-                        return@launch
-                    }
-
-                sttProvider
-                    .transcribe(audioData, AudioFormat.WAV)
-                    .onSuccess { result ->
-                        _uiState.update { it.copy(composerText = result.text, isTranscribing = false) }
-                        if (result.text.isNotBlank()) {
-                            sendMessage()
-                        }
-                    }.onFailure { e ->
-                        _uiState.update { it.copy(isTranscribing = false) }
-                        _uiEvents.tryEmit(ChatUiEvent.ShowError("Transcription failed: ${e.message}"))
-                    }
-            }
         }
 
         /** Release mic resources without sending. */
         fun stopLiveSessionAndRecorder() {
-            stopLiveSession()
-            if (_uiState.value.isRecording) {
-                _uiState.update { it.copy(isRecording = false, isTranscribing = false) }
-            }
-            audioRecorder.cancel()
+            voiceManager.stopLiveSessionAndRecorder(
+                scope = viewModelScope,
+                mainDispatcher = dispatchers.main,
+                onResetState = {
+                    if (_uiState.value.isRecording) {
+                        _uiState.update { it.copy(isRecording = false, isTranscribing = false) }
+                    }
+                },
+            )
         }
 
         /** Play TTS for the most recent assistant response. */
@@ -1244,48 +1095,24 @@ class ChatViewModel
             speakMessage(lastAssistant.id, lastAssistant.content)
         }
 
-
         fun speakMessage(messageId: String, content: String) {
-
-            if (_uiState.value.playingAudioMessageId == messageId) {
-                stopSpeaking()
-                return
-            }
-
-            audioPlayer.stop()
-
-            viewModelScope.launch(dispatchers.main) {
-                _uiState.update { it.copy(playingAudioMessageId = messageId) }
-                try {
-                    ttsProvider
-                        .synthesize(content, TtsVoice.NOVA)
-                        .onSuccess { result ->
-                            audioPlayer.play(result.audioData, result.format.extension)
-                        }.onFailure { e ->
-                            _uiEvents.tryEmit(ChatUiEvent.ShowError("TTS failed: ${e.message}"))
-                        }
-                } catch (e: CancellationException) {
-                    throw e
-                } finally {
-
-
-
-                    if (_uiState.value.playingAudioMessageId == messageId) {
-                        _uiState.update { it.copy(playingAudioMessageId = null) }
-                    }
-                }
-            }
+            voiceManager.speakMessage(
+                messageId = messageId,
+                content = content,
+                currentPlayingId = _uiState.value.playingAudioMessageId,
+                scope = viewModelScope,
+                mainDispatcher = dispatchers.main,
+                onPlayingChanged = { id -> _uiState.update { it.copy(playingAudioMessageId = id) } },
+                onError = { message -> _uiEvents.tryEmit(ChatUiEvent.ShowError(message)) },
+            )
         }
 
         fun stopSpeaking() {
-            audioPlayer.stop()
-            _uiState.update { it.copy(playingAudioMessageId = null) }
+            voiceManager.stopSpeaking { id -> _uiState.update { it.copy(playingAudioMessageId = id) } }
         }
 
         override fun onCleared() {
-            stopLiveSession()
-            audioRecorder.cancel()
-            audioPlayer.stop()
+            voiceManager.release(viewModelScope, dispatchers.main)
             super.onCleared()
         }
 

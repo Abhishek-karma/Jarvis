@@ -119,10 +119,16 @@ object FilesTools {
                 }
                 return read(path.trim()).fold(
                     onSuccess = { content ->
+                        val truncated = content.length > MAX_CHARS
+                        val text = if (truncated) content.take(MAX_CHARS) + "\n...[truncated to $MAX_CHARS chars]" else content.ifEmpty { "(empty file)" }
                         ToolResult(
                             success = true,
-                            observationText = content.ifEmpty { "(empty file)" },
-                            structuredData = mapOf("path" to path, "length" to content.length),
+                            observationText = text,
+                            structuredData = mapOf(
+                                "path" to path,
+                                "length" to content.length,
+                                "truncated" to truncated,
+                            ),
                         )
                     },
                     onFailure = { error ->
@@ -245,6 +251,7 @@ object FilesTools {
         }
 
     internal const val MAX_MATCHES = 10
+    internal const val MAX_CHARS = 6_000
 
     internal fun formatSize(bytes: Long): String =
         when {

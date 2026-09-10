@@ -108,6 +108,8 @@ class ChatViewModelTest {
         every { userPreferences.planFirstMode } returns MutableStateFlow(false)
 
         val savedStateHandle = androidx.lifecycle.SavedStateHandle()
+        val voiceManager = ChatVoiceManager(audioRecorder, audioPlayer, sttProvider, ttsProvider)
+        val contextManager = ConversationContextManager(io.mockk.mockk(relaxed = true), userPreferences)
 
         viewModel =
             ChatViewModel(
@@ -116,17 +118,14 @@ class ChatViewModelTest {
                 dispatchers =
                     com.jarvis.core.common
                         .DispatcherProvider(),
-                audioRecorder = audioRecorder,
-                audioPlayer = audioPlayer,
-                sttProvider = sttProvider,
-                ttsProvider = ttsProvider,
+                voiceManager = voiceManager,
                 toolRegistry = ToolRegistry(),
                 auditLogger = AuditLogger { },
                 localModelStore = localModelStore,
                 localLlmRuntime = localLlmRuntime,
                 connectivity = connectivity,
                 userPreferences = userPreferences,
-                memoryRepository = io.mockk.mockk(relaxed = true),
+                conversationContextManager = contextManager,
                 savedStateHandle = savedStateHandle,
             )
     }
@@ -992,6 +991,8 @@ class ChatViewModelTest {
     private fun viewModelWith(vararg tools: Tool) {
         val registry = ToolRegistry()
         tools.forEach { registry.register(it) }
+        val voiceManager = ChatVoiceManager(audioRecorder, audioPlayer, sttProvider, ttsProvider)
+        val contextManager = ConversationContextManager(io.mockk.mockk(relaxed = true), userPreferences)
         viewModel =
             ChatViewModel(
                 conversationRepository = conversationRepository,
@@ -999,17 +1000,14 @@ class ChatViewModelTest {
                 dispatchers =
                     com.jarvis.core.common
                         .DispatcherProvider(),
-                audioRecorder = audioRecorder,
-                audioPlayer = audioPlayer,
-                sttProvider = sttProvider,
-                ttsProvider = ttsProvider,
+                voiceManager = voiceManager,
                 toolRegistry = registry,
                 auditLogger = AuditLogger { },
                 localModelStore = localModelStore,
                 localLlmRuntime = localLlmRuntime,
                 connectivity = connectivity,
                 userPreferences = userPreferences,
-                memoryRepository = io.mockk.mockk(relaxed = true),
+                conversationContextManager = contextManager,
                 savedStateHandle = androidx.lifecycle.SavedStateHandle(),
             )
     }
