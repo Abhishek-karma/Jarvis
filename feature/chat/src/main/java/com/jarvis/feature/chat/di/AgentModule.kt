@@ -44,6 +44,7 @@ import com.jarvis.core.agent.bridge.SandboxBridge
 import com.jarvis.core.agent.bridge.ShizukuBridge
 import com.jarvis.core.agent.tools.AlarmTools
 import com.jarvis.core.agent.tools.BridgeTools
+import com.jarvis.core.agent.tools.CalculatorTool
 import com.jarvis.core.agent.tools.CalendarTools
 import com.jarvis.core.agent.tools.CalendarTools.CalendarEvent
 import com.jarvis.core.agent.tools.CalendarTools.CalendarEventDraft
@@ -57,6 +58,7 @@ import com.jarvis.core.agent.tools.MediaTools
 import com.jarvis.core.agent.tools.MemoryTools
 import com.jarvis.core.agent.tools.SystemInfoTools
 import com.jarvis.core.agent.tools.TaskTools
+import com.jarvis.core.agent.tools.UndoActionTool
 import com.jarvis.core.agent.tools.WebTools
 import com.jarvis.core.agent.tools.WebTools.FetchedPage
 import com.jarvis.core.common.Message
@@ -129,6 +131,7 @@ object AgentModule {
         actionRepository: ReversibleActionRepository,
         bridgeCoordinator: BridgeCoordinator,
         notificationManager: AssistantNotificationManager,
+        reversibleActionExecutor: ReversibleActionExecutor,
     ): @JvmSuppressWildcards List<Tool> {
         val tools = mutableListOf<Tool>()
         tools.addAll(
@@ -194,6 +197,8 @@ object AgentModule {
         tools.addAll(MemoryTools.all(memoryRepository))
         tools.addAll(TaskTools.all(taskRepository))
         tools.addAll(BridgeTools.all(bridgeCoordinator))
+        tools.add(CalculatorTool.create())
+        tools.add(UndoActionTool.create(reversibleActionExecutor, actionRepository))
         return tools
     }
 

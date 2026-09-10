@@ -462,6 +462,11 @@ class AgentRunner(
                 "- When the user asks for latest, current, today, recent, live information, current news, or current GitHub information, always use search_web or fetch_url to retrieve it.\n" +
                 "- NEVER say 'I don't have internet access' or 'I cannot access real-time information' when Jarvis has web tools available.\n" +
                 "- Never claim current information without actually obtaining a tool observation. For a specific URL, call fetch_url.\n" +
+                "- To remember facts, user preferences, or context across conversations, call remember_fact with 'content' and optional 'category' ('LONG_TERM_FACT', 'CONVERSATION_CONTEXT', 'EPISODIC') and 'is_private'.\n" +
+                "- To recall, list, or inspect what is remembered about the user or previous context, call recall_memories.\n" +
+                "- To delete or forget stored memories, call forget_fact with 'memory_id' or 'query'.\n" +
+                "- To perform calculations or evaluate math, call calculator with 'expression'.\n" +
+                "- To undo or revert the last action (e.g. calendar event or memory), call undo_action.\n" +
                 "- To open an app or camera, call launch_app with the app name (e.g. 'YouTube', 'Camera', 'Chrome').\n" +
                 "- To create or save files, call create_file with 'file_name' and 'content' (defaults to downloads folder, no root or raw paths needed). Do not invent arbitrary paths like /data/local/tmp or /sdcard.\n" +
                 "- To search or locate files on the device, call search_files with a query.\n" +
