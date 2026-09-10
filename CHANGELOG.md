@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2026-09-10
+
+### Added
+- Device storage and media permissions (`READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE`, `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`, `READ_MEDIA_AUDIO`) in `AndroidManifest.xml` and `PermissionsScreen.kt`.
+- Permission recovery action in chat message error bubbles directing users to app permissions settings when storage access is required.
+- Context compaction in `AgentRunner` prior to model requests to keep multi-turn tool loops within token bounds.
+
+### Fixed
+- LiteRT-LM runtime on emulator and virtualized environments now directly routes to CPU backend (`Backend.CPU`) with multi-threaded configuration, bypassing Mesa WebGPU storage buffer binding size limits.
+- Preloaded `litertlm_jni` native library on application startup to eliminate UnsatisfiedLinkError symbol resolution warnings.
+- Missing storage permission checks in agent local file search and read operations with clear recovery prompts.
+
 ## [Unreleased]
 
 ### Added

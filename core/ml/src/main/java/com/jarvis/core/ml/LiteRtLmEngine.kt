@@ -1,6 +1,7 @@
 package com.jarvis.core.ml
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
@@ -271,9 +272,17 @@ class LiteRtLmEngine private constructor(
     }
 
     companion object {
+        init {
+            runCatching {
+                System.loadLibrary("litertlm_jni")
+            }
+        }
+
         /**
          * Creates (and loads) the engine for [modelFile]. Blocking — call from a background thread.
-         * Tries GPU first, falls back to CPU if the GPU backend fails to load the model.
+         * On emulators or virtualized environments, CPU is selected directly to prevent Mesa/Dawn
+         * buffer binding overflow errors (since software Vulkan restricts maxStorageBufferBindingSize to 128MB).
+         * On physical devices, tries GPU first, falling back to CPU if the GPU backend fails.
          */
         fun create(
             context: Context,
@@ -281,6 +290,13 @@ class LiteRtLmEngine private constructor(
         ): LiteRtLmEngine {
             checkModelFile(modelFile)
             val cacheDir = context.cacheDir.absolutePath
+
+            if (isRunningOnEmulator()) {
+                Log.i(TAG, "Running on emulator environment; selecting CPU backend directly to avoid Mesa/Dawn storage buffer limit.")
+                val engine = loadEngine(createCpuBackend(), modelFile, cacheDir)
+                Log.i(TAG, "Loaded ${modelFile.name} on the CPU backend")
+                return LiteRtLmEngine(engine)
+            }
 
             // Backend.GPU() never throws at construction — an unsupported GPU only
             // surfaces when the model is loaded, so the fallback must wrap initialize().
@@ -293,7 +309,7 @@ class LiteRtLmEngine private constructor(
             } catch (gpuError: Throwable) {
                 Log.w(TAG, "GPU backend failed (${gpuError.message}); falling back to CPU")
                 try {
-                    val engine = loadEngine(Backend.CPU(), modelFile, cacheDir)
+                    val engine = loadEngine(createCpuBackend(), modelFile, cacheDir)
                     Log.i(TAG, "Loaded ${modelFile.name} on the CPU backend")
                     LiteRtLmEngine(engine)
                 } catch (e: CancellationException) {
@@ -305,6 +321,43 @@ class LiteRtLmEngine private constructor(
                     )
                 }
             }
+        }
+
+        fun createCpuBackend(): Backend.CPU {
+            val cores = Runtime.getRuntime().availableProcessors()
+            val threads = (cores - 1).coerceIn(2, 4)
+            return Backend.CPU(threads, threads)
+        }
+
+        fun isRunningOnEmulator(): Boolean {
+            val fingerprint = Build.FINGERPRINT.lowercase()
+            val model = Build.MODEL.lowercase()
+            val manufacturer = Build.MANUFACTURER.lowercase()
+            val hardware = Build.HARDWARE.lowercase()
+            val product = Build.PRODUCT.lowercase()
+            val board = Build.BOARD.lowercase()
+            val device = Build.DEVICE.lowercase()
+            val brand = Build.BRAND.lowercase()
+
+            return fingerprint.startsWith("generic") ||
+                fingerprint.startsWith("unknown") ||
+                model.contains("google_sdk") ||
+                model.contains("emulator") ||
+                model.contains("android sdk built for") ||
+                manufacturer.contains("genymotion") ||
+                hardware.contains("goldfish") ||
+                hardware.contains("ranchu") ||
+                hardware.contains("cutf") ||
+                hardware.contains("cuttlefish") ||
+                product.contains("sdk_gphone") ||
+                product.contains("google_sdk") ||
+                product.contains("sdk") ||
+                product.contains("sdk_x86") ||
+                product.contains("vbox86p") ||
+                product.contains("emulator") ||
+                product.contains("simulator") ||
+                board.contains("goldfish") ||
+                (brand.startsWith("generic") && device.startsWith("generic"))
         }
 
         private fun loadEngine(

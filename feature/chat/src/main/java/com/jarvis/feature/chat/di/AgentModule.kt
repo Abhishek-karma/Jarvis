@@ -13,6 +13,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.BatteryManager
+import android.os.Build
 import android.os.Environment
 import android.os.StatFs
 import android.provider.CalendarContract
@@ -560,44 +561,47 @@ object AgentModule {
 
 
 
-    /** MediaStore name search across the device's indexed files (API 29+ needs no permission). */
+    /** MediaStore name search across the device's indexed files. */
     private suspend fun searchFiles(
         context: Context,
         query: String,
     ): Result<List<FileHit>> =
         withContext(Dispatchers.IO) {
             runCatching {
-
-                val uri = MediaStore.Files.getContentUri("external")
-                val projection =
-                    arrayOf(
-                        MediaStore.MediaColumns.DISPLAY_NAME,
-                        MediaStore.MediaColumns.DATA,
-                        MediaStore.MediaColumns.SIZE,
-                        MediaStore.MediaColumns.DATE_MODIFIED,
-                    )
-                context.contentResolver
-                    .query(
-                        uri,
-                        projection,
-                        "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?",
-                        arrayOf("%$query%"),
-                        "${MediaStore.MediaColumns.DATE_MODIFIED} DESC",
-                    )
-                    ?.use { cursor ->
-                        buildList {
-                            while (cursor.moveToNext() && size < 50) {
-                                add(
-                                    FileHit(
-                                        displayName = cursor.getString(0) ?: "(unnamed)",
-                                        path = cursor.getString(1) ?: "",
-                                        sizeBytes = cursor.getLong(2),
-                                        modifiedUtcMillis = cursor.getLong(3) * 1000L,
-                                    ),
-                                )
+                try {
+                    val uri = MediaStore.Files.getContentUri("external")
+                    val projection =
+                        arrayOf(
+                            MediaStore.MediaColumns.DISPLAY_NAME,
+                            MediaStore.MediaColumns.DATA,
+                            MediaStore.MediaColumns.SIZE,
+                            MediaStore.MediaColumns.DATE_MODIFIED,
+                        )
+                    context.contentResolver
+                        .query(
+                            uri,
+                            projection,
+                            "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?",
+                            arrayOf("%$query%"),
+                            "${MediaStore.MediaColumns.DATE_MODIFIED} DESC",
+                        )
+                        ?.use { cursor ->
+                            buildList {
+                                while (cursor.moveToNext() && size < 50) {
+                                    add(
+                                        FileHit(
+                                            displayName = cursor.getString(0) ?: "(unnamed)",
+                                            path = cursor.getString(1) ?: "",
+                                            sizeBytes = cursor.getLong(2),
+                                            modifiedUtcMillis = cursor.getLong(3) * 1000L,
+                                        ),
+                                    )
+                                }
                             }
-                        }
-                    } ?: error("Media store unavailable")
+                        } ?: error("Media store unavailable")
+                } catch (e: SecurityException) {
+                    error("Device storage permission missing: grant Storage permission in Settings → Permissions, then ask again.")
+                }
             }
         }
 
@@ -931,6 +935,15 @@ object AgentModule {
             context.startActivity(intent)
         }
 
+    private fun hasStoragePermission(context: Context): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+
     private suspend fun readLocalFile(
         context: Context,
         path: String,
@@ -940,10 +953,27 @@ object AgentModule {
                 val resolvedFile = resolveFilePath(context, path)
                 if (!resolvedFile.exists()) error("File does not exist: $path")
                 if (resolvedFile.isDirectory) error("Path is a directory: $path")
-                if (resolvedFile.length() > 500_000) {
-                    resolvedFile.bufferedReader().use { it.readText().take(500_000) + "\n...(truncated)" }
-                } else {
-                    resolvedFile.readText()
+                val isExternal = !resolvedFile.absolutePath.startsWith(context.filesDir.absolutePath) &&
+                    !resolvedFile.absolutePath.startsWith(context.cacheDir.absolutePath)
+                if (isExternal && !resolvedFile.canRead() && !hasStoragePermission(context)) {
+                    error("Device storage permission missing: grant Storage permission in Settings → Permissions, then ask again.")
+                }
+                try {
+                    if (resolvedFile.length() > 500_000) {
+                        resolvedFile.bufferedReader().use { it.readText().take(500_000) + "\n...(truncated)" }
+                    } else {
+                        resolvedFile.readText()
+                    }
+                } catch (e: SecurityException) {
+                    error("Device storage permission missing: grant Storage permission in Settings → Permissions, then ask again.")
+                } catch (e: Exception) {
+                    if (e.message?.contains("EACCES", ignoreCase = true) == true ||
+                        e.message?.contains("Permission denied", ignoreCase = true) == true
+                    ) {
+                        error("Device storage permission denied: grant Storage permission in Settings → Permissions, then ask again.")
+                    } else {
+                        throw e
+                    }
                 }
             }
         }

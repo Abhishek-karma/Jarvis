@@ -27,6 +27,14 @@ interface AppStartup {
 @HiltAndroidApp
 class JarvisApplication : Application(), Configuration.Provider {
 
+    companion object {
+        init {
+            runCatching {
+                System.loadLibrary("litertlm_jni")
+            }
+        }
+    }
+
     @Inject
     lateinit var hiltWorkerFactory: HiltWorkerFactory
 

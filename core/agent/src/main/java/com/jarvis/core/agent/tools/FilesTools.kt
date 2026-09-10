@@ -128,7 +128,7 @@ object FilesTools {
                     onFailure = { error ->
                         ToolResult(
                             success = false,
-                            observationText = "Could not read file at \"$path\".",
+                            observationText = "Could not read file at \"$path\": ${error.message}",
                             error = error.message ?: "File read failed",
                         )
                     },

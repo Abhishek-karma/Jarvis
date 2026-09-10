@@ -161,10 +161,15 @@ class AgentRunner(
                 }
             }
 
+            val effectiveHistory = contextManager.compactHistory(
+                baseHistory + turnLog,
+                historyTokenBudget = 3200,
+            ).messages
+
             val streamEvents = request.provider
                 .streamChat(
                     ChatRequest(
-                        conversationHistory = baseHistory + turnLog,
+                        conversationHistory = effectiveHistory,
                         systemPrompt = effectiveSystemPrompt,
                         model = request.modelId,
                         reasoningRequested = request.reasoningRequested,
@@ -459,6 +464,8 @@ class AgentRunner(
                 "- Never claim current information without actually obtaining a tool observation. For a specific URL, call fetch_url.\n" +
                 "- To open an app or camera, call launch_app with the app name (e.g. 'YouTube', 'Camera', 'Chrome').\n" +
                 "- To create or save files, call create_file with 'file_name' and 'content' (defaults to downloads folder, no root or raw paths needed). Do not invent arbitrary paths like /data/local/tmp or /sdcard.\n" +
+                "- To search or locate files on the device, call search_files with a query.\n" +
+                "- To inspect or read a file, call read_file with the file path. If reading fails due to missing storage permission, inform the user they can grant Storage permission in Settings → Permissions.\n" +
                 "- Always use your native high-level tools instead of raw shell commands whenever a tool exists.\n" +
                 "Within a single turn you may call one or more tools; wait for their Observations, then keep going until the task is done, " +
                 "and answer the user directly when finished. Never claim you cannot check the date, time, internet, or files without first attempting the relevant tool. " +

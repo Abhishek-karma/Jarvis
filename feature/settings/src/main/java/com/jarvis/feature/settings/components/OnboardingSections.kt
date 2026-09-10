@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -39,6 +40,7 @@ import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Computer
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Security
@@ -569,6 +571,16 @@ fun PermissionsStep(
                 icon = Icons.Outlined.Notifications,
                 title = "System Notifications",
                 subtitle = "Receive alerts for background completions and model download progress.",
+            ),
+            PermissionItem(
+                permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    Manifest.permission.READ_MEDIA_IMAGES
+                } else {
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+                },
+                icon = Icons.Outlined.Folder,
+                title = "Device Storage & Files",
+                subtitle = "Allows Jarvis to search, read, and analyze documents and files on your device.",
             ),
         )
     }

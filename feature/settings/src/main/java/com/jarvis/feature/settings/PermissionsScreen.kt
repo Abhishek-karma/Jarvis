@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.Event
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Person
@@ -119,6 +121,25 @@ fun PermissionsScreen(onBack: () -> Unit) {
             )
             PermissionRow(
                 key = resumeTick,
+                icon = Icons.Outlined.Folder,
+                title = "Device Storage & Files",
+                subtitle = "Read documents, downloads, and device files",
+                permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    Manifest.permission.READ_MEDIA_IMAGES
+                } else {
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+                },
+                additionalPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    listOf(
+                        Manifest.permission.READ_MEDIA_VIDEO,
+                        Manifest.permission.READ_MEDIA_AUDIO,
+                    )
+                } else {
+                    emptyList()
+                },
+            )
+            PermissionRow(
+                key = resumeTick,
                 icon = Icons.Outlined.Event,
                 title = "Calendar",
                 subtitle = "Create events and reminders",
@@ -167,12 +188,17 @@ private fun PermissionRow(
     title: String,
     subtitle: String,
     permission: String,
+    additionalPermissions: List<String> = emptyList(),
 ) {
     val context = LocalContext.current
+    val allPermissions = remember(permission, additionalPermissions) {
+        listOf(permission) + additionalPermissions
+    }
     val granted =
-        remember(key, permission) {
-            ContextCompat.checkSelfPermission(context, permission) ==
-                PackageManager.PERMISSION_GRANTED
+        remember(key, allPermissions) {
+            allPermissions.any {
+                ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+            }
         }
 
     Surface(
@@ -204,7 +230,7 @@ private fun PermissionRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            PermissionToggle(granted = granted, permission = permission, name = title)
+            PermissionToggle(granted = granted, permissions = allPermissions, name = title)
         }
     }
 }
@@ -213,18 +239,16 @@ private fun PermissionRow(
 @Composable
 private fun PermissionToggle(
     granted: Boolean,
-    permission: String,
+    permissions: List<String>,
     name: String,
 ) {
     val context = LocalContext.current
     val launcher =
-        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { wasGranted ->
-
-
-
-            if (!wasGranted &&
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            val anyGranted = results.values.any { it }
+            if (!anyGranted &&
                 context is Activity &&
-                !context.shouldShowRequestPermissionRationale(permission)
+                permissions.any { !context.shouldShowRequestPermissionRationale(it) }
             ) {
                 openAppSettings(context)
             }
@@ -234,7 +258,7 @@ private fun PermissionToggle(
         checked = granted,
         onCheckedChange = { want ->
             if (want) {
-                launcher.launch(permission)
+                launcher.launch(permissions.toTypedArray())
             } else {
                 openAppSettings(context)
             }

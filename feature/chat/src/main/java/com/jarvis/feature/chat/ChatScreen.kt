@@ -85,6 +85,7 @@ fun ChatScreen(
     onDeleteMessage: (String) -> Unit = {},
     onContinueGenerating: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onOpenPermissions: () -> Unit = onOpenSettings,
 ) {
     val listState = rememberLazyListState()
     val lastMessageCount = uiState.messages.size
@@ -248,6 +249,7 @@ fun ChatScreen(
                                     onEdit = onEditMessage,
                                     onDelete = onDeleteMessage,
                                     onContinue = onContinueGenerating,
+                                    onOpenPermissions = onOpenPermissions,
                                 )
                             }
 

@@ -81,6 +81,7 @@ fun MessageBubble(
     onEdit: (Message) -> Unit = {},
     onDelete: (String) -> Unit = {},
     onContinue: () -> Unit = {},
+    onOpenPermissions: () -> Unit = {},
 ) {
     val isUser = message.role == MessageRole.USER
 
@@ -288,6 +289,12 @@ fun MessageBubble(
                                 style = JarvisText.Metadata,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                        }
+                        val isPermissionError = message.errorHint?.contains("permission", ignoreCase = true) == true
+                        if (isPermissionError) {
+                            TextButton(onClick = onOpenPermissions) {
+                                Text("Permissions")
+                            }
                         }
                         if (canRegenerate) {
                             TextButton(onClick = { onRetry(message.id) }) {
