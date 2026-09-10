@@ -17,7 +17,7 @@ object CalculatorTool {
 
     fun create(): Tool = object : Tool {
         override val name = NAME
-        override val description = "Evaluates basic mathematical expressions (+, -, *, /, %, ^, parentheses). Read-only."
+        override val description = "Evaluates basic mathematical expressions (+, -, *, /, %, ^, parentheses, functions like sqrt, abs, round, sin, cos, tan, log, exp, and constants pi, e). Read-only."
         override val parametersSchemaJson = SCHEMA
         override val tier = PermissionTier.READ_ONLY
 
@@ -129,6 +129,42 @@ object CalculatorTool {
             } else if ((ch in '0'.code..'9'.code) || ch == '.'.code) {
                 while ((ch in '0'.code..'9'.code) || ch == '.'.code) nextChar()
                 x = str.substring(startPos, pos).toDouble()
+            } else if (ch in 'a'.code..'z'.code || ch in 'A'.code..'Z'.code) {
+                while (ch in 'a'.code..'z'.code || ch in 'A'.code..'Z'.code) nextChar()
+                val func = str.substring(startPos, pos).lowercase()
+                when (func) {
+                    "pi" -> x = Math.PI
+                    "e" -> x = Math.E
+                    else -> {
+                        if (eat('('.code)) {
+                            val arg = parseExpression()
+                            if (!eat(')'.code)) error("Missing closing parenthesis after $func")
+                            x = when (func) {
+                                "sqrt" -> {
+                                    if (arg < 0) error("Cannot take square root of negative number: $arg")
+                                    Math.sqrt(arg)
+                                }
+                                "abs" -> Math.abs(arg)
+                                "round" -> Math.round(arg).toDouble()
+                                "sin" -> Math.sin(Math.toRadians(arg))
+                                "cos" -> Math.cos(Math.toRadians(arg))
+                                "tan" -> Math.tan(Math.toRadians(arg))
+                                "log" -> {
+                                    if (arg <= 0) error("Logarithm argument must be positive: $arg")
+                                    Math.log10(arg)
+                                }
+                                "ln" -> {
+                                    if (arg <= 0) error("Natural log argument must be positive: $arg")
+                                    Math.log(arg)
+                                }
+                                "exp" -> Math.exp(arg)
+                                else -> error("Unknown function: $func")
+                            }
+                        } else {
+                            error("Expected '(' after function $func")
+                        }
+                    }
+                }
             } else {
                 error("Unexpected character: ${if (ch == -1) "end of input" else ch.toChar().toString()}")
             }
