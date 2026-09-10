@@ -7,8 +7,9 @@ import com.jarvis.core.common.PermissionTier
 object WebTools {
     const val FETCH_URL = "fetch_url"
     const val SEARCH_WEB = "search_web"
+    const val WEB_SEARCH = "web_search"
 
-    val manifestNames: List<String> = listOf(FETCH_URL, SEARCH_WEB)
+    val manifestNames: List<String> = listOf(FETCH_URL, SEARCH_WEB, WEB_SEARCH)
 
     /** Fetched page content, already reduced to readable plain text. */
     data class FetchedPage(
@@ -29,6 +30,7 @@ object WebTools {
         add(fetchUrl(fetch))
         if (search != null) {
             add(searchWeb(search))
+            add(searchWeb(search, toolName = WEB_SEARCH))
         }
     }
 
@@ -50,7 +52,7 @@ object WebTools {
                         error = "invalid JSON arguments",
                     )
                 }
-                val url = args.string("url")
+                val url = args.string("url") ?: args.string("link") ?: args.string("target_url")
                 if (url.isNullOrBlank()) {
                     return ToolResult(
                         success = false,
@@ -93,9 +95,10 @@ object WebTools {
 
     fun searchWeb(
         search: suspend (query: String, maxResults: Int) -> Result<List<SearchResult>>,
+        toolName: String = SEARCH_WEB,
     ): Tool =
         object : Tool {
-            override val name = SEARCH_WEB
+            override val name = toolName
             override val description =
                 "Search the public web for real-time information, answers, links, documentation, or current events. Read-only."
             override val tier = PermissionTier.READ_ONLY
@@ -111,6 +114,11 @@ object WebTools {
                     )
                 }
                 val query = args.string("query")
+                    ?: args.string("q")
+                    ?: args.string("search_query")
+                    ?: args.string("keywords")
+                    ?: args.string("input")
+                    ?: args.string("text")
                 if (query.isNullOrBlank()) {
                     return ToolResult(
                         success = false,

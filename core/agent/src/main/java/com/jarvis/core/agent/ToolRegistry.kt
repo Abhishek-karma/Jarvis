@@ -27,7 +27,15 @@ class ToolRegistry {
         tools.clear()
     }
 
-    fun get(name: String): Tool? = tools[name]
+    fun get(name: String): Tool? =
+        tools[name] ?: when (name) {
+            "web_search", "webSearch", "searchWeb" -> tools["search_web"] ?: tools["web_search"]
+            "search_web" -> tools["web_search"] ?: tools["search_web"]
+            "fetch_url", "fetchUrl", "url_fetch", "browse_url" -> tools["fetch_url"]
+            "calculate" -> tools["calculator"]
+            "current_time", "get_current_time" -> tools["get_current_datetime"]
+            else -> null
+        }
 
     fun all(): List<Tool> = tools.values.toList()
 

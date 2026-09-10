@@ -260,6 +260,7 @@ fun ChatScreen(
                                         pending = uiState.pendingConfirmation,
                                         onAllow = { alwaysForChat -> onRespondToConfirmation(true, alwaysForChat) },
                                         onDeny = { onRespondToConfirmation(false, false) },
+                                        onStop = onCancel,
                                     )
                                 }
                             }

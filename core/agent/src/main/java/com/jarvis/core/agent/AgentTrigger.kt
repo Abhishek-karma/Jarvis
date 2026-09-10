@@ -96,7 +96,10 @@ object AgentTrigger {
             "browse",
         )
 
-    private fun wordBoundaryRegex(phrase: String) = Regex("(?i)\\b${Regex.escape(phrase)}\\b")
+    private val anywherePatterns: List<Regex> =
+        anywhereVerbs.map { phrase ->
+            Regex("(?i)\\b${Regex.escape(phrase)}\\b")
+        }
 
     fun shouldUseAgent(text: String): Boolean {
         val trimmed = text.trim()
@@ -108,7 +111,7 @@ object AgentTrigger {
             return true
         }
         val lower = trimmed.lowercase().removePrefix("please ")
-        if (anywhereVerbs.any { wordBoundaryRegex(it).containsMatchIn(lower) }) return true
+        if (anywherePatterns.any { it.containsMatchIn(lower) }) return true
         return imperativeVerbs.any { lower.startsWith(it + " ") || lower == it }
     }
 }

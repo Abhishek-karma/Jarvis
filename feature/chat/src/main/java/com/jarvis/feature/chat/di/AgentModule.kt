@@ -723,62 +723,175 @@ object AgentModule {
                 val results = mutableListOf<com.jarvis.core.agent.tools.WebTools.SearchResult>()
                 val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
 
-                // 1. DuckDuckGo HTML search
+                // 1. DuckDuckGo Lite search (fast, zero JS requirement, highly reliable on mobile)
                 try {
                     val formBody = okhttp3.FormBody.Builder()
                         .add("q", query)
                         .build()
-                    val ddgRequest = Request.Builder()
-                        .url("https://html.duckduckgo.com/html/")
+                    val ddgLiteRequest = Request.Builder()
+                        .url("https://lite.duckduckgo.com/lite/")
                         .post(formBody)
-                        .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36")
-                        .header("Referer", "https://html.duckduckgo.com/")
+                        .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36")
+                        .header("Referer", "https://lite.duckduckgo.com/")
+                        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                         .build()
 
-                    client.newCall(ddgRequest).execute().use { response ->
+                    client.newCall(ddgLiteRequest).execute().use { response ->
                         if (response.isSuccessful) {
                             val html = response.body?.string() ?: ""
-                            val linkRegex = Regex("""class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>""", RegexOption.IGNORE_CASE)
-                            val snippetRegex = Regex("""class="result__snippet"[^>]*>(.*?)</a>""", RegexOption.IGNORE_CASE)
+                            val linkRegex = Regex(
+                                """<a\b[^>]*href=['"]([^'"]+)['"][^>]*class=['"]result-link['"][^>]*>([\s\S]*?)</a>|<a\b[^>]*class=['"]result-link['"][^>]*href=['"]([^'"]+)['"][^>]*>([\s\S]*?)</a>""",
+                                RegexOption.IGNORE_CASE,
+                            )
+                            val snippetRegex = Regex(
+                                """<td\b[^>]*class=['"]result-snippet['"][^>]*>([\s\S]*?)</td>""",
+                                RegexOption.IGNORE_CASE,
+                            )
 
-                            val links = linkRegex.findAll(html).toList()
-                            val snippets = snippetRegex.findAll(html).toList()
+                            val linkMatches = linkRegex.findAll(html).toList()
+                            val snippetMatches = snippetRegex.findAll(html).toList()
 
-                            for (i in links.indices) {
+                            for (i in linkMatches.indices) {
                                 if (results.size >= maxResults) break
-                                val rawUrl = links[i].groupValues[1]
-                                val title = decodeHtmlEntities(links[i].groupValues[2].replace(Regex("<[^>]+>"), "").trim())
-                                val snippet = if (i < snippets.size) {
-                                    decodeHtmlEntities(snippets[i].groupValues[1].replace(Regex("<[^>]+>"), "").trim())
+                                val m = linkMatches[i]
+                                val rawUrl = m.groupValues[1].ifEmpty { m.groupValues[3] }
+                                val rawTitle = m.groupValues[2].ifEmpty { m.groupValues[4] }
+                                val title = decodeHtmlEntities(rawTitle.replace(Regex("<[^>]+>"), "").trim())
+                                val snippet = if (i < snippetMatches.size) {
+                                    decodeHtmlEntities(snippetMatches[i].groupValues[1].replace(Regex("<[^>]+>"), "").trim())
                                 } else ""
 
-                                // Parse DuckDuckGo redirect url if needed
-                                val resolvedUrl = if (rawUrl.contains("uddg=")) {
-                                    val match = Regex("uddg=([^&]+)").find(rawUrl)
-                                    if (match != null) java.net.URLDecoder.decode(match.groupValues[1], "UTF-8") else rawUrl
-                                } else if (rawUrl.startsWith("//")) {
-                                    "https:$rawUrl"
-                                } else {
-                                    rawUrl
+                                val resolvedUrl = when {
+                                    rawUrl.contains("uddg=") -> {
+                                        val match = Regex("uddg=([^&]+)").find(rawUrl)
+                                        if (match != null) java.net.URLDecoder.decode(match.groupValues[1], "UTF-8") else rawUrl
+                                    }
+                                    rawUrl.startsWith("//") -> "https:$rawUrl"
+                                    else -> rawUrl
                                 }
 
-                                if (title.isNotBlank() && resolvedUrl.isNotBlank()) {
+                                if (title.isNotBlank() && resolvedUrl.isNotBlank() && !resolvedUrl.contains("duckduckgo.com")) {
                                     results.add(
                                         com.jarvis.core.agent.tools.WebTools.SearchResult(
                                             title = title,
                                             url = resolvedUrl,
                                             snippet = snippet,
-                                        )
+                                        ),
                                     )
                                 }
                             }
                         }
                     }
                 } catch (e: Throwable) {
-                    android.util.Log.w("AgentModule", "DDG search attempt failed: ${e.message}")
+                    android.util.Log.w("AgentModule", "DDG Lite search failed: ${e.message}")
                 }
 
-                // 2. Fallback to Wikipedia API if DDG produced zero results
+                // 2. DuckDuckGo HTML search fallback
+                if (results.isEmpty()) {
+                    try {
+                        val formBody = okhttp3.FormBody.Builder()
+                            .add("q", query)
+                            .build()
+                        val ddgRequest = Request.Builder()
+                            .url("https://html.duckduckgo.com/html/")
+                            .post(formBody)
+                            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36")
+                            .header("Referer", "https://html.duckduckgo.com/")
+                            .build()
+
+                        client.newCall(ddgRequest).execute().use { response ->
+                            if (response.isSuccessful) {
+                                val html = response.body?.string() ?: ""
+                                val linkRegex = Regex("""class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>""", RegexOption.IGNORE_CASE)
+                                val snippetRegex = Regex("""class="result__snippet"[^>]*>(.*?)</a>""", RegexOption.IGNORE_CASE)
+
+                                val links = linkRegex.findAll(html).toList()
+                                val snippets = snippetRegex.findAll(html).toList()
+
+                                for (i in links.indices) {
+                                    if (results.size >= maxResults) break
+                                    val rawUrl = links[i].groupValues[1]
+                                    val title = decodeHtmlEntities(links[i].groupValues[2].replace(Regex("<[^>]+>"), "").trim())
+                                    val snippet = if (i < snippets.size) {
+                                        decodeHtmlEntities(snippets[i].groupValues[1].replace(Regex("<[^>]+>"), "").trim())
+                                    } else ""
+
+                                    val resolvedUrl = if (rawUrl.contains("uddg=")) {
+                                        val match = Regex("uddg=([^&]+)").find(rawUrl)
+                                        if (match != null) java.net.URLDecoder.decode(match.groupValues[1], "UTF-8") else rawUrl
+                                    } else if (rawUrl.startsWith("//")) {
+                                        "https:$rawUrl"
+                                    } else {
+                                        rawUrl
+                                    }
+
+                                    if (title.isNotBlank() && resolvedUrl.isNotBlank()) {
+                                        results.add(
+                                            com.jarvis.core.agent.tools.WebTools.SearchResult(
+                                                title = title,
+                                                url = resolvedUrl,
+                                                snippet = snippet,
+                                            ),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Throwable) {
+                        android.util.Log.w("AgentModule", "DDG HTML search attempt failed: ${e.message}")
+                    }
+                }
+
+                // 3. DuckDuckGo Instant Answer API fallback
+                if (results.isEmpty()) {
+                    try {
+                        val apiUrl = "https://api.duckduckgo.com/?q=$encodedQuery&format=json&no_html=1&skip_disambig=0"
+                        val apiRequest = Request.Builder()
+                            .url(apiUrl)
+                            .get()
+                            .header("User-Agent", "JarvisAssistant/1.0")
+                            .build()
+                        client.newCall(apiRequest).execute().use { response ->
+                            if (response.isSuccessful) {
+                                val bodyStr = response.body?.string() ?: ""
+                                val root = org.json.JSONObject(bodyStr)
+                                val heading = root.optString("Heading")
+                                val abstractText = root.optString("AbstractText")
+                                val abstractUrl = root.optString("AbstractURL")
+                                if (abstractText.isNotBlank() && abstractUrl.isNotBlank()) {
+                                    results.add(
+                                        com.jarvis.core.agent.tools.WebTools.SearchResult(
+                                            title = heading.ifBlank { query },
+                                            url = abstractUrl,
+                                            snippet = abstractText,
+                                        ),
+                                    )
+                                }
+                                val related = root.optJSONArray("RelatedTopics")
+                                if (related != null) {
+                                    for (i in 0 until minOf(related.length(), maxResults - results.size)) {
+                                        val item = related.optJSONObject(i) ?: continue
+                                        val rText = item.optString("Text")
+                                        val rUrl = item.optString("FirstURL")
+                                        if (rText.isNotBlank() && rUrl.isNotBlank()) {
+                                            results.add(
+                                                com.jarvis.core.agent.tools.WebTools.SearchResult(
+                                                    title = rText.take(60),
+                                                    url = rUrl,
+                                                    snippet = rText,
+                                                ),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Throwable) {
+                        android.util.Log.w("AgentModule", "DDG Instant Answer API failed: ${e.message}")
+                    }
+                }
+
+                // 4. Wikipedia API fallback
                 if (results.isEmpty()) {
                     try {
                         val wikiUrl = "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=$encodedQuery&format=json&utf8=1"
@@ -799,7 +912,7 @@ object AgentModule {
                                         val title = item.optString("title")
                                         val pageId = item.optLong("pageid")
                                         val snippet = decodeHtmlEntities(
-                                            item.optString("snippet").replace(Regex("<[^>]+>"), "").trim()
+                                            item.optString("snippet").replace(Regex("<[^>]+>"), "").trim(),
                                         )
                                         val pageUrl = "https://en.wikipedia.org/?curid=$pageId"
                                         results.add(
@@ -807,7 +920,7 @@ object AgentModule {
                                                 title = title,
                                                 url = pageUrl,
                                                 snippet = snippet,
-                                            )
+                                            ),
                                         )
                                     }
                                 }
