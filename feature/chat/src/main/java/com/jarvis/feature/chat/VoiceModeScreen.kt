@@ -1,5 +1,6 @@
 package com.jarvis.feature.chat
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -7,6 +8,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,11 +27,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -59,6 +68,7 @@ import com.jarvis.core.designsystem.JarvisSnackbarHost
 import com.jarvis.core.designsystem.JarvisText
 import com.jarvis.core.designsystem.Motion
 import com.jarvis.core.designsystem.Spacing
+import com.jarvis.core.voice.VoiceSessionState
 
 @Composable
 fun VoiceModeRoute(
@@ -67,6 +77,10 @@ fun VoiceModeRoute(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
+
+    LaunchedEffect(Unit) {
+        viewModel.startVoiceMode()
+    }
 
     LaunchedEffect(Unit) {
         viewModel.uiEvents.collect { event ->
@@ -80,15 +94,25 @@ fun VoiceModeRoute(
     }
 
     DisposableEffect(Unit) {
-        onDispose { viewModel.stopLiveSessionAndRecorder() }
+        onDispose {
+            viewModel.stopVoiceMode()
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
         VoiceModeScreen(
             uiState = uiState,
-            onToggleRecording = viewModel::toggleRecording,
-            onSpeak = viewModel::speakLastResponse,
-            onStopSpeaking = viewModel::stopSpeaking,
+            onInterrupt = viewModel::interruptSpeaking,
+            onToggleMic = {
+                if (uiState.voiceState is VoiceSessionState.Listening) {
+                    viewModel.stopVoiceMode()
+                } else {
+                    viewModel.startVoiceMode()
+                }
+            },
+            onToggleSpeaker = viewModel::toggleSpeakerMute,
+            onConfirmTool = { viewModel.respondToConfirmation(true, false) },
+            onDenyTool = { viewModel.respondToConfirmation(false, false) },
             onEnd = onEnd,
         )
         JarvisSnackbarHost(
@@ -104,9 +128,11 @@ fun VoiceModeRoute(
 @Composable
 fun VoiceModeScreen(
     uiState: ChatUiState,
-    onToggleRecording: () -> Unit,
-    onSpeak: () -> Unit,
-    onStopSpeaking: () -> Unit,
+    onInterrupt: () -> Unit,
+    onToggleMic: () -> Unit,
+    onToggleSpeaker: () -> Unit,
+    onConfirmTool: () -> Unit,
+    onDenyTool: () -> Unit,
     onEnd: () -> Unit,
 ) {
     var entered by remember { mutableStateOf(false) }
@@ -129,13 +155,24 @@ fun VoiceModeScreen(
         label = "pulse",
     )
 
+    val voiceState = uiState.voiceState
+    val isListening = voiceState is VoiceSessionState.Listening
+    val isSpeaking = voiceState is VoiceSessionState.Speaking || uiState.playingAudioMessageId != null
+    val amplitude = (voiceState as? VoiceSessionState.Listening)?.amplitude ?: 0f
+
     val statusText =
         when {
-            uiState.isRecording -> "Listening…"
-            uiState.isTranscribing -> "Transcribing…"
-            uiState.playingAudioMessageId != null -> "Jarvis is speaking…"
-            uiState.isStreaming -> "Jarvis is thinking…"
-            else -> "Tap the mic and speak"
+            voiceState is VoiceSessionState.Listening -> "Listening…"
+            uiState.agentStatus == AgentStatus.WAITING_FOR_APPROVAL || voiceState is VoiceSessionState.WaitingForApproval -> "Approval required"
+            uiState.agentStatus == AgentStatus.RUNNING_TOOL || uiState.agentStatus == AgentStatus.WAITING_FOR_RESULT || uiState.agentStatus == AgentStatus.SELECTING_TOOL || voiceState is VoiceSessionState.Executing -> "Using tools…"
+            uiState.agentStatus == AgentStatus.PLANNING || voiceState is VoiceSessionState.Planning -> "Planning…"
+            uiState.agentStatus == AgentStatus.THINKING || uiState.agentStatus == AgentStatus.THINKING_AGAIN || voiceState is VoiceSessionState.Thinking -> "Thinking…"
+            uiState.agentStatus == AgentStatus.SPEAKING || voiceState is VoiceSessionState.Speaking || uiState.playingAudioMessageId != null -> "Speaking…"
+            uiState.agentStatus == AgentStatus.FAILED || voiceState is VoiceSessionState.Error -> "Couldn't complete the task"
+            uiState.agentStatus == AgentStatus.CANCELLED || voiceState is VoiceSessionState.Cancelled -> "Cancelled"
+            voiceState is VoiceSessionState.Interrupted -> "Interrupted"
+            voiceState is VoiceSessionState.Idle -> if (uiState.isVoiceModeActive) "Ready" else "Tap mic to start"
+            else -> "Ready"
         }
 
     val lastUser =
@@ -155,7 +192,7 @@ fun VoiceModeScreen(
                 .fillMaxSize()
                 .background(JarvisColors.Voice.takeover)
                 .alpha(entrance)
-                .semantics { contentDescription = "Voice conversation active, Jarvis is listening" },
+                .semantics { contentDescription = "Voice conversation active, status: $statusText" },
     ) {
         Column(
             modifier =
@@ -165,19 +202,33 @@ fun VoiceModeScreen(
                     .padding(vertical = Spacing.huge),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(modifier = Modifier.weight(0.6f))
+            Spacer(modifier = Modifier.weight(0.5f))
 
+            // Interactive central sphere
+            val dynamicScale = (pulseScale + (amplitude.coerceIn(0f, 1f) * 0.12f)) * entrance.coerceIn(0.2f, 1f)
             Box(
                 modifier =
                     Modifier
                         .size(280.dp)
-                        .scale(pulseScale * entrance.coerceIn(0.2f, 1f)),
+                        .scale(dynamicScale)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {
+                                if (isSpeaking) {
+                                    onInterrupt()
+                                } else {
+                                    onToggleMic()
+                                }
+                            },
+                        ),
                 contentAlignment = Alignment.Center,
             ) {
                 Canvas(modifier = Modifier.size(340.dp)) {
                     repeat(3) { ring ->
+                        val ringAlpha = if (isListening) (0.16f - ring * 0.04f) else (0.08f - ring * 0.02f)
                         drawCircle(
-                            color = JarvisColors.Voice.blue1.copy(alpha = 0.12f - ring * 0.04f),
+                            color = JarvisColors.Voice.blue1.copy(alpha = ringAlpha),
                             radius = size.minDimension / 2f - ring * 18f,
                             center = Offset(size.width / 2f, size.height / 2f),
                             style = Stroke(width = 24f),
@@ -185,15 +236,16 @@ fun VoiceModeScreen(
                     }
                 }
                 Canvas(modifier = Modifier.size(280.dp)) {
+                    val colors =
+                        when {
+                            isSpeaking -> listOf(JarvisColors.Voice.blue3, JarvisColors.Voice.blue2, Color(0xFF64B5F6))
+                            isListening -> listOf(JarvisColors.Voice.blue3, JarvisColors.Voice.blue2, JarvisColors.Voice.blue1)
+                            else -> listOf(JarvisColors.Voice.blue2, JarvisColors.Voice.blue1, Color(0xFF1E3C72))
+                        }
                     drawCircle(
                         brush =
                             Brush.radialGradient(
-                                colors =
-                                    listOf(
-                                        JarvisColors.Voice.blue3,
-                                        JarvisColors.Voice.blue2,
-                                        JarvisColors.Voice.blue1,
-                                    ),
+                                colors = colors,
                                 center = Offset(size.width / 2f, size.height / 2f),
                                 radius = size.minDimension / 2f,
                             ),
@@ -211,6 +263,49 @@ fun VoiceModeScreen(
                 color = Color.White.copy(alpha = 0.85f),
             )
 
+            // In-flight Tool Confirmation Card if sensitive tool approval is required
+            val pendingConfirmation = uiState.pendingConfirmation
+            AnimatedVisibility(
+                visible = pendingConfirmation != null,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                if (pendingConfirmation != null) {
+                    Column(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = Spacing.xl, vertical = Spacing.md)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color.White.copy(alpha = 0.1f))
+                                .padding(Spacing.lg),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    ) {
+                        Text(
+                            text = "Approval needed: ${pendingConfirmation.toolName}",
+                            style = JarvisText.BodyMedium,
+                            color = Color.White,
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                        ) {
+                            OutlinedButton(
+                                onClick = onDenyTool,
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                            ) {
+                                Text("Deny")
+                            }
+                            Button(
+                                onClick = onConfirmTool,
+                                colors = ButtonDefaults.buttonColors(containerColor = JarvisColors.Voice.blue1),
+                            ) {
+                                Text("Allow")
+                            }
+                        }
+                    }
+                }
+            }
 
             if (lastUser.isNotEmpty() || lastAssistant.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(Spacing.lg))
@@ -251,20 +346,23 @@ fun VoiceModeScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 VoiceControlButton(
-                    icon = Icons.Default.Mic,
-                    contentDescription = if (uiState.isRecording) "Stop listening" else "Start listening",
-                    onClick = onToggleRecording,
+                    icon = if (isListening) Icons.Default.Mic else Icons.Default.MicOff,
+                    contentDescription = if (isListening) "Mute microphone" else "Unmute microphone",
+                    isActive = isListening,
+                    onClick = onToggleMic,
                 )
                 Spacer(modifier = Modifier.width(Spacing.xxl))
                 VoiceControlButton(
-                    icon = Icons.AutoMirrored.Filled.VolumeUp,
-                    contentDescription = if (uiState.playingAudioMessageId != null) "Stop speaking" else "Read the response",
-                    onClick = { if (uiState.playingAudioMessageId != null) onStopSpeaking() else onSpeak() },
+                    icon = if (uiState.isSpeakerMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                    contentDescription = if (uiState.isSpeakerMuted) "Unmute speaker" else "Mute speaker",
+                    isActive = !uiState.isSpeakerMuted,
+                    onClick = onToggleSpeaker,
                 )
                 Spacer(modifier = Modifier.width(Spacing.xxl))
                 VoiceControlButton(
                     icon = Icons.Default.Close,
                     contentDescription = "End voice mode",
+                    isActive = false,
                     onClick = onEnd,
                 )
             }
@@ -278,6 +376,7 @@ private val VOICE_SNACKBAR_CLEARANCE = 120.dp
 private fun VoiceControlButton(
     icon: ImageVector,
     contentDescription: String,
+    isActive: Boolean = false,
     onClick: () -> Unit,
 ) {
     Box(
@@ -285,7 +384,7 @@ private fun VoiceControlButton(
             Modifier
                 .size(56.dp)
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.12f))
+                .background(if (isActive) JarvisColors.Voice.blue1.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.12f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -301,3 +400,4 @@ private fun VoiceControlButton(
         )
     }
 }
+

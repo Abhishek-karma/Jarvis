@@ -24,12 +24,6 @@ enum class BridgeStatus(val isOperable: Boolean, val message: String) {
 }
 
 /**
- * Single shared instance of the pure policy engine used for read-only classification.
- * The engine is stateless and thread-safe.
- */
-private val typedOpPolicyEngine = CommandPolicyEngine()
-
-/**
  * Strongly typed operation requested by the agent.
  * Raw strings never cross the SPI directly; shell translation occurs internally per bridge.
  */
@@ -60,18 +54,14 @@ sealed interface TypedOp {
             is ShellCommand -> BridgeTier.SHIZUKU
         }
 
-    /**
-     * Whether this operation is read-only (safe for background automated runs).
-     *
-     * Shell commands are classified by the full policy engine — the entire expression
-     * must parse as a single simple command under a safe read-only rule. Raw prefix or
-     * substring matching is deliberately NOT used here, so expressions such as
-     * `dumpsys; reboot` are never considered read-only.
-     */
+    /** Whether this operation is read-only (safe for background automated runs). */
     val isReadOnly: Boolean
         get() = when (this) {
             is Screenshot -> true
-            is ShellCommand -> typedOpPolicyEngine.evaluate(command).classification == PolicyClassification.ALLOWED
+            is ShellCommand -> command.trim().startsWith("dumpsys") ||
+                    command.trim().startsWith("getprop") ||
+                    command.trim().startsWith("pm list") ||
+                    command.trim().startsWith("settings get")
             else -> false
         }
 }

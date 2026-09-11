@@ -35,6 +35,6 @@ class AgentEngine(
         const val DEFAULT_STEP_CAP = AgentRunner.DEFAULT_STEP_CAP
         const val MAX_STEP_CAP = AgentRunner.MAX_STEP_CAP
         const val DEFAULT_PARALLEL_READ_LIMIT = AgentRunner.DEFAULT_PARALLEL_READ_LIMIT
-        const val SYSTEM_PROMPT = AgentRunner.SYSTEM_PROMPT
+        val SYSTEM_PROMPT = AgentRunner.SYSTEM_PROMPT
     }
 }

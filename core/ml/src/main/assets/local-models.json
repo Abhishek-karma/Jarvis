@@ -14,7 +14,10 @@
       "ramNote": "Fits 8 GB devices (quantized)",
       "license": "Gemma Terms of Use",
       "description": "Google's lightweight flagship for on-device use — strong general chat and reasoning for its size.",
-      "tags": ["Text", "Quantized", "8 GB+", "Popular"]
+      "tags": ["Text", "Tools", "Quantized", "8 GB+", "Popular"],
+      "supportsTools": true,
+      "supportsReasoning": false,
+      "supportedCapabilities": ["text", "tools"]
     },
     {
       "id": "qwen2.5-1.5b-instruct",
@@ -29,7 +32,10 @@
       "ramNote": "Great for 8 GB devices",
       "license": "Apache 2.0",
       "description": "Alibaba's efficient instruct model — fast responses, 4k context, very light on memory.",
-      "tags": ["Text", "Quantized", "8 GB+", "Fast"]
+      "tags": ["Text", "Tools", "Quantized", "8 GB+", "Fast"],
+      "supportsTools": true,
+      "supportsReasoning": false,
+      "supportedCapabilities": ["text", "tools"]
     },
     {
       "id": "deepseek-r1-1.5b",
@@ -44,7 +50,10 @@
       "ramNote": "Great for 8 GB devices",
       "license": "MIT",
       "description": "Reasoning-first model — thinks step by step before answering. Slower per token, stronger on math and logic.",
-      "tags": ["Text", "Reasoning", "8 GB+", "Thinks"]
+      "tags": ["Text", "Reasoning", "8 GB+", "Thinks"],
+      "supportsTools": false,
+      "supportsReasoning": true,
+      "supportedCapabilities": ["text", "reasoning"]
     },
     {
       "id": "qwen3-0.6b",
@@ -59,7 +68,10 @@
       "ramNote": "Runs on almost any phone",
       "license": "Apache 2.0",
       "description": "Ultra-light model for older or low-RAM phones — instant responses, great for quick questions.",
-      "tags": ["Text", "Ultra-light", "4 GB+", "Fast"]
+      "tags": ["Text", "Ultra-light", "4 GB+", "Fast"],
+      "supportsTools": false,
+      "supportsReasoning": false,
+      "supportedCapabilities": ["text"]
     }
   ]
 }

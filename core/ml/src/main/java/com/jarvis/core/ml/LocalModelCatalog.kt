@@ -30,6 +30,8 @@ data class LocalModelSpec(
     val sizeBytes: Long = 0L,
     val ramRequirementBytes: Long = 0L,
     val contextLength: Int = 4096,
+    val supportsTools: Boolean = false,
+    val supportsReasoning: Boolean = false,
     val supportedCapabilities: List<String> = listOf("text"),
 )
 

@@ -19,12 +19,20 @@ class LocalLlmProvider(
         ProviderCapabilities(
             vision = false,
             maxContext = spec.contextLength,
-            supportsTools = true,
-            supportsReasoning = false,
+            supportsTools = spec.supportsTools,
+            supportsReasoning = spec.supportsReasoning,
         )
 
     override suspend fun listModels(): Result<List<ModelInfo>> =
-        Result.success(listOf(ModelInfo(id = spec.id, displayName = spec.displayName)))
+        Result.success(
+            listOf(
+                ModelInfo(
+                    id = spec.id,
+                    displayName = spec.displayName,
+                    supportsReasoning = spec.supportsReasoning,
+                ),
+            ),
+        )
 
     override fun streamChat(request: ChatRequest): Flow<ChatStreamEvent> {
         val effectiveSystemPrompt =

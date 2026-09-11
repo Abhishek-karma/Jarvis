@@ -19,6 +19,16 @@ class LocalLlmProviderTest {
             id = "gemma-2-2b-it",
             displayName = "Gemma 2 2B",
             fileName = "gemma.task",
+            supportsTools = true,
+        )
+
+    private val chatOnlySpec =
+        LocalModelSpec(
+            id = "qwen3-0.6b",
+            displayName = "Qwen 3 0.6B",
+            fileName = "qwen3.litertlm",
+            supportsTools = false,
+            supportsReasoning = false,
         )
 
     /** Engine replaying mock events or failing on demand. */
@@ -124,6 +134,14 @@ class LocalLlmProviderTest {
                     .single()
                     .id,
             )
+        }
+
+    @Test
+    fun `capabilities reflect chat-only model when supportsTools is false`() =
+        runTest {
+            val provider = LocalLlmProvider(id = "local-qwen", spec = chatOnlySpec, engine = FakeEngine())
+            assertTrue(!provider.capabilities.supportsTools)
+            assertTrue(!provider.capabilities.supportsReasoning)
         }
 
     @Test

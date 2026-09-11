@@ -108,7 +108,7 @@ class ChatViewModelTest {
         every { userPreferences.planFirstMode } returns MutableStateFlow(false)
 
         val savedStateHandle = androidx.lifecycle.SavedStateHandle()
-        val voiceManager = ChatVoiceManager(audioRecorder, audioPlayer, sttProvider, ttsProvider)
+        val voiceManager = ChatVoiceManager(audioRecorder, audioPlayer, sttProvider, ttsProvider, com.jarvis.core.voice.VoiceStateMachine())
         val contextManager = ConversationContextManager(io.mockk.mockk(relaxed = true), userPreferences)
 
         viewModel =
@@ -991,7 +991,7 @@ class ChatViewModelTest {
     private fun viewModelWith(vararg tools: Tool) {
         val registry = ToolRegistry()
         tools.forEach { registry.register(it) }
-        val voiceManager = ChatVoiceManager(audioRecorder, audioPlayer, sttProvider, ttsProvider)
+        val voiceManager = ChatVoiceManager(audioRecorder, audioPlayer, sttProvider, ttsProvider, com.jarvis.core.voice.VoiceStateMachine())
         val contextManager = ConversationContextManager(io.mockk.mockk(relaxed = true), userPreferences)
         viewModel =
             ChatViewModel(

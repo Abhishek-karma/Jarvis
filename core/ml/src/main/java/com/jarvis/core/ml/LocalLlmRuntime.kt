@@ -1,8 +1,11 @@
 package com.jarvis.core.ml
 
+import android.content.ComponentCallbacks2
 import android.content.Context
+import android.content.res.Configuration
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.util.Log
 import com.jarvis.core.common.DispatcherProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -56,7 +59,26 @@ class LocalLlmRuntime(
     @Volatile
     var lastFailure: String? = null
 
+    private val memoryCallbacks = object : ComponentCallbacks2 {
+        override fun onTrimMemory(level: Int) {
+            if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+                level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE ||
+                level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN
+            ) {
+                Log.i("LocalLlmRuntime", "Memory pressure (level=$level); releasing cached on-device LLM engine")
+                scope.launch { releaseEngine() }
+            }
+        }
+
+        override fun onConfigurationChanged(newConfig: Configuration) { /* no-op */ }
+        override fun onLowMemory() {
+            Log.i("LocalLlmRuntime", "onLowMemory triggered; releasing cached on-device LLM engine")
+            scope.launch { releaseEngine() }
+        }
+    }
+
     init {
+        runCatching { appContext.registerComponentCallbacks(memoryCallbacks) }
         scope.launch {
             store.status.collectLatest { state ->
                 if (state is LocalModelState.Ready) {

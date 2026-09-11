@@ -30,6 +30,7 @@ import com.jarvis.core.ml.LocalModelStore
 import com.jarvis.core.navigation.Routes
 import com.jarvis.core.preferences.ChatMode
 import com.jarvis.core.preferences.UserPreferencesRepository
+import com.jarvis.core.voice.VoiceSessionState
 import com.jarvis.core.network.CategorizedProviderError
 import com.jarvis.core.network.ChatRequest
 import com.jarvis.core.network.ChatStreamEvent
@@ -109,11 +110,23 @@ class ChatViewModel
 
         private val contextManager = ContextManager()
 
-        private suspend fun buildMemoryContext(): String? =
-            conversationContextManager.buildMemoryContext(_uiState.value.activeRoute)
+        private suspend fun buildMemoryContext(userQuery: String? = null): String? =
+            conversationContextManager.buildMemoryContext(_uiState.value.activeRoute, userQuery)
 
-        private fun buildAssistantSystemPrompt(memoryContext: String?): String =
-            conversationContextManager.buildAssistantSystemPrompt(memoryContext)
+        private fun buildAssistantSystemPrompt(
+            memoryContext: String?,
+            isLocal: Boolean = false,
+            isVoiceMode: Boolean = false,
+            planFirst: Boolean = false,
+            webToolsAvailable: Boolean = true,
+        ): String =
+            conversationContextManager.buildAssistantSystemPrompt(
+                memoryContext = memoryContext,
+                isLocal = isLocal,
+                isVoiceMode = isVoiceMode,
+                planFirst = planFirst,
+                webToolsAvailable = webToolsAvailable,
+            )
 
         private suspend fun extractAndSaveLearnedContext(userText: String) {
             conversationContextManager.extractAndSaveLearnedContext(userText)
@@ -176,8 +189,33 @@ class ChatViewModel
                 userPreferences.localInternetAccess.collect { allowed -> localInternetAccess = allowed }
             }
 
+            viewModelScope.launch(dispatchers.main) {
+                voiceManager.voiceState.collect { state ->
+                    _uiState.update { current ->
+                        val updatedStatus = when {
+                            state is VoiceSessionState.Speaking -> AgentStatus.SPEAKING
+                            current.agentStatus == AgentStatus.SPEAKING && state !is VoiceSessionState.Speaking -> AgentStatus.COMPLETED
+                            else -> current.agentStatus
+                        }
+                        current.copy(
+                            voiceState = state,
+                            agentStatus = updatedStatus,
+                        )
+                    }
+                }
+            }
 
+            viewModelScope.launch(dispatchers.main) {
+                voiceManager.isVoiceModeActive.collect { active ->
+                    _uiState.update { it.copy(isVoiceModeActive = active) }
+                }
+            }
 
+            viewModelScope.launch(dispatchers.main) {
+                voiceManager.isSpeakerMuted.collect { muted ->
+                    _uiState.update { it.copy(isSpeakerMuted = muted) }
+                }
+            }
 
             viewModelScope.launch(dispatchers.main) {
                 conversationRepository.observeConversations().collect { conversations ->
@@ -573,6 +611,8 @@ class ChatViewModel
         fun cancelStreaming() {
             streamJob?.cancel()
             streamJob = null
+            pendingGate?.complete(false)
+            pendingGate = null
             viewModelScope.launch(dispatchers.main) {
                 val streamingMessage = _uiState.value.messages.lastOrNull { it.status == MessageStatus.STREAMING }
                 if (streamingMessage != null) {
@@ -580,14 +620,19 @@ class ChatViewModel
                         streamingMessage.copy(status = MessageStatus.STOPPED),
                     )
                 }
+                val updatedSteps = _uiState.value.agentSteps.map {
+                    if (it.state == AgentStepState.RUNNING) it.copy(state = AgentStepState.CANCELLED) else it
+                }
                 _uiState.update {
                     it.copy(
                         isStreaming = false,
                         isAgentRunning = false,
+                        agentStatus = if (it.isAgentRunning || it.agentStatus.isActive) AgentStatus.CANCELLED else it.agentStatus,
                         pendingConfirmation = null,
-                        agentSteps = emptyList(),
+                        agentSteps = updatedSteps,
                     )
                 }
+                voiceManager.onAgentCancelled()
             }
         }
 
@@ -716,7 +761,12 @@ class ChatViewModel
             if (allow && alwaysForChat && pendingTool != null) {
                 sessionApprovedTools.add(pendingTool)
             }
-            _uiState.update { it.copy(pendingConfirmation = null) }
+            _uiState.update {
+                it.copy(
+                    pendingConfirmation = null,
+                    agentStatus = if (allow) AgentStatus.RUNNING_TOOL else AgentStatus.CANCELLED,
+                )
+            }
             pendingGate?.complete(allow)
             pendingGate = null
         }
@@ -756,9 +806,17 @@ class ChatViewModel
             model: String,
             reasoningRequested: Boolean = false,
         ) {
-            _uiState.update { it.copy(isAgentRunning = true, agentSteps = emptyList()) }
+            val planFirst = userPreferences.planFirstMode.firstOrNull() ?: false
+            val initialStatus = if (planFirst) AgentStatus.PLANNING else AgentStatus.THINKING
+            _uiState.update {
+                it.copy(
+                    isAgentRunning = true,
+                    agentStatus = initialStatus,
+                    agentFailureReason = null,
+                    agentSteps = emptyList(),
+                )
+            }
             val history = conversationRepository.getMessages(conversationId)
-
 
             val webAllowed =
                 _uiState.value.activeRoute != RoutingOverride.LOCAL || localInternetAccess
@@ -773,9 +831,7 @@ class ChatViewModel
                     forceConfirm = cautiousMode,
                     disabledTools = disabledToolNames,
                 )
-            val memoryContext = buildMemoryContext()
-
-            val planFirst = userPreferences.planFirstMode.firstOrNull() ?: false
+            val memoryContext = buildMemoryContext(history.lastOrNull { it.role == MessageRole.USER }?.content)
 
             val request =
                 AgentRunRequest(
@@ -785,8 +841,9 @@ class ChatViewModel
                     reasoningRequested = reasoningRequested,
                     memoryContext = memoryContext,
                     planFirst = planFirst,
+                    isVoiceMode = _uiState.value.isVoiceModeActive,
+                    isLocal = _uiState.value.activeRoute == RoutingOverride.LOCAL,
                 )
-
 
             val steps = mutableListOf<AgentStep>()
             var runningSinceMs = 0L
@@ -827,9 +884,9 @@ class ChatViewModel
                 }
             }
 
-            fun push(text: String) {
+            fun push(text: String, toolName: String? = null) {
                 runningSinceMs = System.currentTimeMillis()
-                steps += AgentStep(text = text)
+                steps += AgentStep(text = text, toolName = toolName)
                 publish()
             }
 
@@ -837,37 +894,98 @@ class ChatViewModel
             try {
                 runner.run(request).collect { event ->
                     when (event) {
-                        AgentEvent.RunStarted, is AgentEvent.IterationStarted, is AgentEvent.ToolExecuting -> Unit
-                        is AgentEvent.ToolRequested -> push("Calling ${event.name}")
-                        is AgentEvent.ConfirmationRequired ->
+                        AgentEvent.RunStarted -> {
+                            _uiState.update {
+                                it.copy(
+                                    agentStatus = if (planFirst) AgentStatus.PLANNING else AgentStatus.THINKING,
+                                )
+                            }
+                        }
+                        is AgentEvent.IterationStarted -> {
+                            if (event.step > 1) {
+                                _uiState.update { it.copy(agentStatus = AgentStatus.THINKING_AGAIN) }
+                                voiceManager.onAgentPlanning()
+                            } else {
+                                _uiState.update { it.copy(agentStatus = if (planFirst) AgentStatus.PLANNING else AgentStatus.THINKING) }
+                                voiceManager.onAgentPlanning()
+                            }
+                        }
+                        is AgentEvent.ToolRequested -> {
+                            _uiState.update { it.copy(agentStatus = AgentStatus.SELECTING_TOOL) }
+                            completeRunning(AgentStepState.DONE)
+                            push("Calling ${event.name}", toolName = event.name)
+                            voiceManager.onAgentExecuting(event.name, "")
+                        }
+                        is AgentEvent.ConfirmationRequired -> {
+                            _uiState.update {
+                                it.copy(
+                                    agentStatus = AgentStatus.WAITING_FOR_APPROVAL,
+                                    pendingConfirmation = AgentConfirmation(event.name, event.argsJson),
+                                )
+                            }
                             updateRunning("Needs your approval: ${event.name}")
-                        is AgentEvent.ToolExecuted ->
+                            voiceManager.onAgentWaitingForApproval(event.name, event.argsJson)
+                        }
+                        is AgentEvent.ToolExecuting -> {
+                            _uiState.update { it.copy(agentStatus = AgentStatus.RUNNING_TOOL) }
+                            updateRunning("Running ${event.name}…")
+                            voiceManager.onAgentExecuting(event.name, "")
+                        }
+                        is AgentEvent.ToolExecuted -> {
+                            _uiState.update { it.copy(agentStatus = AgentStatus.READING_RESULT) }
                             completeRunning(
-                                if (event.success) AgentStepState.DONE else AgentStepState.FAILED,
-                                if (event.success) "${event.name} done" else "${event.name} failed",
-                                event.observationText.take(OBSERVATION_PREVIEW_CHARS).ifBlank { null },
+                                state = if (event.success) AgentStepState.DONE else AgentStepState.FAILED,
+                                text = if (event.success) "${event.name} done" else "${event.name} failed",
+                                detail = event.observationText.take(OBSERVATION_PREVIEW_CHARS).ifBlank { null },
                             )
-                        is AgentEvent.ToolRejected ->
+                        }
+                        is AgentEvent.ToolRejected -> {
+                            _uiState.update { it.copy(agentStatus = AgentStatus.READING_RESULT) }
                             completeRunning(
-                                AgentStepState.FAILED,
-                                "Rejected ${event.name}",
-                                event.reason.take(OBSERVATION_PREVIEW_CHARS).ifBlank { null },
+                                state = AgentStepState.FAILED,
+                                text = "Rejected ${event.name}",
+                                detail = event.reason.take(OBSERVATION_PREVIEW_CHARS).ifBlank { null },
                             )
-                        is AgentEvent.ToolCancelled -> completeRunning(AgentStepState.DONE, "Denied ${event.name}")
+                        }
+                        is AgentEvent.ToolCancelled -> {
+                            completeRunning(AgentStepState.DONE, "Denied ${event.name}")
+                            _uiState.update {
+                                it.copy(
+                                    agentStatus = AgentStatus.CANCELLED,
+                                    isAgentRunning = false,
+                                    pendingConfirmation = null,
+                                )
+                            }
+                            voiceManager.onAgentCancelled()
+                        }
                         is AgentEvent.FinalAnswer -> {
                             answerText = event.text
                             completeRunning(AgentStepState.DONE)
+                            if (_uiState.value.isVoiceModeActive) {
+                                _uiState.update { it.copy(agentStatus = AgentStatus.SPEAKING) }
+                            } else {
+                                _uiState.update { it.copy(agentStatus = AgentStatus.COMPLETED) }
+                            }
                         }
                         is AgentEvent.Failed -> {
                             completeRunning(
-                                AgentStepState.FAILED,
-                                "Failed: ${event.code}",
-                                event.message.take(OBSERVATION_PREVIEW_CHARS).ifBlank { null },
+                                state = AgentStepState.FAILED,
+                                text = "Failed: ${event.code}",
+                                detail = event.message.take(OBSERVATION_PREVIEW_CHARS).ifBlank { null },
                             )
+                            _uiState.update {
+                                it.copy(
+                                    agentStatus = AgentStatus.FAILED,
+                                    agentFailureReason = event.message,
+                                    isAgentRunning = false,
+                                )
+                            }
+                            voiceManager.onAgentError(event.message)
                             _uiEvents.tryEmit(ChatUiEvent.ShowError("${event.message} (${event.code})"))
                         }
                         is AgentEvent.StepCapReached -> {
                             completeRunning(AgentStepState.DONE)
+                            _uiState.update { it.copy(agentStatus = AgentStatus.COMPLETED) }
                             _uiEvents.tryEmit(
                                 ChatUiEvent.ShowNotice("Agent hit its step limit after ${event.stepsUsed} steps."),
                             )
@@ -875,12 +993,26 @@ class ChatViewModel
                     }
                 }
             } catch (e: CancellationException) {
+                completeRunning(AgentStepState.CANCELLED, "Cancelled")
+                _uiState.update {
+                    it.copy(
+                        agentStatus = AgentStatus.CANCELLED,
+                        isAgentRunning = false,
+                        pendingConfirmation = null,
+                    )
+                }
+                voiceManager.onAgentCancelled()
                 throw e
             } catch (t: Throwable) {
-
-
-
                 completeRunning(AgentStepState.FAILED, "Agent failed", t.message?.take(OBSERVATION_PREVIEW_CHARS))
+                _uiState.update {
+                    it.copy(
+                        agentStatus = AgentStatus.FAILED,
+                        agentFailureReason = t.message ?: "Agent failed",
+                        isAgentRunning = false,
+                    )
+                }
+                voiceManager.onAgentError(t.message ?: "Agent failed")
                 _uiEvents.tryEmit(ChatUiEvent.ShowError(t.message ?: "Agent run failed"))
             }
 
@@ -894,8 +1026,28 @@ class ChatViewModel
                         routeUsed = lastRouteReason,
                     ),
                 )
+                if (_uiState.value.isVoiceModeActive) {
+                    voiceManager.speakAssistantResponse(
+                        text = answerText,
+                        scope = viewModelScope,
+                        mainDispatcher = dispatchers.main,
+                        onUserSpeechFinal = { recognized ->
+                            _uiState.update { it.copy(composerText = recognized) }
+                            sendMessage()
+                        },
+                        onError = { error ->
+                            _uiEvents.tryEmit(ChatUiEvent.ShowError(error))
+                        },
+                    )
+                }
             }
-            _uiState.update { it.copy(isStreaming = false, isAgentRunning = false) }
+            _uiState.update {
+                it.copy(
+                    isStreaming = false,
+                    isAgentRunning = false,
+                    agentStatus = if (it.agentStatus.isActive) AgentStatus.COMPLETED else it.agentStatus,
+                )
+            }
         }
 
         private suspend fun awaitConfirmation(
@@ -907,7 +1059,12 @@ class ChatViewModel
             }
             val gate = CompletableDeferred<Boolean>()
             pendingGate = gate
-            _uiState.update { it.copy(pendingConfirmation = AgentConfirmation(toolName, argsJson)) }
+            _uiState.update {
+                it.copy(
+                    agentStatus = AgentStatus.WAITING_FOR_APPROVAL,
+                    pendingConfirmation = AgentConfirmation(toolName, argsJson),
+                )
+            }
             return gate.await()
         }
 
@@ -940,8 +1097,18 @@ class ChatViewModel
             val cleanHistory = allMessages.filterNot { it.role == MessageRole.TOOL }
             val compacted = contextManager.compactHistory(cleanHistory, historyTokenBudget = 3200)
 
-            val memoryContext = buildMemoryContext()
-            val systemPrompt = buildAssistantSystemPrompt(memoryContext)
+            val isLocal = _uiState.value.activeRoute == RoutingOverride.LOCAL
+            val isVoice = _uiState.value.isVoiceModeActive
+            val webAvailable = !isLocal || localInternetAccess
+            val lastUserQuery = cleanHistory.lastOrNull { it.role == MessageRole.USER }?.content
+            val memoryContext = buildMemoryContext(lastUserQuery)
+            val systemPrompt = buildAssistantSystemPrompt(
+                memoryContext = memoryContext,
+                isLocal = isLocal,
+                isVoiceMode = isVoice,
+                planFirst = false,
+                webToolsAvailable = webAvailable,
+            )
 
             val assistantMessage =
                 Message(
@@ -1027,10 +1194,25 @@ class ChatViewModel
                     ),
                 )
                 _uiState.update { it.copy(isStreaming = false) }
+                voiceManager.onAgentError("${categorized.title}: ${categorized.description}")
                 _uiEvents.tryEmit(ChatUiEvent.ShowError("${categorized.title}: ${categorized.description}"))
             } else {
                 persist(MessageStatus.COMPLETE)
                 _uiState.update { it.copy(isStreaming = false) }
+                if (_uiState.value.isVoiceModeActive && text.isNotBlank()) {
+                    voiceManager.speakAssistantResponse(
+                        text = text.toString(),
+                        scope = viewModelScope,
+                        mainDispatcher = dispatchers.main,
+                        onUserSpeechFinal = { recognized ->
+                            _uiState.update { it.copy(composerText = recognized) }
+                            sendMessage()
+                        },
+                        onError = { msg ->
+                            _uiEvents.tryEmit(ChatUiEvent.ShowError(msg))
+                        },
+                    )
+                }
             }
         }
 
@@ -1055,6 +1237,61 @@ class ChatViewModel
 
         /** Per-provider model-id cache backing [providerModel]. */
         private var cachedModels: Pair<String, List<String>>? = null
+
+        fun startVoiceMode() {
+            voiceManager.startVoiceMode(
+                scope = viewModelScope,
+                mainDispatcher = dispatchers.main,
+                onUserSpeechFinal = { text ->
+                    _uiState.update { it.copy(composerText = text) }
+                    sendMessage()
+                },
+                onError = { message ->
+                    _uiEvents.tryEmit(ChatUiEvent.ShowError(message))
+                },
+            )
+        }
+
+        fun stopVoiceMode() {
+            voiceManager.stopVoiceMode(
+                scope = viewModelScope,
+                mainDispatcher = dispatchers.main,
+            )
+        }
+
+        fun toggleSpeakerMute() {
+            voiceManager.toggleSpeakerMute(
+                scope = viewModelScope,
+                mainDispatcher = dispatchers.main,
+                onSpeechResume = {
+                    voiceManager.startLiveListening(
+                        scope = viewModelScope,
+                        mainDispatcher = dispatchers.main,
+                        onUserSpeechFinal = { text ->
+                            _uiState.update { it.copy(composerText = text) }
+                            sendMessage()
+                        },
+                        onError = { message ->
+                            _uiEvents.tryEmit(ChatUiEvent.ShowError(message))
+                        },
+                    )
+                },
+            )
+        }
+
+        fun interruptSpeaking() {
+            voiceManager.interruptSpeaking(
+                scope = viewModelScope,
+                mainDispatcher = dispatchers.main,
+                onUserSpeechFinal = { text ->
+                    _uiState.update { it.copy(composerText = text) }
+                    sendMessage()
+                },
+                onError = { message ->
+                    _uiEvents.tryEmit(ChatUiEvent.ShowError(message))
+                },
+            )
+        }
 
         fun toggleRecording() {
             voiceManager.toggleRecording(
@@ -1112,6 +1349,9 @@ class ChatViewModel
         }
 
         override fun onCleared() {
+            cancelStreaming()
+            pendingGate?.complete(false)
+            pendingGate = null
             voiceManager.release(viewModelScope, dispatchers.main)
             super.onCleared()
         }

@@ -9,14 +9,18 @@ import javax.inject.Singleton
 sealed interface VoiceSessionState {
     data object Idle : VoiceSessionState
     data class Listening(val amplitude: Float = 0f) : VoiceSessionState
-    data class Processing(val transcript: String) : VoiceSessionState
+    data class Thinking(val query: String = "") : VoiceSessionState
+    data class Planning(val query: String = "") : VoiceSessionState
+    data class Executing(val toolName: String = "", val step: String = "") : VoiceSessionState
+    data class WaitingForApproval(val toolName: String, val argsJson: String) : VoiceSessionState
     data class Speaking(val utterance: String, val progress: Float = 0f) : VoiceSessionState
+    data class Error(val message: String, val recoverable: Boolean = true) : VoiceSessionState
+    data object Cancelled : VoiceSessionState
     data object Interrupted : VoiceSessionState
-    data class Error(val message: String) : VoiceSessionState
 }
 
 /**
- * State machine governing continuous hands-free voice sessions with barge-in support.
+ * State machine governing explicit continuous hands-free voice sessions with barge-in support.
  */
 @Singleton
 class VoiceStateMachine @Inject constructor() {
@@ -34,8 +38,24 @@ class VoiceStateMachine @Inject constructor() {
         }
     }
 
+    fun onThinking(query: String = "") {
+        _state.value = VoiceSessionState.Thinking(query)
+    }
+
+    fun onPlanning(query: String = "") {
+        _state.value = VoiceSessionState.Planning(query)
+    }
+
+    fun onExecuting(toolName: String, step: String = "") {
+        _state.value = VoiceSessionState.Executing(toolName = toolName, step = step)
+    }
+
+    fun onWaitingForApproval(toolName: String, argsJson: String) {
+        _state.value = VoiceSessionState.WaitingForApproval(toolName = toolName, argsJson = argsJson)
+    }
+
     fun onSpeechRecognized(transcript: String) {
-        _state.value = VoiceSessionState.Processing(transcript)
+        _state.value = VoiceSessionState.Thinking(transcript)
     }
 
     fun onStartSpeaking(utterance: String) {
@@ -49,20 +69,24 @@ class VoiceStateMachine @Inject constructor() {
         }
     }
 
-    fun onBargeIn() {
+    fun onInterrupted() {
         _state.value = VoiceSessionState.Interrupted
-        _state.value = VoiceSessionState.Listening(0f)
     }
 
     fun onPlaybackFinished(continueListening: Boolean = true) {
         _state.value = if (continueListening) VoiceSessionState.Listening(0f) else VoiceSessionState.Idle
     }
 
-    fun onError(message: String) {
-        _state.value = VoiceSessionState.Error(message)
+    fun onError(message: String, recoverable: Boolean = true) {
+        _state.value = VoiceSessionState.Error(message, recoverable)
+    }
+
+    fun onCancelled() {
+        _state.value = VoiceSessionState.Cancelled
     }
 
     fun onStop() {
         _state.value = VoiceSessionState.Idle
     }
 }
+

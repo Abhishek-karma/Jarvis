@@ -1,6 +1,5 @@
 package com.jarvis.core.ml
 
-import com.jarvis.core.common.Message
 import com.jarvis.core.common.MessageRole
 import com.jarvis.core.network.ChatRequest
 
@@ -17,7 +16,14 @@ object LocalPromptBuilder {
                     val line =
                         when (message.role) {
                             MessageRole.USER -> "User: ${message.content}"
-                            MessageRole.ASSISTANT -> message.content.takeIf { it.isNotBlank() }?.let { "Assistant: $it" }
+                            MessageRole.ASSISTANT -> {
+                                if (!message.toolCallName.isNullOrBlank()) {
+                                    val action = "Assistant [Action: ${message.toolCallName}(${message.toolCallArgsJson.orEmpty()})]"
+                                    if (message.content.isNotBlank()) "$action ${message.content}" else action
+                                } else {
+                                    message.content.takeIf { it.isNotBlank() }?.let { "Assistant: $it" }
+                                }
+                            }
                             MessageRole.TOOL -> "Tool Result: ${message.content}"
                             MessageRole.SYSTEM -> "System: ${message.content}"
                         }
@@ -28,4 +34,3 @@ object LocalPromptBuilder {
         return lines.joinToString("\n\n") + "\n\nAssistant:"
     }
 }
-
