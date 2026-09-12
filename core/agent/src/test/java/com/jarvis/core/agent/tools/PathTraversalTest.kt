@@ -15,9 +15,10 @@ class PathTraversalTest {
             Result.success("/path")
         }
         val result = tool.execute("""{"file_name": "../../etc/passwd", "content": "pwned"}""")
-        // The tool should reject traversal attempts
+        // The tool should reject traversal attempts and never invoke the create lambda
         assertFalse(result.success)
-        assertTrue(result.error?.contains("path") == true || result.error?.contains("..") == true || result.error?.contains("separator") == true)
+        assertFalse(wasCreated, "create lambda must not be invoked on traversal input")
+        assertTrue(result.error?.contains("file_name") == true)
     }
 
     @Test
@@ -29,6 +30,7 @@ class PathTraversalTest {
         }
         val result = tool.execute("""{"file_name": "subdir/../etc/passwd", "content": "pwned"}""")
         assertFalse(result.success)
+        assertFalse(wasCreated, "create lambda must not be invoked on traversal input")
     }
 
     @Test
@@ -40,5 +42,6 @@ class PathTraversalTest {
         }
         val result = tool.execute("""{"file_name": "subdir\\..\\etc\\passwd", "content": "pwned"}""")
         assertFalse(result.success)
+        assertFalse(wasCreated, "create lambda must not be invoked on traversal input")
     }
 }
