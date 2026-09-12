@@ -6,6 +6,7 @@ import com.jarvis.core.network.ChatStreamEvent
 import com.jarvis.core.network.LlmProvider
 import com.jarvis.core.network.ProviderCapabilities
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 
 class LocalLlmProvider(
     override val id: String,
@@ -45,12 +46,47 @@ class LocalLlmProvider(
         val agentMode = !request.toolsAvailable.isNullOrEmpty()
         val temperature = if (agentMode) AGENT_TEMPERATURE else CHAT_TEMPERATURE
 
-        return engine.streamChat(
-            conversationHistory = request.conversationHistory,
-            systemPrompt = effectiveSystemPrompt,
-            tools = request.toolsAvailable,
-            temperature = temperature,
-        )
+        val upstream =
+            engine.streamChat(
+                conversationHistory = request.conversationHistory,
+                systemPrompt = effectiveSystemPrompt,
+                tools = request.toolsAvailable,
+                temperature = temperature,
+            )
+        if (!agentMode) return upstream
+
+        // Agent mode: buffer text deltas so a text-embedded [[{"name":...,"args":{...}}]] call
+        // is converted into a ToolCallRequested event instead of leaking raw markup into the
+        // chat as the assistant's visible reply. Native tool calls pass through (deduplicated).
+        return flow {
+            val textBuffer = StringBuilder()
+            val emittedToolKeys = mutableSetOf<String>()
+            var failed = false
+            upstream.collect { event ->
+                when (event) {
+                    is ChatStreamEvent.ToolCallRequested -> {
+                        if (emittedToolKeys.add(event.name + "\n" + event.argsJson)) emit(event)
+                    }
+                    is ChatStreamEvent.TokenDelta -> textBuffer.append(event.text)
+                    is ChatStreamEvent.Error -> {
+                        failed = true
+                        emit(event)
+                    }
+                    is ChatStreamEvent.Done -> Unit // re-emitted below, after text parsing
+                    is ChatStreamEvent.ReasoningDelta, is ChatStreamEvent.Usage -> emit(event)
+                }
+            }
+            if (failed) return@flow
+            val fullText = textBuffer.toString()
+            val prose = ToolCallParser.stripToolCalls(fullText).trim()
+            if (prose.isNotEmpty()) emit(ChatStreamEvent.TokenDelta(prose))
+            for (call in ToolCallParser.parseAll(fullText)) {
+                if (emittedToolKeys.add(call.name + "\n" + call.argsJson)) {
+                    emit(ChatStreamEvent.ToolCallRequested(name = call.name, argsJson = call.argsJson))
+                }
+            }
+            emit(ChatStreamEvent.Done)
+        }
     }
 
     override fun close() {

@@ -171,6 +171,11 @@ object PromptBuilder {
         if (config.planFirst) {
             appendLine("7. Formulate a brief step-by-step plan before acting.")
         }
+        if (config.availableToolNames.isNotEmpty()) {
+            appendLine("[Tool Calling]")
+            appendLine("Available tools: ${config.availableToolNames.sorted().joinToString(", ")}")
+            appendLine("To use a tool, respond with exactly [[{\"name\":\"tool_name\",\"args\":{...}}]] and wait for the Tool Result before continuing.")
+        }
         if (!config.memoryContext.isNullOrBlank()) {
             appendLine("[Memory]\n${config.memoryContext.trim()}")
         }

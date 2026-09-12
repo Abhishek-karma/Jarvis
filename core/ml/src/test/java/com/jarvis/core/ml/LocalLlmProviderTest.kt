@@ -222,5 +222,38 @@ class LocalLlmProviderTest {
             val events = provider.streamChat(request()).toList()
             assertTrue(events.none { it is ChatStreamEvent.ToolCallRequested })
         }
+
+    @Test
+    fun `text-embedded tool call is converted to ToolCallRequested without leaking markup`() =
+        runTest {
+            val engine =
+                FakeEngine(
+                    eventsToEmit = listOf(
+                        ChatStreamEvent.TokenDelta("I'll check. "),
+                        ChatStreamEvent.TokenDelta("[[{\"name\":\"battery_level\",\"args\":{}}]]"),
+                        ChatStreamEvent.Done,
+                    ),
+                )
+            val provider = LocalLlmProvider(id = "local-gemma", spec = spec, engine = engine)
+            val request =
+                ChatRequest(
+                    conversationHistory =
+                        listOf(
+                            Message(id = "1", conversationId = "c", role = MessageRole.USER, content = "Battery?"),
+                        ),
+                    model = spec.id,
+                    toolsAvailable = listOf(ToolDefinition("battery_level", "Get battery", "{}")),
+                )
+
+            val events = provider.streamChat(request).toList()
+
+            val call = events.filterIsInstance<ChatStreamEvent.ToolCallRequested>().singleOrNull()
+            assertTrue(call != null && call.name == "battery_level")
+            val text = events.filterIsInstance<ChatStreamEvent.TokenDelta>().joinToString("") { it.text }
+            assertTrue(text.contains("I'll check."))
+            assertTrue(!text.contains("[["))
+            assertTrue(!text.contains("battery_level"))
+            assertTrue(events.any { it is ChatStreamEvent.Done })
+        }
 }
 
