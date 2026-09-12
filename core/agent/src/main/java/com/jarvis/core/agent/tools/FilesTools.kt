@@ -71,7 +71,17 @@ object FilesTools {
                     )
                 }
 
-                return create(fileName.trim(), content, location?.trim()).fold(
+                // Block path traversal attempts (dot-dot, forward slash, backslash)
+                val trimmedName = fileName.trim()
+                if (trimmedName.contains("..") || trimmedName.contains("/") || trimmedName.contains("\\")) {
+                    return ToolResult(
+                        success = false,
+                        observationText = "Invalid file name: path separators and '..' are not allowed.",
+                        error = "invalid file_name",
+                    )
+                }
+
+                return create(trimmedName, content, location?.trim()).fold(
                     onSuccess = { savedPath ->
                         ToolResult(
                             success = true,
@@ -117,7 +127,16 @@ object FilesTools {
                         error = "path is required",
                     )
                 }
-                return read(path.trim()).fold(
+                // Block path traversal attempts in read path
+                val trimmedPath = path.trim()
+                if (trimmedPath.contains("..")) {
+                    return ToolResult(
+                        success = false,
+                        observationText = "Invalid path: '..' is not allowed.",
+                        error = "invalid path",
+                    )
+                }
+                return read(trimmedPath).fold(
                     onSuccess = { content ->
                         val truncated = content.length > MAX_CHARS
                         val text = if (truncated) content.take(MAX_CHARS) + "\n...[truncated to $MAX_CHARS chars]" else content.ifEmpty { "(empty file)" }
