@@ -53,11 +53,31 @@ class LocalLlmProvider(
                 tools = request.toolsAvailable,
                 temperature = temperature,
             )
-        if (!agentMode) return upstream
-
-        // Agent mode: buffer text deltas so a text-embedded [[{"name":...,"args":{...}}]] call
-        // is converted into a ToolCallRequested event instead of leaking raw markup into the
-        // chat as the assistant's visible reply. Native tool calls pass through (deduplicated).
+        // Agent mode: buffer text deltas so embedded tool markup ([[...]] / <|toolcall|>) is
+        // converted into ToolCallRequested events, never user-visible text. In plain chat a
+        // ToolCallRequested is a protocol mismatch — surface it, never drop it silently.
+        if (!agentMode) {
+            return flow {
+                var sawToolCall = false
+                upstream.collect { event ->
+                    if (event is ChatStreamEvent.ToolCallRequested) {
+                        sawToolCall = true
+                    } else {
+                        emit(event)
+                    }
+                }
+                if (sawToolCall) {
+                    emit(
+                        ChatStreamEvent.Error(
+                            code = "local_protocol",
+                            message = "On-device model returned a tool call outside an agent run. " +
+                                "Retry with an action request (agent mode) so the tool can be validated and executed safely.",
+                            retryable = false,
+                        ),
+                    )
+                }
+            }
+        }
         return flow {
             val textBuffer = StringBuilder()
             val emittedToolKeys = mutableSetOf<String>()

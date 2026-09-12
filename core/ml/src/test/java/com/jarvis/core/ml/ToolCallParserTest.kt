@@ -57,4 +57,52 @@ class ToolCallParserTest {
         val text = "hello [[oops"
         assertEquals(text, ToolCallParser.stripToolCalls(text))
     }
+
+    @Test
+    fun `parses observed on-device gemma toolcall markup`() {
+        val text = "<|toolcall|>call:devicecontrol:createfile{filename:\"welcome.txt\",content:\"welcome\"}<tool_call>"
+        val calls = ToolCallParser.parseAll(text)
+        assertEquals(1, calls.size)
+        assertEquals("create_file", calls[0].name)
+        assertTrue(calls[0].argsJson.contains("\"filename\":\"welcome.txt\""))
+        assertTrue(calls[0].argsJson.contains("\"content\":\"welcome\""))
+    }
+
+    @Test
+    fun `gemma markup with surrounding prose keeps prose and strips protocol`() {
+        val text = "Creating it <|toolcall|>call:devicecontrol:createfile{filename:\"w.txt\",content:\"hi\"}<tool_call> now"
+        assertEquals(1, ToolCallParser.parseAll(text).size)
+        val stripped = ToolCallParser.stripToolCalls(text)
+        assertTrue(!stripped.contains("toolcall", ignoreCase = true))
+        assertTrue(!stripped.contains("devicecontrol", ignoreCase = true))
+        assertTrue(stripped.contains("Creating it"))
+    }
+
+    @Test
+    fun `gemma unknown tool names surface raw so the agent layer rejects them`() {
+        // Well-formed calls with unresolvable names must not vanish silently: they are
+        // returned with the raw name and rejected by the ToolRegistry lookup.
+        assertEquals(
+            "devicecontrol:delete_everything",
+            ToolCallParser.parseAll("<|toolcall|>call:devicecontrol:delete_everything{}<tool_call>").single().name,
+        )
+        assertEquals(
+            "unknown:foo",
+            ToolCallParser.parseAll("<|toolcall|>call:unknown:foo{}<tool_call>").single().name,
+        )
+        // Malformed calls (bad args, unbalanced, no call keyword) stay rejected.
+        assertTrue(ToolCallParser.parseAll("<|toolcall|>call:devicecontrol:createfile{filename:oops}<tool_call>").isEmpty())
+        assertTrue(ToolCallParser.parseAll("<|toolcall|>call:devicecontrol:createfile{filename:\"x\"").isEmpty())
+        assertTrue(ToolCallParser.parseAll("<|toolcall|>hello world<tool_call>").isEmpty())
+    }
+
+    @Test
+    fun `malformed gemma markers never leak raw protocol`() {
+        val stripped = ToolCallParser.stripToolCalls("<|toolcall|>call:devicecontrol:unknown{}<tool_call>")
+        assertTrue(!stripped.contains("toolcall", ignoreCase = true))
+        assertEquals(
+            "devicecontrol:unknown",
+            ToolCallParser.parseAll("<|toolcall|>call:devicecontrol:unknown{}<tool_call>").single().name,
+        )
+    }
 }

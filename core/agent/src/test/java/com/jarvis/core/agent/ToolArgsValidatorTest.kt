@@ -49,4 +49,20 @@ class ToolArgsValidatorTest {
     fun `schema with no constraints accepts anything parseable`() {
         assertTrue(validator.validate("""{}""", """{"whatever": true}""") is Valid)
     }
+
+    @Test
+    fun `file_name accepts filename alias from on-device models`() {
+        val schema =
+            """{"type":"object","properties":{"file_name":{"type":"string"},"content":{"type":"string"}},"required":["file_name","content"]}"""
+        // Observed Gemma output uses `filename` instead of the schema's `file_name`.
+        assertTrue(
+            validator.validate(schema, """{"filename":"welcome.txt","content":"welcome"}""") is Valid,
+        )
+        assertTrue(
+            validator.validate(schema, """{"name":"welcome.txt","content":"welcome"}""") is Valid,
+        )
+        assertTrue(
+            validator.validate(schema, """{"content":"welcome"}""") is Rejected,
+        )
+    }
 }

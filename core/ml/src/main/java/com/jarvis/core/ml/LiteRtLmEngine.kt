@@ -9,10 +9,9 @@ import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
-import com.google.ai.edge.litertlm.Message as LiteRtMessage
 import com.google.ai.edge.litertlm.OpenApiTool
 import com.google.ai.edge.litertlm.SamplerConfig
-import com.google.ai.edge.litertlm.ToolCall
+import com.google.ai.edge.litertlm.Message as LiteRtMessage
 import com.google.ai.edge.litertlm.tool
 import com.google.gson.Gson
 import com.google.gson.JsonObject
@@ -65,9 +64,12 @@ class LiteRtLmEngine private constructor(
             }
 
             val toolProviders = tools?.map { tool(LiteRtLmOpenApiTool(it)) }.orEmpty()
-            val nativeMessages = conversationHistory.map { toNativeMessage(it) }
-            val initialMessages = nativeMessages.dropLast(1)
-            val lastMessage = nativeMessages.last()
+            // Replay full history as initialMessages + an empty nudge: the tail may be a
+            // TOOL(result); dropLast(1)/last() would invert the tool protocol. The mapping
+            // in LiteRtMessageCodec is protocol-identical to a live LiteRT conversation —
+            // see its doc for the pairing guarantee.
+            val nativeMessages = conversationHistory.map { LiteRtMessageCodec.toNativeMessage(it) }
+            val lastMessage = Contents.of(Content.Text(""))
 
             val systemContents = systemPrompt?.takeIf { it.isNotBlank() }?.let { Contents.of(it) }
             val samplerConfig = temperature?.let {
@@ -77,7 +79,7 @@ class LiteRtLmEngine private constructor(
             val conversation = try {
                 val config = ConversationConfig(
                     systemInstruction = systemContents,
-                    initialMessages = initialMessages,
+                    initialMessages = nativeMessages,
                     tools = toolProviders,
                     samplerConfig = samplerConfig,
                     automaticToolCalling = false,
@@ -104,16 +106,25 @@ class LiteRtLmEngine private constructor(
                 val emittedToolCalls = mutableSetOf<String>()
 
                 conversation.sendMessageAsync(lastMessage).collect { message ->
-                    // 1. Process structured Tool Calls if emitted
+                    // Native structured tool calls win; STOP after this turn (AgentRunner owns
+                    // validation → policy → execution; next turn replays the updated history).
                     for (call in message.toolCalls) {
                         val argsJson = gson.toJson(call.arguments)
                         val callKey = "${call.name}:$argsJson"
-                        if (emittedToolCalls.add(callKey)) {
-                            trySend(ChatStreamEvent.ToolCallRequested(name = call.name, argsJson = argsJson))
+                        val canonical = LocalToolNameAliases.resolve(call.name)
+                        val effectiveName = canonical ?: call.name
+                        val effectiveKey = "$effectiveName:$argsJson"
+                        if (emittedToolCalls.add(callKey) && emittedToolCalls.add("canon:$effectiveKey")) {
+                            trySend(
+                                ChatStreamEvent.ToolCallRequested(
+                                    name = effectiveName,
+                                    argsJson = argsJson,
+                                ),
+                            )
                         }
                     }
 
-                    // 2. Process Text Deltas
+                    // Text fallback parsing ([[...]] / <|toolcall|>) lives in LocalLlmProvider.
                     val currentText = messageText(message)
                     if (currentText.isNotEmpty() && currentText != seenText) {
                         when {
@@ -173,74 +184,6 @@ class LiteRtLmEngine private constructor(
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         runCatching { engine.close() }
-    }
-
-    private fun toNativeMessage(message: Message): LiteRtMessage {
-        return when (message.role) {
-            MessageRole.USER -> {
-                LiteRtMessage.user(message.content)
-            }
-            MessageRole.SYSTEM -> {
-                LiteRtMessage.system(message.content)
-            }
-            MessageRole.ASSISTANT -> {
-                val callName = message.toolCallName
-                if (callName != null) {
-                    val argsMap: Map<String, Any> = runCatching {
-                        val jsonElem = JsonParser.parseString(message.toolCallArgsJson ?: "{}")
-                        if (jsonElem.isJsonObject) {
-                            jsonToMap(jsonElem.asJsonObject)
-                        } else emptyMap()
-                    }.getOrDefault(emptyMap())
-
-                    val toolCall = ToolCall(
-                        name = callName,
-                        arguments = argsMap,
-                    )
-                    val textContent = if (message.content.isNotEmpty()) {
-                        Contents.of(Content.Text(message.content))
-                    } else {
-                        Contents.of(Content.Text(""))
-                    }
-                    LiteRtMessage.model(
-                        contents = textContent,
-                        toolCalls = listOf(toolCall),
-                        channels = emptyMap(),
-                    )
-                } else {
-                    LiteRtMessage.model(message.content)
-                }
-            }
-            MessageRole.TOOL -> {
-                val toolResponse = Content.ToolResponse(
-                    name = message.toolCallName ?: "tool",
-                    response = message.content,
-                )
-                LiteRtMessage.tool(
-                    Contents.of(toolResponse),
-                )
-            }
-        }
-    }
-
-    private fun jsonToMap(json: JsonObject): Map<String, Any> {
-        val map = mutableMapOf<String, Any>()
-        for ((key, value) in json.entrySet()) {
-            when {
-                value.isJsonPrimitive -> {
-                    val prim = value.asJsonPrimitive
-                    when {
-                        prim.isBoolean -> map[key] = prim.asBoolean
-                        prim.isNumber -> map[key] = prim.asNumber
-                        else -> map[key] = prim.asString
-                    }
-                }
-                value.isJsonObject -> map[key] = jsonToMap(value.asJsonObject)
-                value.isJsonArray -> map[key] = value.asJsonArray.toString()
-                value.isJsonNull -> Unit
-            }
-        }
-        return map
     }
 
     /** Concatenates the text parts of a streamed [LiteRtMessage] (role + tool calls are dropped). */

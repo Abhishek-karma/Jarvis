@@ -174,7 +174,8 @@ object PromptBuilder {
         if (config.availableToolNames.isNotEmpty()) {
             appendLine("[Tool Calling]")
             appendLine("Available tools: ${config.availableToolNames.sorted().joinToString(", ")}")
-            appendLine("To use a tool, respond with exactly [[{\"name\":\"tool_name\",\"args\":{...}}]] and wait for the Tool Result before continuing.")
+            appendLine("Use the provided tools when they help fulfill the request. After requesting a tool, wait for its Tool Result before continuing.")
+            appendLine("Never print raw tool-call syntax or internal protocol markers.")
         }
         if (!config.memoryContext.isNullOrBlank()) {
             appendLine("[Memory]\n${config.memoryContext.trim()}")

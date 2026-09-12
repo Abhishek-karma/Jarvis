@@ -94,6 +94,22 @@ class LocalAgentToolCallingIntegrationTest {
         }
     }
 
+    /** Wraps FilesTools tools with an execution/args recorder for assertions. */
+    private class TrackingFileTool(
+        private val delegate: Tool,
+    ) : Tool by delegate {
+        var executions: Int = 0
+            private set
+        var lastArgs: String? = null
+            private set
+
+        override suspend fun execute(argsJson: String): ToolResult {
+            executions++
+            lastArgs = argsJson
+            return delegate.execute(argsJson)
+        }
+    }
+
     /**
      * Scriptable on-device engine simulating LiteRtLmEngine responses.
      */
@@ -646,5 +662,185 @@ class LocalAgentToolCallingIntegrationTest {
 
         assertFalse(provider.capabilities.supportsTools)
         assertEquals("qwen3-0.6b", provider.id.removePrefix("local-"))
+    }
+
+    @Test
+    fun `13 observed gemma toolcall markup executes create_file via AgentRunner`() = runTest {
+        val createFileTool =
+            TrackingFileTool(
+                com.jarvis.core.agent.tools.FilesTools.createFile { fileName, content, location ->
+                    Result.success("/ok/$fileName")
+                },
+            )
+        val registry = ToolRegistry().apply { register(createFileTool) }
+        val audit = RecordingAudit()
+
+        val engine =
+            ScriptableLocalEngine { history, _ ->
+                if (history.none { it.role == MessageRole.TOOL }) {
+                    listOf(
+                        ChatStreamEvent.TokenDelta(
+                            "<|toolcall|>call:devicecontrol:createfile{filename:\"welcome.txt\",content:\"welcome\"}<tool_call>",
+                        ),
+                        ChatStreamEvent.Done,
+                    )
+                } else {
+                    listOf(ChatStreamEvent.TokenDelta("Created welcome.txt."), ChatStreamEvent.Done)
+                }
+            }
+        val provider = createLocalProvider(toolCapableSpec, engine)
+        val runner = AgentRunner(registry = registry, audit = audit, confirmationGate = RecordingGate())
+
+        val events =
+            runner.run(
+                AgentRunRequest(
+                    provider = provider,
+                    modelId = toolCapableSpec.id,
+                    messages = listOf(userRequest("Create a welcome.txt file")),
+                ),
+            ).toList()
+
+        assertTrue(events.any { it is AgentEvent.ToolExecuted && it.name == "create_file" && it.success })
+        assertTrue(createFileTool.executions == 1)
+        assertTrue(createFileTool.lastArgs!!.contains("\"welcome.txt\""))
+        assertTrue(createFileTool.lastArgs!!.contains("\"welcome\""))
+        val finalAnswer = events.filterIsInstance<AgentEvent.FinalAnswer>().last()
+        assertTrue(finalAnswer.text.contains("Created"))
+        assertTrue(!finalAnswer.text.contains("toolcall", ignoreCase = true))
+        assertTrue(!finalAnswer.text.contains("devicecontrol", ignoreCase = true))
+        assertEquals(1, audit.records.size)
+    }
+
+    @Test
+    fun `14 unknown gemma toolcall markup is rejected and never executes`() = runTest {
+        val createFileTool =
+            TrackingFileTool(
+                com.jarvis.core.agent.tools.FilesTools.createFile { fileName, content, location ->
+                    Result.success("/ok")
+                },
+            )
+        val registry = ToolRegistry().apply { register(createFileTool) }
+        val audit = RecordingAudit()
+
+        val engine =
+            ScriptableLocalEngine { history, _ ->
+                if (history.none { it.role == MessageRole.TOOL }) {
+                    listOf(
+                        ChatStreamEvent.TokenDelta(
+                            "<|toolcall|>call:devicecontrol:delete_everything{}<tool_call>",
+                        ),
+                        ChatStreamEvent.Done,
+                    )
+                } else {
+                    listOf(ChatStreamEvent.TokenDelta("I can't do that."), ChatStreamEvent.Done)
+                }
+            }
+        val provider = createLocalProvider(toolCapableSpec, engine)
+        val runner = AgentRunner(registry = registry, audit = audit, confirmationGate = RecordingGate())
+
+        val events =
+            runner.run(
+                AgentRunRequest(
+                    provider = provider,
+                    modelId = toolCapableSpec.id,
+                    messages = listOf(userRequest("Delete everything")),
+                ),
+            ).toList()
+
+        assertEquals(0, createFileTool.executions)
+        assertEquals(0, audit.records.size)
+        assertTrue(events.any { it is AgentEvent.ToolRejected })
+        val finalAnswer = events.filterIsInstance<AgentEvent.FinalAnswer>().last()
+        assertTrue(!finalAnswer.text.contains("toolcall", ignoreCase = true))
+    }
+
+    @Test
+    fun `15 tool failure observation is returned to the model`() = runTest {
+        val failingTool =
+            com.jarvis.core.agent.tools.FilesTools.createFile { _, _, _ ->
+                Result.failure(IllegalStateException("disk full"))
+            }
+        val registry = ToolRegistry().apply { register(failingTool) }
+        val audit = RecordingAudit()
+
+        val engine =
+            ScriptableLocalEngine { history, _ ->
+                if (history.none { it.role == MessageRole.TOOL }) {
+                    listOf(
+                        ChatStreamEvent.TokenDelta(
+                            "<|toolcall|>call:createfile{filename:\"x.txt\",content:\"hi\"}<tool_call>",
+                        ),
+                        ChatStreamEvent.Done,
+                    )
+                } else {
+                    listOf(ChatStreamEvent.TokenDelta("I couldn't create the file."), ChatStreamEvent.Done)
+                }
+            }
+        val provider = createLocalProvider(toolCapableSpec, engine)
+        val runner = AgentRunner(registry = registry, audit = audit, confirmationGate = RecordingGate())
+
+        val events =
+            runner.run(
+                AgentRunRequest(
+                    provider = provider,
+                    modelId = toolCapableSpec.id,
+                    messages = listOf(userRequest("Create x.txt")),
+                ),
+            ).toList()
+
+        val toolEvents = events.filterIsInstance<AgentEvent.ToolExecuted>()
+        assertTrue(toolEvents.single().name == "create_file")
+        assertTrue(!toolEvents.single().success)
+        assertTrue(toolEvents.single().observationText.contains("disk full"))
+        assertTrue(engine.receivedConversations.last().any { it.role == MessageRole.TOOL })
+        assertEquals("failed", audit.records.single().resultStatus)
+    }
+
+    @Test
+    fun `16 multi-step two-tool turn keeps tool id continuity`() = runTest {
+        val toolA = FakeTool("current_time", PermissionTier.READ_ONLY) {
+            ToolResult(true, "it is 10:00 AM")
+        }
+        val toolB = FakeTool("battery_level", PermissionTier.READ_ONLY) {
+            ToolResult(true, "battery 42%")
+        }
+        val registry = ToolRegistry().apply {
+            register(toolA)
+            register(toolB)
+        }
+        val audit = RecordingAudit()
+
+        val engine =
+            ScriptableLocalEngine { history, _ ->
+                when (history.count { it.role == MessageRole.TOOL }) {
+                    0 -> listOf(ChatStreamEvent.ToolCallRequested("current_time", "{}", id = "c1"), ChatStreamEvent.Done)
+                    1 -> listOf(ChatStreamEvent.ToolCallRequested("battery_level", "{}", id = "c2"), ChatStreamEvent.Done)
+                    else -> listOf(ChatStreamEvent.TokenDelta("It is 10:00 AM and battery is 42%."), ChatStreamEvent.Done)
+                }
+            }
+        val provider = createLocalProvider(toolCapableSpec, engine)
+        val runner = AgentRunner(registry = registry, audit = audit, confirmationGate = RecordingGate())
+
+        val events =
+            runner.run(
+                AgentRunRequest(
+                    provider = provider,
+                    modelId = toolCapableSpec.id,
+                    messages = listOf(userRequest("Time and battery")),
+                ),
+            ).toList()
+
+        assertEquals(1, toolA.executions)
+        assertEquals(1, toolB.executions)
+        assertEquals(2, audit.records.size)
+        assertTrue(events.any { it is AgentEvent.FinalAnswer && it.text.contains("10:00 AM") })
+        val finalHistory = engine.receivedConversations.last()
+        val toolCalls = finalHistory.filter { it.role == MessageRole.ASSISTANT && it.toolCallName != null }
+        val toolResults = finalHistory.filter { it.role == MessageRole.TOOL }
+        assertEquals(2, toolCalls.size)
+        assertEquals(2, toolResults.size)
+        for (call in toolCalls) {
+            assertTrue(toolResults.any { it.toolCallId == call.toolCallId })
+        }
     }
 }

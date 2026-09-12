@@ -7,6 +7,11 @@ import com.jarvis.core.network.ToolDefinition
 object LocalPromptBuilder {
     const val MAX_TURNS = 8
 
+    /**
+     * Builds the single-shot text prompt. Only used for legacy text-prompt engines; the
+     * LiteRT-LM path sends native Messages + real tool declarations, so no text tool-call
+     * syntax is taught there. The [[...]] block below serves engines without structured tools.
+     */
     fun build(request: ChatRequest): String {
         val tools = request.toolsAvailable.orEmpty()
         val lines =

@@ -220,9 +220,18 @@ class AgentRunner(
                             "Unknown tool. Available tools: ${definitions.joinToString { it.name }}.",
                         ),
                     )
-                    turnLog += assistantMessage(assistantText)
-                    turnLog += userMessage(
-                        "Unknown tool \"${call.name}\". Available tools: ${definitions.joinToString { it.name }}.",
+                    // Close the tool-call turn with a tool-role response so the model's
+                    // tool call is properly paired in the conversation protocol.
+                    val callId = UUID.randomUUID().toString()
+                    turnLog += assistantToolCallMessage(
+                        toolCallId = callId,
+                        toolCallName = call.name,
+                        toolCallArgsJson = call.argsJson,
+                    )
+                    turnLog += toolResultMessage(
+                        observation = "Unknown tool \"${call.name}\". Available tools: ${definitions.joinToString { it.name }}.",
+                        toolCallId = callId,
+                        toolCallName = call.name,
                     )
                     hasRejection = true
                     break
@@ -251,9 +260,18 @@ class AgentRunner(
                 when (val validation = validator.validate(tool.parametersSchemaJson, call.argsJson)) {
                     is ToolArgsValidator.Result.Rejected -> {
                         emit(AgentEvent.ToolRejected(tool.name, validation.reason))
-                        turnLog += assistantMessage(assistantText)
-                        turnLog += userMessage(
-                            "Tool \"${tool.name}\" rejected its arguments: ${validation.reason} Fix the arguments and retry.",
+                        // Close the tool-call turn with a tool-role response so the model
+                        // can retry with corrected arguments in the next turn.
+                        val callId = UUID.randomUUID().toString()
+                        turnLog += assistantToolCallMessage(
+                            toolCallId = callId,
+                            toolCallName = tool.name,
+                            toolCallArgsJson = call.argsJson,
+                        )
+                        turnLog += toolResultMessage(
+                            observation = "Tool \"${tool.name}\" rejected its arguments: ${validation.reason} Fix the arguments and retry.",
+                            toolCallId = callId,
+                            toolCallName = tool.name,
                         )
                         hasRejection = true
                         break
