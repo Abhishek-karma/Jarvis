@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-12
+
+### Added
+- Unit test suites for core stability layers:
+  - `VoiceStateMachineTest`: happy-path voice session flow, barge-in interruption, amplitude/progress clamping, approval suspension, error recovery, cancel, and stop transitions.
+  - `OperationRepositoryTest`: idempotency-key uniqueness, EXECUTING → SUCCEEDED/FAILED transitions, task-scoped listing.
+  - `ChatRepositoryTest` & `MemoryRepositoryTest`: conversation CRUD, chronological message ordering, delete-after-timestamp, memory active/private filtering, delete-by-source, clear-all.
+  - `ToolDefensiveParsingTest`: every agent tool returns `ToolResult(success = false)` on malformed/empty/null/garbage JSON instead of throwing.
+- `PathTraversalTest` security coverage for file name/path inputs containing `..`, `/`, and `\`.
+
+### Security
+- `FilesTools.createFile` and `readFile` now reject path traversal sequences (`..`, `/`, `\`) before touching the filesystem.
+- Extended SSRF guard test coverage in `SsrfGuardTest`: IPv4 zero address, IPv6 loopback `[::1]`, decimal IP encodings, and link-local metadata.
+
+### Changed
+- `ToolArgsValidator` now coerces stringified primitives: numeric strings accepted for `integer`/`number` schema types, and boolean strings (`"true"`, `"yes"`, `"1"`, `"false"`, `"no"`, `"0"`) accepted for `boolean` types.
+- `tools/check_architecture.py` forces UTF-8 stdout/stderr so the guardrail checker runs on Windows consoles (cp1252 no longer crashes).
+
 ## [0.1.9] - 2026-09-12
 
 ### Fixed
