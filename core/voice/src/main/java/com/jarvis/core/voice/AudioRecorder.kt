@@ -87,7 +87,7 @@ class AudioRecorder
                             synchronized(captured) { captured.write(buffer, 0, read) }
                             if (captured.size() >= MAX_CAPTURE_SECONDS * BYTES_PER_SECOND) {
                                 Log.w(TAG, "Max capture length reached — stopping recording")
-                                stop()
+                                cancel()
                                 break
                             }
                         } else if (read < 0) {
