@@ -48,8 +48,32 @@ class SsrfGuardTest {
 
     @Test
     fun `public host passes`() {
-
-
         assertDoesNotThrow { ensurePublicHttpUrlChecked("https://8.8.8.8/") }
+    }
+
+    @Test
+    fun `blocks IPv4 zero address`() {
+        blocked("http://0.0.0.0/admin", "private or local")
+    }
+
+    @Test
+    fun `blocks IPv6 loopback`() {
+        blocked("http://[::1]/secret", "private or local")
+    }
+
+    @Test
+    fun `blocks decimal IP encoding`() {
+        // 127.0.0.1 as decimal
+        blocked("http://2130706433/admin", "private or local")
+    }
+
+    @Test
+    fun `blocks link-local metadata`() {
+        blocked("http://169.254.169.254/metadata", "private or local")
+    }
+
+    @Test
+    fun `allows normal external URL`() {
+        assertDoesNotThrow { ensurePublicHttpUrlChecked("https://example.com/page") }
     }
 }
