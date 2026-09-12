@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] - 2026-09-12
+
+### Fixed
+- `ToolRegistry.get()` alias resolution logic ensuring canonical tool names are resolved first.
+- `ToolLoader.syncBuiltIns()` upserts modified tool definitions instead of only inserting missing ones.
+- `AudioRecorder.stop()` made non-blocking with coroutine `delay(50)` and reader loop cancellation on max capture length.
+- `AgentModule.kt` `fetchUrl` response status code read before closing response on GitHub fallback path.
+- `RoutineScheduler.calculateNextRunTime` interval calculation supporting recurring named intervals (`hourly`, `daily`, `weekly`).
+
 ## [0.1.8] - 2026-09-10
 
 ### Added
