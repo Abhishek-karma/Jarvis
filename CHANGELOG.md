@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-09-12
+
+### Security
+- `ShizukuBridge` shell-argument validation guards command injection at ADB/root privilege: every argument interpolated into a `sh -c` command (package names, permissions, setting keys/values, appop modes, gesture coordinates) must match `^[a-zA-Z0-9_.:/@+\-]+$`, otherwise the operation is rejected with `OpResult.Failed` before dispatch. Payloads like `com.x; rm -rf /sdcard` are now blocked.
+- Parallel read-only tool batches in `AgentRunner` are now policy-gated: `toolPolicy.evaluate` runs before dispatch (previously skipped for batches of >1 read tools).
+- Disabled-tool check in `AgentRunner` uses the canonical `tool.name` instead of the caller alias, closing the alias-based bypass (e.g. `webSearch` → disabled `search_web`).
+- `AgentRunner` no longer lets a non-cancellation exception from `tool.execute` kill the whole run: it emits `ToolExecuted(success=false)` and writes a `failed` audit record.
+- Background routines (`WorkManager`/`RoutineWorker`) are now strictly `READ_ONLY` via the new `BackgroundToolPolicy`; the dead `CommandPolicyEngine.isAllowedInBackground` invariant is enforced.
+- OkHttp clients (`NetworkModule`, `DeclarativeHttpTool`) disable redirects (`followRedirects=false`) and declarative tool path substitutions are URL-encoded, closing the SSRF redirect/DNS-rebinding gap.
+- `AuditRedaction` now redacts `to`, `number`, `phone`, `url`, and `path` keys (exact-match for `to` to avoid collateral on keys like `total`), and fails closed on unparseable args instead of passing raw JSON through.
+- `ToolLoader.logAudit` builds `paramsRedactedJson` through `AuditRedaction` instead of raw string interpolation.
+- All three LLM providers fail fast with an `API_KEY_MISSING` stream error when the stored key is missing or blank, instead of sending unauthenticated requests with an empty header.
+
+### Fixed
+- `TaskEngine.executeIdempotentOperation` rethrows `CancellationException` (after marking the row `FAILED`), preserving structured-concurrency cancellation semantics instead of swallowing it.
+- `TaskEngine.recoverOrphanedTasks` now reclaims stale `EXECUTING` operation rows older than 10 minutes, marking them `FAILED` so a re-queued task can retry instead of hitting a poisoned in-flight row.
+- Incoming `ACTION_SEND` / `ACTION_PROCESS_TEXT` share intents are now handled: `MainActivity` reads the text and surfaces it into the composer via `ChatRoute.pendingShareText`.
+- `LocalModelBenchmarkRunner` returns an honest failure when no on-device engine is initialized instead of fabricating synthetic throughput numbers; the unused `threads` parameter was removed.
+
+### Changed
+- Database schema migrated to v8: `operations.taskId` now has a foreign key to `tasks.id` with `ON DELETE CASCADE` (orphaned rows cleaned during migration).
+- Removed the deprecated, unvalidated `write_file` tool; file writes go through the scoped `create_file` path only.
+- `docs/ARCHITECTURE.md` WorkManager/RoutineWorker section updated to reflect `BackgroundToolPolicy` and actual constraints.
+- New regression tests: shell-injection matrix, stale-EXECUTING reclaim, cancellation rethrow, redaction fail-closed, and empty-API-key fast-fail.
+
 ## [0.2.0] - 2026-09-12
 
 ### Added
