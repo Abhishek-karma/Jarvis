@@ -28,6 +28,19 @@ class ToolArgsValidatorTest {
     }
 
     @Test
+    fun `numeric string coerced to integer is accepted`() {
+        assertTrue(validator.validate(schema, """{"level": "42"}""") is Valid)
+    }
+
+    @Test
+    fun `boolean string representations are accepted`() {
+        val boolSchema = """{"type":"object","properties":{"flag":{"type":"boolean"}},"required":["flag"]}"""
+        assertTrue(validator.validate(boolSchema, """{"flag": "true"}""") is Valid)
+        assertTrue(validator.validate(boolSchema, """{"flag": "yes"}""") is Valid)
+        assertTrue(validator.validate(boolSchema, """{"flag": "1"}""") is Valid)
+    }
+
+    @Test
     fun `malformed args json is rejected`() {
         assertTrue(validator.validate(schema, """{"level": 1,""") is Rejected)
     }

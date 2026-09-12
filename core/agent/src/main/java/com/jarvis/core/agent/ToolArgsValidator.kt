@@ -96,9 +96,12 @@ class ToolArgsValidator {
     ): Boolean =
         when (expectedType) {
             "string" -> actual is JsonPrimitive
-            "boolean" -> (actual as? JsonPrimitive)?.let { it.content == "true" || it.content == "false" } == true
+            "boolean" -> (actual as? JsonPrimitive)?.let {
+                val c = it.content.lowercase()
+                c == "true" || c == "false" || c == "1" || c == "0" || c == "yes" || c == "no"
+            } == true
             "number" -> numeric(actual)
-            "integer" -> numeric(actual) && (actual as JsonPrimitive).content.toDouble() % 1.0 == 0.0
+            "integer" -> numeric(actual) && (actual as JsonPrimitive).content.toDoubleOrNull()?.let { it % 1.0 == 0.0 } == true
             "array" -> actual is JsonArray
             "object" -> actual is JsonObject
             else -> true
