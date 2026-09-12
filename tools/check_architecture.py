@@ -11,6 +11,13 @@ import sys
 from pathlib import Path
 import re
 
+# Windows consoles default to cp1252, which cannot print emoji/box glyphs
+# used here and crashes with UnicodeEncodeError. Force UTF-8 stdout/stderr.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = Path(__file__).resolve().parent.parent
 
 def check_feature_dependencies():
@@ -18,7 +25,7 @@ def check_feature_dependencies():
     features_dir = ROOT / "feature"
     if not features_dir.exists():
         return
-    
+
     violations = []
     for gradle_file in features_dir.glob("*/build.gradle.kts"):
         content = gradle_file.read_text(encoding="utf-8")
@@ -28,9 +35,9 @@ def check_feature_dependencies():
 
     if violations:
         for v in violations:
-            print(f"  ❌ {v}", file=sys.stderr)
+            print(f"  [FAIL] {v}", file=sys.stderr)
         return False
-    print("  ✅ All feature modules are isolated from each other.")
+    print("  [PASS] All feature modules are isolated from each other.")
     return True
 
 def check_api_key_boundaries():
@@ -42,12 +49,12 @@ def check_api_key_boundaries():
         content = entity_file.read_text(encoding="utf-8")
         if re.search(r'val\s+apiKey\b', content) or re.search(r'var\s+apiKey\b', content):
             violations.append(f"Room entity {entity_file.name} defines an apiKey column! API keys must live exclusively in ApiKeyStore.")
-            
+
     if violations:
         for v in violations:
-            print(f"  ❌ {v}", file=sys.stderr)
+            print(f"  [FAIL] {v}", file=sys.stderr)
         return False
-    print("  ✅ No API key storage detected in Room database entities.")
+    print("  [PASS] No API key storage detected in Room database entities.")
     return True
 
 def check_junit5_configuration():
@@ -66,9 +73,9 @@ def check_junit5_configuration():
 
     if violations:
         for v in violations:
-            print(f"  ❌ {v}", file=sys.stderr)
+            print(f"  [FAIL] {v}", file=sys.stderr)
         return False
-    print("  ✅ All test-enabled modules configure JUnit 5 and the platform launcher.")
+    print("  [PASS] All test-enabled modules configure JUnit 5 and the platform launcher.")
     return True
 
 def main():
@@ -77,11 +84,11 @@ def main():
     ok = check_feature_dependencies() and ok
     ok = check_api_key_boundaries() and ok
     ok = check_junit5_configuration() and ok
-    
+
     if not ok:
-        print("\n❌ Architecture check failed! Fix the violations above.", file=sys.stderr)
+        print("\n[FAIL] Architecture check failed! Fix the violations above.", file=sys.stderr)
         sys.exit(1)
-    print("\n✅ All architecture guardrails passed successfully.")
+    print("\n[PASS] All architecture guardrails passed successfully.")
 
 if __name__ == "__main__":
     main()
