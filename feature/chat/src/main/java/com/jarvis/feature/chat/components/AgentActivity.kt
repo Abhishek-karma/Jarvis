@@ -1,5 +1,6 @@
 package com.jarvis.feature.chat.components
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -7,6 +8,8 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -36,6 +40,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Launch
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PriorityHigh
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
@@ -57,28 +62,44 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.jarvis.core.agent.AuditRedaction
 import com.jarvis.core.designsystem.JarvisColors
-import com.jarvis.core.designsystem.JarvisLoader
 import com.jarvis.core.designsystem.JarvisShapes
 import com.jarvis.core.designsystem.JarvisText
 import com.jarvis.core.designsystem.Spacing
 import com.jarvis.feature.chat.AgentConfirmation
+import com.jarvis.feature.chat.AgentStatus
 import com.jarvis.feature.chat.AgentStep
 import com.jarvis.feature.chat.AgentStepState
 import org.json.JSONObject
 
+/**
+ * Compact, modern Jarvis Assistant timeline component.
+ * Displays real state-machine progress, tool milestones, approval cards, and failure handling.
+ */
 @Composable
 fun AgentLiveBlock(
     steps: List<AgentStep>,
     pending: AgentConfirmation?,
+    status: AgentStatus = AgentStatus.IDLE,
+    failureReason: String? = null,
     onAllow: (Boolean) -> Unit,
     onDeny: () -> Unit,
     onStop: () -> Unit = {},
+    onRetry: () -> Unit = {},
 ) {
+    val statusText = resolveStatusSubtitle(status, pending, steps, failureReason)
+    val stateDescriptionText = "Agent status: $statusText"
+
     Surface(
         shape = JarvisShapes.card,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -86,7 +107,11 @@ fun AgentLiveBlock(
         shadowElevation = 2.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .animateContentSize(),
+            .animateContentSize()
+            .semantics {
+                this.contentDescription = "Jarvis Agent Activity"
+                this.stateDescription = stateDescriptionText
+            },
     ) {
         Column(
             modifier = Modifier
@@ -94,7 +119,7 @@ fun AgentLiveBlock(
                 .padding(Spacing.lg),
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
-            // Header: Agent Identity, Animated Pulse, Badge & Stop Action
+            // Header: Agent Identity, State Indicator, Subtitle & Action (Stop / Retry)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -105,49 +130,7 @@ fun AgentLiveBlock(
                     horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                     modifier = Modifier.weight(1f),
                 ) {
-                    val infiniteTransition = rememberInfiniteTransition(label = "agent-pulse")
-                    val pulseAlpha by infiniteTransition.animateFloat(
-                        initialValue = 0.3f,
-                        targetValue = 0.9f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(1200, easing = FastOutSlowInEasing),
-                            repeatMode = RepeatMode.Reverse,
-                        ),
-                        label = "pulseAlpha",
-                    )
-
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier.size(Spacing.xxl),
-                    ) {
-                        if (pending != null) {
-                            Box(
-                                modifier = Modifier
-                                    .size(Spacing.xxl)
-                                    .clip(CircleShape)
-                                    .background(JarvisColors.Semantic.warning.copy(alpha = 0.2f)),
-                            )
-                            Icon(
-                                imageVector = Icons.Default.PriorityHigh,
-                                contentDescription = null,
-                                tint = JarvisColors.Semantic.warning,
-                                modifier = Modifier.size(Spacing.mdPlus),
-                            )
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .size(Spacing.xxl)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha * 0.28f)),
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .size(Spacing.mdPlus)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary),
-                            )
-                        }
-                    }
+                    AgentHeaderStateIcon(status = status, pending = pending)
 
                     Column {
                         Text(
@@ -156,14 +139,11 @@ fun AgentLiveBlock(
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
-                            text = when {
-                                pending != null -> "Approval required"
-                                steps.isEmpty() -> "Analyzing request & selecting tools…"
-                                steps.any { it.state == AgentStepState.RUNNING } -> "Action in progress…"
-                                else -> "Task complete"
-                            },
+                            text = statusText,
                             style = JarvisText.Metadata,
-                            color = if (pending != null) JarvisColors.Semantic.warning else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = resolveSubtitleColor(status, pending),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -186,222 +166,457 @@ fun AgentLiveBlock(
                         }
                     }
 
-                    OutlinedButton(
-                        onClick = onStop,
-                        shape = JarvisShapes.pill,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.35f)),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error,
-                        ),
-                        modifier = Modifier.heightIn(min = 48.dp),
-                        contentPadding = PaddingValues(
-                            horizontal = Spacing.smPlus,
-                            vertical = Spacing.xs,
-                        ),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Stop,
-                            contentDescription = "Stop",
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(modifier = Modifier.size(4.dp))
-                        Text(
-                            text = "Stop",
-                            style = JarvisText.Caption.copy(fontWeight = FontWeight.SemiBold),
-                        )
+                    if (status.isActive) {
+                        OutlinedButton(
+                            onClick = onStop,
+                            shape = JarvisShapes.pill,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.35f)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error,
+                            ),
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .semantics { contentDescription = "Stop Agent Execution" },
+                            contentPadding = PaddingValues(
+                                horizontal = Spacing.smPlus,
+                                vertical = Spacing.xs,
+                            ),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Stop,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(modifier = Modifier.size(4.dp))
+                            Text(
+                                text = "Stop",
+                                style = JarvisText.Caption.copy(fontWeight = FontWeight.SemiBold),
+                            )
+                        }
+                    } else if (status == AgentStatus.FAILED) {
+                        Button(
+                            onClick = onRetry,
+                            shape = JarvisShapes.pill,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                            ),
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .semantics { contentDescription = "Retry Agent Run" },
+                            contentPadding = PaddingValues(
+                                horizontal = Spacing.smPlus,
+                                vertical = Spacing.xs,
+                            ),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(modifier = Modifier.size(4.dp))
+                            Text(
+                                text = "Retry",
+                                style = JarvisText.Caption.copy(fontWeight = FontWeight.SemiBold),
+                            )
+                        }
                     }
                 }
             }
 
-            // Body: Pending Confirmation OR Active Step Spotlight
-            if (pending != null) {
-                ConfirmationCard(confirmation = pending)
-                AgentApprovalRow(
-                    pending = pending,
-                    onAllowOnce = { onAllow(false) },
-                    onAllowAlways = { onAllow(true) },
-                    onDeny = onDeny,
-                )
-            } else {
-                val running = steps.lastOrNull { it.state == AgentStepState.RUNNING } ?: steps.lastOrNull()
-                if (running != null) {
-                    Surface(
-                        shape = JarvisShapes.codeBlock,
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(Spacing.mdPlus),
-                            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier
-                                        .size(Spacing.xl)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
-                                ) {
-                                    Icon(
-                                        imageVector = toolIcon(running.text),
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(Spacing.md),
-                                    )
-                                }
-                                Text(
-                                    text = formatStepDescription(running.text),
-                                    style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                AgentStatusPill(step = running)
-                            }
-
-                            if (running.detail != null) {
-                                Text(
-                                    text = running.detail,
-                                    style = JarvisText.Metadata,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(start = Spacing.xl + Spacing.sm),
-                                )
-                            }
-
-                            if (running.state == AgentStepState.RUNNING) {
-                                LinearProgressIndicator(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(4.dp)
-                                        .clip(JarvisShapes.pill)
-                                        .padding(top = 2.dp),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                        modifier = Modifier.padding(vertical = Spacing.xs),
-                    ) {
-                        JarvisLoader(size = 18.dp)
-                        Text(
-                            text = "Orchestrating agent…",
-                            style = JarvisText.BodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+            // Body 1: Pending Confirmation Approval Card (when approval is required)
+            if (pending != null || status == AgentStatus.WAITING_FOR_APPROVAL) {
+                pending?.let { conf ->
+                    ApprovalCard(
+                        confirmation = conf,
+                        onAllowOnce = { onAllow(false) },
+                        onAllowAlways = { onAllow(true) },
+                        onDeny = onDeny,
+                    )
                 }
+            }
 
-                // Collapsible Prior Steps History
-                if (steps.size > 1) {
-                    var historyExpanded by remember { mutableStateOf(false) }
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(JarvisShapes.pill)
-                                .clickable { historyExpanded = !historyExpanded }
-                                .padding(vertical = Spacing.xs, horizontal = Spacing.xs),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = if (historyExpanded) "Hide activity history" else "Show activity history (${steps.size - 1} completed)",
-                                style = JarvisText.Metadata.copy(fontWeight = FontWeight.Medium),
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            Icon(
-                                imageVector = if (historyExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(Spacing.md),
-                            )
-                        }
+            // Body 2: Failure explanation card (when status == FAILED)
+            if (status == AgentStatus.FAILED) {
+                FailureCard(
+                    reason = failureReason ?: "An unexpected error interrupted execution.",
+                    onRetry = onRetry,
+                )
+            }
 
-                        if (historyExpanded) {
-                            Column(
-                                verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = Spacing.xs),
-                            ) {
-                                steps.dropLast(1).forEach { step ->
-                                    AgentStepRow(step = step)
-                                }
-                            }
-                        }
-                    }
+            // Body 3: Modern Assistant Timeline Steps
+            if (steps.isNotEmpty()) {
+                TimelineBlock(steps = steps, isActive = status.isActive)
+            }
+
+            // Footer indicator when actively working and not waiting for approval
+            if (status.isActive && pending == null) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    modifier = Modifier.padding(top = Spacing.xs),
+                ) {
+                    Text(
+                        text = "Working…",
+                        style = JarvisText.Caption.copy(fontWeight = FontWeight.Medium),
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
         }
     }
 }
 
-private fun toolIcon(nameOrText: String): ImageVector {
-    val lower = nameOrText.lowercase()
-    return when {
-        lower.contains("search") || lower.contains("google") -> Icons.Default.Search
-        lower.contains("fetch") || lower.contains("web") || lower.contains("url") -> Icons.Default.Language
-        lower.contains("calc") -> Icons.Default.Calculate
-        lower.contains("date") || lower.contains("time") || lower.contains("timer") || lower.contains("alarm") -> Icons.Default.Schedule
-        lower.contains("file") || lower.contains("read_file") || lower.contains("write_file") -> Icons.Default.Folder
-        lower.contains("launch") || lower.contains("open") -> Icons.Default.Launch
-        lower.contains("battery") || lower.contains("device") || lower.contains("storage") -> Icons.Default.PhoneAndroid
-        lower.contains("approval") || lower.contains("denied") -> Icons.Default.Shield
-        else -> Icons.Default.AutoAwesome
+/**
+ * Modern timeline block rendering sequential assistant steps.
+ */
+@Composable
+private fun TimelineBlock(
+    steps: List<AgentStep>,
+    isActive: Boolean,
+) {
+    Surface(
+        shape = JarvisShapes.codeBlock,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(Spacing.mdPlus),
+            verticalArrangement = Arrangement.spacedBy(Spacing.md),
+        ) {
+            steps.forEachIndexed { index, step ->
+                TimelineStepRow(
+                    step = step,
+                    isLast = index == steps.lastIndex,
+                )
+            }
+        }
     }
 }
 
+/**
+ * One row in the timeline with state marker, title, duration label, redacted details, and progress.
+ */
 @Composable
-fun ConfirmationCard(confirmation: AgentConfirmation) {
+fun TimelineStepRow(
+    step: AgentStep,
+    isLast: Boolean = false,
+) {
+    Row(
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                contentDescription = "${step.text} - ${step.state.name}"
+            },
+    ) {
+        TimelineStepIcon(state = step.state)
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = formatStepDescription(step.text),
+                    style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+
+                step.durationLabel?.let { duration ->
+                    Text(
+                        text = duration,
+                        style = JarvisText.CodeLabel,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = Spacing.sm),
+                    )
+                }
+            }
+
+            step.detail?.let { detail ->
+                val redactedDetail = remember(detail) { AuditRedaction.redact(detail) }
+                Text(
+                    text = redactedDetail,
+                    style = JarvisText.Metadata,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            if (step.state == AgentStepState.RUNNING) {
+                val progress = step.progress
+                if (progress != null) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .clip(JarvisShapes.pill)
+                            .padding(top = 4.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .clip(JarvisShapes.pill)
+                            .padding(top = 4.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Step state marker: ● for running, ✓ for done, ✕ for failed, ⏹ for cancelled.
+ */
+@Composable
+fun TimelineStepIcon(state: AgentStepState) {
+    when (state) {
+        AgentStepState.RUNNING -> {
+            val transition = rememberInfiniteTransition(label = "step-running-pulse")
+            val alpha by transition.animateFloat(
+                initialValue = 0.4f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(800, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+                label = "stepAlpha",
+            )
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = alpha * 0.25f)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+            }
+        }
+        AgentStepState.DONE -> {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = "Completed",
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(13.dp),
+                )
+            }
+        }
+        AgentStepState.FAILED -> {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.errorContainer),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Failed",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(13.dp),
+                )
+            }
+        }
+        AgentStepState.CANCELLED -> {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Block,
+                    contentDescription = "Cancelled",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(13.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Animated or static state icon in the agent header.
+ * Strictly adheres to rule: NO animation on static states (Completed, Failed, Cancelled).
+ */
+@Composable
+private fun AgentHeaderStateIcon(
+    status: AgentStatus,
+    pending: AgentConfirmation?,
+) {
+    val isPending = pending != null || status == AgentStatus.WAITING_FOR_APPROVAL
+    val isFailed = status == AgentStatus.FAILED
+    val isCancelled = status == AgentStatus.CANCELLED
+    val isCompleted = status == AgentStatus.COMPLETED
+    val isActive = status.isActive && !isPending
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.size(Spacing.xxl),
+    ) {
+        when {
+            isPending -> {
+                Box(
+                    modifier = Modifier
+                        .size(Spacing.xxl)
+                        .clip(CircleShape)
+                        .background(JarvisColors.Semantic.warning.copy(alpha = 0.2f)),
+                )
+                Icon(
+                    imageVector = Icons.Default.PriorityHigh,
+                    contentDescription = "Approval required",
+                    tint = JarvisColors.Semantic.warning,
+                    modifier = Modifier.size(Spacing.mdPlus),
+                )
+            }
+            isFailed -> {
+                Box(
+                    modifier = Modifier
+                        .size(Spacing.xxl)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.errorContainer),
+                )
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Failed",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(Spacing.mdPlus),
+                )
+            }
+            isCancelled -> {
+                Box(
+                    modifier = Modifier
+                        .size(Spacing.xxl)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                )
+                Icon(
+                    imageVector = Icons.Default.Stop,
+                    contentDescription = "Cancelled",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(Spacing.mdPlus),
+                )
+            }
+            isCompleted -> {
+                Box(
+                    modifier = Modifier
+                        .size(Spacing.xxl)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = "Task complete",
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(Spacing.mdPlus),
+                )
+            }
+            isActive -> {
+                // Subtle activity animation ONLY while active
+                val infiniteTransition = rememberInfiniteTransition(label = "agent-pulse")
+                val pulseAlpha by infiniteTransition.animateFloat(
+                    initialValue = 0.3f,
+                    targetValue = 0.9f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(1200, easing = FastOutSlowInEasing),
+                        repeatMode = RepeatMode.Reverse,
+                    ),
+                    label = "pulseAlpha",
+                )
+
+                Box(
+                    modifier = Modifier
+                        .size(Spacing.xxl)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha * 0.28f)),
+                )
+                Box(
+                    modifier = Modifier
+                        .size(Spacing.mdPlus)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+            }
+            else -> {
+                Box(
+                    modifier = Modifier
+                        .size(Spacing.xxl)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Clear Approval Card avoiding dangerous raw JSON by default.
+ */
+@Composable
+fun ApprovalCard(
+    confirmation: AgentConfirmation,
+    onAllowOnce: () -> Unit,
+    onAllowAlways: () -> Unit,
+    onDeny: () -> Unit,
+) {
     var showRawJson by remember { mutableStateOf(false) }
 
-    val parsedArgs = remember(confirmation.argsJson) {
-        runCatching {
-            val obj = JSONObject(confirmation.argsJson)
-            val map = mutableListOf<Pair<String, String>>()
-            val keys = obj.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                map.add(key to obj.opt(key).toString())
-            }
-            map
-        }.getOrNull()
+    val formattedParams = remember(confirmation.argsJson) {
+        parseAndFormatApprovalParams(confirmation.argsJson)
     }
 
     Surface(
         shape = JarvisShapes.card,
         color = MaterialTheme.colorScheme.background,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        border = BorderStroke(1.dp, JarvisColors.Semantic.warning.copy(alpha = 0.5f)),
         shadowElevation = 2.dp,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(modifier = Modifier.padding(Spacing.lg)) {
+        Column(
+            modifier = Modifier.padding(Spacing.lg),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    text = "Allow ${formatToolTitle(confirmation.toolName)}?",
-                    style = JarvisText.Body.copy(fontWeight = FontWeight.SemiBold),
-                    modifier = Modifier.weight(1f),
+                    text = "Approval required",
+                    style = JarvisText.Body.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 Surface(
                     shape = JarvisShapes.pill,
-                    color = JarvisColors.Semantic.warning.copy(alpha = 0.2f),
+                    color = JarvisColors.Semantic.warning.copy(alpha = 0.18f),
                 ) {
                     Text(
                         text = "Sensitive Tier",
@@ -412,42 +627,33 @@ fun ConfirmationCard(confirmation: AgentConfirmation) {
                 }
             }
 
-            Spacer(modifier = Modifier.height(Spacing.xs))
             Text(
-                text =
-                    "This tool can modify device data or execute actions externally. " +
-                        "Review the requested parameters before granting approval.",
-                style = JarvisText.Metadata,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = formatToolTitle(confirmation.toolName),
+                style = JarvisText.ConvTitle,
+                color = MaterialTheme.colorScheme.primary,
             )
-            Spacer(modifier = Modifier.height(Spacing.sm))
 
-            if (!parsedArgs.isNullOrEmpty()) {
+            // Formatted parameters preview with sensitive values masked
+            if (formattedParams.isNotEmpty()) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(Spacing.xs),
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(JarvisShapes.codeBlock)
-                            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                            .padding(Spacing.md),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(JarvisShapes.codeBlock)
+                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                        .padding(Spacing.md),
                 ) {
-                    parsedArgs.forEach { (key, value) ->
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                            verticalAlignment = Alignment.Top,
-                        ) {
+                    formattedParams.forEach { (label, value) ->
+                        Column(modifier = Modifier.fillMaxWidth()) {
                             Text(
-                                text = "$key:",
-                                style = JarvisText.Code.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.primary,
+                                text = "$label:",
+                                style = JarvisText.Metadata.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Text(
                                 text = value,
-                                style = JarvisText.Code,
+                                style = JarvisText.BodyMedium,
                                 color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 4,
-                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
@@ -456,277 +662,256 @@ fun ConfirmationCard(confirmation: AgentConfirmation) {
 
             TextButton(
                 onClick = { showRawJson = !showRawJson },
-                modifier = Modifier.padding(top = Spacing.xs),
+                modifier = Modifier.heightIn(min = 40.dp),
             ) {
                 Text(
                     text = if (showRawJson) "Hide raw JSON" else "View raw JSON",
                     style = JarvisText.Metadata,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Icon(
+                    imageVector = if (showRawJson) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
                 )
             }
 
-            if (showRawJson || parsedArgs.isNullOrEmpty()) {
+            if (showRawJson) {
                 Text(
                     text = confirmation.argsJson,
                     style = JarvisText.Code,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(JarvisShapes.codeBlock)
-                            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                            .heightIn(max = 110.dp)
-                            .verticalScroll(rememberScrollState())
-                            .padding(Spacing.mdPlus),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(JarvisShapes.codeBlock)
+                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                        .heightIn(max = 110.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(Spacing.md),
+                )
+            }
+
+            Spacer(modifier = Modifier.height(Spacing.xs))
+
+            // Action Buttons with 48dp min touch targets
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                OutlinedButton(
+                    onClick = onDeny,
+                    shape = JarvisShapes.pill,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .semantics {
+                            contentDescription = "Deny tool execution"
+                            Role.Button
+                        },
+                ) {
+                    Text("Deny", fontWeight = FontWeight.SemiBold)
+                }
+
+                Button(
+                    onClick = onAllowOnce,
+                    shape = JarvisShapes.pill,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .semantics {
+                            contentDescription = "Allow tool once"
+                            Role.Button
+                        },
+                ) {
+                    Text("Allow once", fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            TextButton(
+                onClick = onAllowAlways,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 44.dp)
+                    .semantics { contentDescription = "Always allow tool in this chat" },
+            ) {
+                Text(
+                    text = "Always allow for this chat",
+                    style = JarvisText.Metadata,
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
         }
+    }
+}
+
+/**
+ * Failure card displaying concise reason and safe retry action.
+ */
+@Composable
+private fun FailureCard(
+    reason: String,
+    onRetry: () -> Unit,
+) {
+    Surface(
+        shape = JarvisShapes.card,
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(Spacing.mdPlus),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    text = "Couldn't complete the task",
+                    style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            Text(
+                text = reason,
+                style = JarvisText.Metadata,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
+ * Parses tool arguments and presents masked, user-friendly labels.
+ */
+private fun parseAndFormatApprovalParams(argsJson: String): List<Pair<String, String>> {
+    return runCatching {
+        val obj = JSONObject(argsJson)
+        val list = mutableListOf<Pair<String, String>>()
+        val keys = obj.keys()
+        while (keys.hasNext()) {
+            val rawKey = keys.next()
+            val rawVal = obj.opt(rawKey)?.toString().orEmpty()
+            val label = when (rawKey.lowercase()) {
+                "to", "recipient", "phone", "number" -> "To"
+                "message", "body", "content", "text" -> "Message"
+                "subject", "title" -> "Subject"
+                "command", "cmd" -> "Command"
+                "path", "file", "filepath" -> "Path"
+                "query", "q" -> "Query"
+                "url", "uri" -> "URL"
+                else -> rawKey.replace('_', ' ').replaceFirstChar { it.uppercase() }
+            }
+            val formattedValue = when {
+                rawKey.lowercase() in listOf("to", "recipient", "phone", "number") -> maskPhoneNumber(rawVal)
+                rawKey.lowercase() in listOf("password", "token", "secret", "apikey", "api_key", "key") -> "••••••••"
+                rawKey.lowercase() in listOf("message", "body", "content", "text") -> "\"$rawVal\""
+                else -> rawVal
+            }
+            list.add(label to formattedValue)
+        }
+        list
+    }.getOrElse { emptyList() }
+}
+
+private fun maskPhoneNumber(phone: String): String {
+    val clean = phone.trim()
+    return if (clean.length > 6) {
+        val prefix = clean.take(3)
+        val suffix = clean.takeLast(4)
+        "$prefix••••••$suffix"
+    } else {
+        clean
+    }
+}
+
+private fun resolveStatusSubtitle(
+    status: AgentStatus,
+    pending: AgentConfirmation?,
+    steps: List<AgentStep>,
+    failureReason: String?,
+): String {
+    if (pending != null || status == AgentStatus.WAITING_FOR_APPROVAL) {
+        return "Approval required"
+    }
+    return when (status) {
+        AgentStatus.THINKING -> "Understanding request…"
+        AgentStatus.PLANNING -> "Formulating plan…"
+        AgentStatus.SELECTING_TOOL -> "Selecting tool…"
+        AgentStatus.WAITING_FOR_APPROVAL -> "Approval required"
+        AgentStatus.RUNNING_TOOL -> "Executing action…"
+        AgentStatus.WAITING_FOR_RESULT -> "Waiting for result…"
+        AgentStatus.READING_RESULT -> "Reading result…"
+        AgentStatus.THINKING_AGAIN -> "Thinking about result…"
+        AgentStatus.SPEAKING -> "Speaking response…"
+        AgentStatus.COMPLETED -> "Task complete"
+        AgentStatus.FAILED -> "Couldn't complete the task"
+        AgentStatus.CANCELLED -> "Execution stopped"
+        AgentStatus.IDLE -> {
+            when {
+                steps.isEmpty() -> "Understanding request…"
+                steps.any { it.state == AgentStepState.RUNNING } -> "Action in progress…"
+                steps.any { it.state == AgentStepState.FAILED } -> "Couldn't complete the task"
+                steps.any { it.state == AgentStepState.CANCELLED } -> "Execution stopped"
+                else -> "Task complete"
+            }
+        }
+    }
+}
+
+@Composable
+private fun resolveSubtitleColor(status: AgentStatus, pending: AgentConfirmation?): Color {
+    return when {
+        pending != null || status == AgentStatus.WAITING_FOR_APPROVAL -> JarvisColors.Semantic.warning
+        status == AgentStatus.FAILED -> MaterialTheme.colorScheme.error
+        status == AgentStatus.CANCELLED -> MaterialTheme.colorScheme.onSurfaceVariant
+        status == AgentStatus.COMPLETED -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 }
 
 private fun formatToolTitle(toolName: String): String =
     when (toolName) {
-        "web_search", "search_web" -> "Web Search"
-        "fetch_url" -> "Web Page Fetch"
+        "web_search", "search_web" -> "Search Web"
+        "fetch_url" -> "Read Web Page"
+        "send_sms", "send_message" -> "Send SMS"
         "calculator" -> "Calculator"
         "get_current_datetime" -> "Device Clock & Date"
         "launch_app" -> "App Launcher"
         "create_file" -> "Create File"
         "read_file" -> "Read File"
-        "search_files" -> "File Search"
+        "search_files" -> "Search Files"
         else -> toolName.replace('_', ' ').replaceFirstChar { it.uppercase() }
     }
 
 private fun formatStepDescription(text: String): String =
     when {
-        text.startsWith("Calling web_search") || text.startsWith("Calling search_web") -> "Searching the web"
-        text.startsWith("Calling fetch_url") -> "Retrieving webpage content"
-        text.startsWith("Calling calculator") -> "Evaluating calculation"
-        text.startsWith("Calling get_current_datetime") -> "Checking system date & time"
-        text.startsWith("Calling launch_app") -> "Launching application"
-        text.startsWith("Calling create_file") -> "Saving file"
-        text.startsWith("Calling read_file") -> "Reading local file"
-        text.startsWith("Calling search_files") -> "Searching device files"
-        text.startsWith("Calling ") -> "Executing ${text.removePrefix("Calling ").replace('_', ' ')}"
-        text.endsWith(" done") -> "${text.removeSuffix(" done").replace('_', ' ').replaceFirstChar { it.uppercase() }} complete"
+        text.startsWith("Calling web_search") || text.startsWith("Calling search_web") -> "Search web"
+        text.startsWith("Calling fetch_url") -> "Read web page"
+        text.startsWith("Calling send_sms") -> "Send SMS"
+        text.startsWith("Calling calculator") -> "Calculate"
+        text.startsWith("Calling get_current_datetime") -> "Check system date & time"
+        text.startsWith("Calling launch_app") -> "Launch application"
+        text.startsWith("Calling create_file") -> "Save file"
+        text.startsWith("Calling read_file") -> "Read file"
+        text.startsWith("Calling search_files") -> "Search files"
+        text.startsWith("Calling ") -> "Call ${text.removePrefix("Calling ").replace('_', ' ')}"
+        text.endsWith(" done") -> "${text.removeSuffix(" done").replace('_', ' ').replaceFirstChar { it.uppercase() }} done"
+        text.endsWith(" completed") -> "${text.removeSuffix(" completed").replace('_', ' ').replaceFirstChar { it.uppercase() }} done"
         text.endsWith(" failed") -> "${text.removeSuffix(" failed").replace('_', ' ').replaceFirstChar { it.uppercase() }} failed"
         text.startsWith("Needs your approval: ") -> "Approval required: ${text.removePrefix("Needs your approval: ").replace('_', ' ')}"
         text.startsWith("Denied ") -> "Denied: ${text.removePrefix("Denied ").replace('_', ' ')}"
         else -> text
     }
-
-@Composable
-fun AgentStepRow(step: AgentStep) {
-    Row(
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        AgentStatusIcon(state = step.state)
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
-        ) {
-            Text(
-                text = formatStepDescription(step.text),
-                style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            if (step.detail != null) {
-                Text(
-                    text = step.detail,
-                    style = JarvisText.Metadata,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (step.state == AgentStepState.RUNNING) {
-                val progress = step.progress
-                if (progress != null) {
-                    LinearProgressIndicator(
-                        progress = { progress },
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .height(Spacing.xs)
-                                .clip(JarvisShapes.pill),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    )
-                } else {
-                    LinearProgressIndicator(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .height(Spacing.xs)
-                                .clip(JarvisShapes.pill),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    )
-                }
-            }
-        }
-        AgentStatusPill(step = step)
-    }
-}
-
-@Composable
-fun AgentStatusIcon(state: AgentStepState) {
-    when (state) {
-        AgentStepState.DONE ->
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier =
-                    Modifier
-                        .size(Spacing.xxl)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(Spacing.lg),
-                )
-            }
-        AgentStepState.RUNNING -> JarvisLoader(size = Spacing.xxl)
-        AgentStepState.FAILED ->
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier =
-                    Modifier
-                        .size(Spacing.xxl)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.errorContainer),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Failed",
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(Spacing.lg),
-                )
-            }
-    }
-}
-
-@Composable
-fun AgentStatusPill(step: AgentStep) {
-    val running = step.state == AgentStepState.RUNNING
-    val failed = step.state == AgentStepState.FAILED
-    val containerColor =
-        when {
-            running -> MaterialTheme.colorScheme.primaryContainer
-            failed -> MaterialTheme.colorScheme.errorContainer
-            else -> MaterialTheme.colorScheme.surfaceContainerHighest
-        }
-    val contentColor =
-        when {
-            running -> MaterialTheme.colorScheme.onPrimaryContainer
-            failed -> MaterialTheme.colorScheme.onErrorContainer
-            else -> MaterialTheme.colorScheme.onSurfaceVariant
-        }
-    val label =
-        when {
-            running -> "Running"
-            failed -> "Failed"
-            step.durationLabel != null -> step.durationLabel
-            else -> "Done"
-        }
-    Surface(
-        shape = JarvisShapes.pill,
-        color = containerColor,
-    ) {
-        Text(
-            text = label,
-            style =
-                if (!running && !failed && step.durationLabel != null) {
-                    JarvisText.CodeLabel
-                } else {
-                    JarvisText.Caption
-                },
-            color = contentColor,
-            maxLines = 1,
-            modifier =
-                Modifier.padding(
-                    horizontal = Spacing.sm,
-                    vertical = Spacing.xs,
-                ),
-        )
-    }
-}
-
-@Composable
-fun AgentApprovalRow(
-    pending: AgentConfirmation,
-    onAllowOnce: () -> Unit,
-    onAllowAlways: () -> Unit,
-    onDeny: () -> Unit,
-) {
-    Row(
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier =
-                Modifier
-                    .size(Spacing.xxl)
-                    .clip(CircleShape)
-                    .background(JarvisColors.Semantic.warning),
-        ) {
-            Icon(
-                imageVector = Icons.Default.PriorityHigh,
-                contentDescription = null,
-                tint = JarvisColors.Dark.canvas,
-                modifier = Modifier.size(Spacing.lg),
-            )
-        }
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-        ) {
-            Text(
-                text = "Approval required: ${formatToolTitle(pending.toolName)}",
-                style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = "Sensitive-tier action. Choose whether to permit this single operation or trust it for this conversation.",
-                style = JarvisText.Metadata,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                OutlinedButton(
-                    onClick = onDeny,
-                    shape = JarvisShapes.codeBlock,
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) {
-                    Text("Deny", color = MaterialTheme.colorScheme.error)
-                }
-                Button(
-                    onClick = onAllowOnce,
-                    shape = JarvisShapes.codeBlock,
-                    modifier = Modifier.heightIn(min = 48.dp),
-                    colors =
-                        ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            contentColor = MaterialTheme.colorScheme.onSurface,
-                        ),
-                ) {
-                    Text("Allow once")
-                }
-                Button(
-                    onClick = onAllowAlways,
-                    shape = JarvisShapes.codeBlock,
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) {
-                    Text("Always")
-                }
-            }
-        }
-    }
-}

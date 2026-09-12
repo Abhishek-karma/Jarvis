@@ -21,7 +21,9 @@ class LocalModelCatalogTest {
               "checksumSha256": "abc123",
               "approxSizeLabel": "~1.6 GB",
               "ramNote": "Fits 8 GB devices",
-              "license": "Gemma Terms of Use"
+              "license": "Gemma Terms of Use",
+              "supportsTools": true,
+              "supportsReasoning": false
             }
           ]
         }
@@ -40,6 +42,8 @@ class LocalModelCatalogTest {
         assertEquals("gemma-2-2b-it-gpu-int4.litertlm", spec.fileName)
         assertEquals("https://example.com/gemma.litertlm", spec.url)
         assertEquals("abc123", spec.checksumSha256)
+        assertTrue(spec.supportsTools)
+        assertEquals(false, spec.supportsReasoning)
     }
 
     @Test

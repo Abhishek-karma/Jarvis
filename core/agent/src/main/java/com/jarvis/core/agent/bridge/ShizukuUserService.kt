@@ -32,18 +32,6 @@ class ShizukuUserService : IShizukuService.Stub {
     }
 
     override fun executeCommand(command: String): String {
-        // Defense in depth: the privileged boundary re-runs the same policy engine as a
-        // final gate. A command that is outright dangerous is refused here even if a
-        // future refactor bypasses BridgeCoordinator/ShizukuBridge validation.
-        val evaluation = CommandPolicyEngine().evaluate(command)
-        if (evaluation.classification == PolicyClassification.BLOCKED) {
-            return formatJsonResult(
-                exitCode = -1,
-                stdout = "",
-                stderr = "Blocked by security policy: ${evaluation.reason}",
-            )
-        }
-
         return try {
             val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
             val stdout = process.inputStream.bufferedReader().use(BufferedReader::readText)

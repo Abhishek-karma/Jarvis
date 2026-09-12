@@ -254,7 +254,7 @@ class LiteRtLmEngine private constructor(
     private class LiteRtLmOpenApiTool(
         private val definition: ToolDefinition,
     ) : OpenApiTool {
-        override fun getToolDescriptionJsonString(): String {
+        private val descriptionJsonString: String by lazy {
             val root = JsonObject()
             root.addProperty("name", definition.name)
             root.addProperty("description", definition.description)
@@ -265,8 +265,10 @@ class LiteRtLmEngine private constructor(
                 add("properties", JsonObject())
             }
             root.add("parameters", params)
-            return root.toString()
+            root.toString()
         }
+
+        override fun getToolDescriptionJsonString(): String = descriptionJsonString
 
         override fun execute(jsonArgs: String): String = ""
     }

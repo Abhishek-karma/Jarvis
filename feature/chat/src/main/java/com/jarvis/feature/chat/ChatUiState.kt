@@ -4,6 +4,7 @@ import com.jarvis.core.common.DEFAULT_CONVERSATION_TITLE
 import com.jarvis.core.common.Message
 import com.jarvis.core.common.RoutingOverride
 import com.jarvis.core.common.ThinkMode
+import com.jarvis.core.voice.VoiceSessionState
 
 data class ChatUiState(
     val conversationId: String? = null,
@@ -22,14 +23,25 @@ data class ChatUiState(
     val activeRoute: RoutingOverride = RoutingOverride.CLOUD,
 
     val routeBadge: RouteBadge? = null,
-    /** Voice recording state. */
+    /** Voice recording state (for single-shot recording). */
     val isRecording: Boolean = false,
     /** Transcribing audio to text. */
     val isTranscribing: Boolean = false,
 
+    /** Active Voice Mode state machine status. */
+    val voiceState: VoiceSessionState = VoiceSessionState.Idle,
+    /** Whether hands-free continuous Voice Mode is currently active. */
+    val isVoiceModeActive: Boolean = false,
+    /** Whether TTS output speaker is muted in Voice Mode. */
+    val isSpeakerMuted: Boolean = false,
+
     val playingAudioMessageId: String? = null,
     /** A ReAct agent run is in progress. */
     val isAgentRunning: Boolean = false,
+    /** Current state machine phase of the agent. */
+    val agentStatus: AgentStatus = AgentStatus.IDLE,
+    /** Failure explanation when agentStatus == FAILED. */
+    val agentFailureReason: String? = null,
     /** Sensitive-tier tool awaiting an explicit user decision. */
     val pendingConfirmation: AgentConfirmation? = null,
     /** Live step log rendered as the transcript's in-flight tail during an agent run. */
@@ -49,7 +61,46 @@ data class AgentConfirmation(
     val argsJson: String,
 )
 
-enum class AgentStepState { RUNNING, DONE, FAILED }
+/**
+ * High-fidelity Agent state machine states reflecting real execution lifecycle.
+ */
+enum class AgentStatus {
+    IDLE,
+    THINKING,
+    PLANNING,
+    SELECTING_TOOL,
+    WAITING_FOR_APPROVAL,
+    RUNNING_TOOL,
+    WAITING_FOR_RESULT,
+    READING_RESULT,
+    THINKING_AGAIN,
+    SPEAKING,
+    COMPLETED,
+    FAILED,
+    CANCELLED;
+
+    val isActive: Boolean
+        get() = this in listOf(
+            THINKING,
+            PLANNING,
+            SELECTING_TOOL,
+            WAITING_FOR_APPROVAL,
+            RUNNING_TOOL,
+            WAITING_FOR_RESULT,
+            READING_RESULT,
+            THINKING_AGAIN,
+            SPEAKING,
+        )
+
+    val isTerminal: Boolean
+        get() = this in listOf(
+            COMPLETED,
+            FAILED,
+            CANCELLED,
+        )
+}
+
+enum class AgentStepState { RUNNING, DONE, FAILED, CANCELLED }
 
 /** One row in the agent step list: bold title, optional observation detail. */
 data class AgentStep(
@@ -61,4 +112,6 @@ data class AgentStep(
     val durationLabel: String? = null,
     /** 0..1 fraction for the running row's progress bar. Null renders indeterminate. */
     val progress: Float? = null,
+    /** Tool name if this step represents a tool call. */
+    val toolName: String? = null,
 )

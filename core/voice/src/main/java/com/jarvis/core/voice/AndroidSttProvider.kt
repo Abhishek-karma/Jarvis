@@ -52,14 +52,27 @@ class AndroidSttProvider
                 }
             val deferred = CompletableDeferred<Result<TranscriptionResult>>()
             val main = Handler(Looper.getMainLooper())
+            var recognizerRef: SpeechRecognizer? = null
             main.post {
-                var recognizer: SpeechRecognizer? = null
                 try {
-                    recognizer = SpeechRecognizer.createSpeechRecognizer(context)
+                    val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
+                    recognizerRef = recognizer
                     recognizer.setRecognitionListener(
                         listenerFor(
-                            onResult = { text -> deferred.complete(Result.success(TranscriptionResult(text))) },
-                            onError = { message -> deferred.complete(Result.failure(SttException(message))) },
+                            onResult = { text ->
+                                deferred.complete(Result.success(TranscriptionResult(text)))
+                                main.post {
+                                    runCatching { recognizer.destroy() }
+                                    if (recognizerRef === recognizer) recognizerRef = null
+                                }
+                            },
+                            onError = { message ->
+                                deferred.complete(Result.failure(SttException(message)))
+                                main.post {
+                                    runCatching { recognizer.destroy() }
+                                    if (recognizerRef === recognizer) recognizerRef = null
+                                }
+                            },
                         ),
                     )
                     recognizer.startListening(
@@ -70,7 +83,8 @@ class AndroidSttProvider
                         },
                     )
                 } catch (t: Throwable) {
-                    runCatching { recognizer?.destroy() }
+                    runCatching { recognizerRef?.destroy() }
+                    recognizerRef = null
                     deferred.complete(
                         Result.failure(SttException(t.message ?: "Failed to start transcription", cause = t)),
                     )
@@ -79,9 +93,17 @@ class AndroidSttProvider
             return try {
                 deferred.await()
             } catch (e: CancellationException) {
+                main.post {
+                    runCatching { recognizerRef?.destroy() }
+                    recognizerRef = null
+                }
                 throw e
             } finally {
-                main.post { runCatching { tempFile.delete() } }
+                main.post {
+                    runCatching { recognizerRef?.destroy() }
+                    recognizerRef = null
+                    runCatching { tempFile.delete() }
+                }
             }
         }
 
@@ -92,6 +114,11 @@ class AndroidSttProvider
             private val main = Handler(Looper.getMainLooper())
             private var recognizer: SpeechRecognizer? = null
             private var closed = false
+            private var rmsListener: ((Float) -> Unit)? = null
+
+            override fun setRmsListener(onRmsChanged: (Float) -> Unit) {
+                this.rmsListener = onRmsChanged
+            }
 
             override fun startListening(
                 onPartial: (String) -> Unit,
@@ -105,7 +132,14 @@ class AndroidSttProvider
                             recognizer ?: SpeechRecognizer.createSpeechRecognizer(context).also {
                                 recognizer = it
                             }
-                        r.setRecognitionListener(listenerFor(onPartial, onResult, onError))
+                        r.setRecognitionListener(
+                            listenerFor(
+                                onPartial = onPartial,
+                                onResult = onResult,
+                                onError = onError,
+                                onRms = { rms -> rmsListener?.invoke(rms) },
+                            ),
+                        )
                         r.startListening(
                             Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                                 putExtra(
@@ -143,13 +177,17 @@ class AndroidSttProvider
             onPartial: (String) -> Unit = {},
             onResult: (String) -> Unit,
             onError: (String) -> Unit,
+            onRms: (Float) -> Unit = {},
         ): RecognitionListener =
             object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {}
 
                 override fun onBeginningOfSpeech() {}
 
-                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onRmsChanged(rmsdB: Float) {
+                    val normalized = ((rmsdB + 2f) / 12f).coerceIn(0f, 1f)
+                    onRms(normalized)
+                }
 
                 override fun onBufferReceived(buffer: ByteArray?) {}
 
@@ -167,7 +205,7 @@ class AndroidSttProvider
                             SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission missing"
                             else -> "Recognition error ($error)"
                         }
-                    Log.e(TAG, "Recognition error: $message")
+                    Log.w(TAG, "Recognition error: $message (code=$error)")
                     onError(message)
                 }
 

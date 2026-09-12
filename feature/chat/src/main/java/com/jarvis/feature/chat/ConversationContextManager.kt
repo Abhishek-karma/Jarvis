@@ -1,48 +1,91 @@
 package com.jarvis.feature.chat
 
+import com.jarvis.core.agent.prompt.PromptBuilder
+import com.jarvis.core.agent.prompt.PromptConfig
 import com.jarvis.core.common.Memory
 import com.jarvis.core.common.MemoryCategory
 import com.jarvis.core.common.RoutingOverride
 import com.jarvis.core.database.repository.MemoryRepository
 import com.jarvis.core.preferences.UserPreferencesRepository
 import kotlinx.coroutines.flow.first
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
  * Manages conversation context building, active memories injection,
- * and automatic context/preference learning.
+ * high-density layered system prompts, and automatic context/preference learning.
  */
 @Singleton
 class ConversationContextManager @Inject constructor(
     private val memoryRepository: MemoryRepository,
     private val userPreferences: UserPreferencesRepository,
 ) {
-    suspend fun buildMemoryContext(activeRoute: RoutingOverride): String? {
+    /**
+     * Loads, filters by privacy, ranks, and budgets memories for injection into prompt context.
+     */
+    suspend fun buildMemoryContext(
+        activeRoute: RoutingOverride,
+        userQuery: String? = null,
+        maxMemories: Int = 10,
+    ): String? {
         val memoryEnabled = userPreferences.memoryEnabled.first()
         if (!memoryEnabled) return null
         val activeMemories = memoryRepository.getActive()
+        if (activeMemories.isEmpty()) return null
+
         val isLocal = activeRoute == RoutingOverride.LOCAL
         val eligibleMemories = if (isLocal) activeMemories else activeMemories.filterNot { it.isPrivate }
-        return if (eligibleMemories.isNotEmpty()) {
-            eligibleMemories.joinToString("\n") { "- [${it.category.name}]: ${it.content}" }
+        if (eligibleMemories.isEmpty()) return null
+
+        // Rank memories by relevance to query if provided, then by recency and confidence
+        val rankedMemories = if (!userQuery.isNullOrBlank()) {
+            val queryTokens = userQuery.lowercase().split(Regex("\\s+")).filter { it.length > 2 }.toSet()
+            eligibleMemories.sortedByDescending { mem ->
+                val matchScore = queryTokens.count { token -> mem.content.contains(token, ignoreCase = true) }
+                (matchScore * 1000f) + (mem.confidence * 100f) + (mem.timestamp / 1_000_000_000f)
+            }
+        } else {
+            eligibleMemories.sortedByDescending { it.confidence * 100f + (it.timestamp / 1_000_000_000f) }
+        }.take(maxMemories)
+
+        return if (rankedMemories.isNotEmpty()) {
+            rankedMemories.joinToString("\n") { "- [${it.category.name}]: ${it.content}" }
         } else null
     }
 
+    /**
+     * Builds the high-density layered system prompt for Jarvis.
+     */
+    fun buildAssistantSystemPrompt(
+        memoryContext: String?,
+        isLocal: Boolean = false,
+        isVoiceMode: Boolean = false,
+        planFirst: Boolean = false,
+        webToolsAvailable: Boolean = true,
+        customInstructions: String? = null,
+    ): String {
+        return PromptBuilder.buildSystemPrompt(
+            PromptConfig(
+                isLocal = isLocal,
+                isVoiceMode = isVoiceMode,
+                planFirst = planFirst,
+                webToolsAvailable = webToolsAvailable,
+                memoryContext = memoryContext,
+                customInstructions = customInstructions,
+            ),
+        )
+    }
+
+    /** Overload for backward compatibility */
     fun buildAssistantSystemPrompt(memoryContext: String?): String {
-        val now = SimpleDateFormat("EEEE, MMMM d, yyyy HH:mm", Locale.getDefault()).format(Date())
-        return buildString {
-            append("You are Jarvis, an intelligent, helpful personal AI assistant running on an Android mobile device.")
-            append("\nCurrent device date and time: $now.")
-            if (!memoryContext.isNullOrBlank()) {
-                append("\n\n[Assistant Memory & User Context]\n")
-                append(memoryContext)
-                append("\n\nUse this context to remember the user's details, preferences, and background to personalize your responses.")
-            }
-        }
+        return buildAssistantSystemPrompt(
+            memoryContext = memoryContext,
+            isLocal = false,
+            isVoiceMode = false,
+            planFirst = false,
+            webToolsAvailable = true,
+        )
     }
 
     suspend fun extractAndSaveLearnedContext(userText: String) {

@@ -253,14 +253,17 @@ fun ChatScreen(
                                 )
                             }
 
-                            if (uiState.isAgentRunning || uiState.pendingConfirmation != null) {
+                            if (uiState.isAgentRunning || uiState.pendingConfirmation != null || uiState.agentStatus.isActive || uiState.agentStatus == AgentStatus.FAILED || uiState.agentStatus == AgentStatus.CANCELLED || (uiState.agentStatus == AgentStatus.COMPLETED && uiState.agentSteps.isNotEmpty())) {
                                 item(key = "agent-live") {
                                     AgentLiveBlock(
                                         steps = uiState.agentSteps,
                                         pending = uiState.pendingConfirmation,
+                                        status = uiState.agentStatus,
+                                        failureReason = uiState.agentFailureReason,
                                         onAllow = { alwaysForChat -> onRespondToConfirmation(true, alwaysForChat) },
                                         onDeny = { onRespondToConfirmation(false, false) },
                                         onStop = onCancel,
+                                        onRetry = onRegenerate,
                                     )
                                 }
                             }

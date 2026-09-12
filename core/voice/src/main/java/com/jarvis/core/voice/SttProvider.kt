@@ -37,6 +37,9 @@ interface LiveSttSession {
         onError: (String) -> Unit,
     )
 
+    /** Optional RMS / amplitude callback (0f..1f normalized). */
+    fun setRmsListener(onRmsChanged: (Float) -> Unit) {}
+
     /** Stops listening without releasing the recognizer; results already produced are kept. */
     fun stopListening()
 

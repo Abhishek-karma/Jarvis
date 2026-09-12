@@ -9,22 +9,29 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class ToolRegistry {
     private val tools = ConcurrentHashMap<String, Tool>()
+    @Volatile
+    private var cachedDefinitions: List<ToolDefinition>? = null
 
     fun register(tool: Tool) {
         require(!tools.containsKey(tool.name)) { "Tool '${tool.name}' is already registered" }
         tools[tool.name] = tool
+        cachedDefinitions = null
     }
 
     fun registerOrReplace(tool: Tool) {
         tools[tool.name] = tool
+        cachedDefinitions = null
     }
 
     fun unregister(name: String): Boolean {
-        return tools.remove(name) != null
+        val removed = tools.remove(name) != null
+        if (removed) cachedDefinitions = null
+        return removed
     }
 
     fun clear() {
         tools.clear()
+        cachedDefinitions = null
     }
 
     fun get(name: String): Tool? {
@@ -49,13 +56,18 @@ class ToolRegistry {
 
     fun size(): Int = tools.size
 
-    /** Wire definitions sent to the LLM as available functions. */
-    fun definitions(): List<ToolDefinition> =
-        tools.values.map { tool ->
+    /** Wire definitions sent to the LLM as available functions (cached until registry changes). */
+    fun definitions(): List<ToolDefinition> {
+        val cached = cachedDefinitions
+        if (cached != null) return cached
+        val fresh = tools.values.map { tool ->
             ToolDefinition(
                 name = tool.name,
                 description = tool.description,
                 parametersSchemaJson = tool.parametersSchemaJson,
             )
         }
+        cachedDefinitions = fresh
+        return fresh
+    }
 }

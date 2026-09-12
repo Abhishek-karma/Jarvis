@@ -7,7 +7,7 @@
 [![Architecture](https://img.shields.io/badge/Architecture-Clean%20%2B%20Modular%20MVI-FF6F00)](docs/ARCHITECTURE.md)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-**Jarvis** is an open-source, privacy-first mobile AI agent platform engineered for Android. It bridges on-device neural reasoning (LiteRT-LM) and frontier cloud models (Gemini, Claude, OpenAI) with native system capabilities, elevated device control via Shizuku, resilient background automations via WorkManager, and a tiered policy gating engine.
+**Jarvis** is an open-source, privacy-first mobile AI agent platform engineered for Android. It bridges on-device neural reasoning (LiteRT / MediaPipe GenAI) and frontier cloud models (Gemini, Claude, OpenAI) with native system capabilities, elevated device control via Shizuku, resilient background automations via WorkManager, and a zero-trust policy gating engine.
 
 > **Guiding Principle**: *The Agent Core is boring, predictable, and durable. The Agent Tools are powerful, sandboxed, and audited.*
 
@@ -15,11 +15,11 @@
 
 ## Key Features
 
-- 🧠 **Dual Reasoning Runtime**: Run completely offline with local on-device LLMs (LiteRT-LM) or connect to cloud providers (Google Gemini, Anthropic Claude, OpenAI, Ollama, OpenRouter, Groq).
+- 🧠 **Dual Reasoning Runtime**: Run completely offline with local on-device LLMs (LiteRT / MediaPipe LLM Inference) or connect to cloud providers (Google Gemini, Anthropic Claude, OpenAI, Ollama, OpenRouter, Groq).
 - ⚙️ **Canonical Execution Loop (`AgentRunner`)**: Deterministic multi-turn tool-calling engine featuring strict JSON schema validation, parallel read execution, bounded step limits, and full cancellation cooperativity.
-- 🛡️ **Tiered Security & Policy Gate**: 3-tiered permission architecture (`READ_ONLY`, `ACTION`, `SENSITIVE`). Destructive and sensitive operations require explicit user approval before execution; models cannot bypass policy checks.
+- 🛡️ **Zero-Trust Security & Policy Gate**: 3-tiered permission architecture (`READ_ONLY`, `ACTION`, `SENSITIVE`). Destructive and sensitive operations require explicit user approval before execution; models cannot bypass policy checks.
 - 💾 **Durable Idempotency Ledger**: SQLite/Room-backed state machine tracking every operation from initiation to completion. Guarantees zero duplicate side-effects across app kills, background retries, and device reboots.
-- ⚡ **Elevated Device Control via Shizuku**: Integrates Rikka's Shizuku v13 `UserService` to execute privileged ADB-level operations without requiring root access. Privileged shell execution is gated by a strict command policy (see below).
+- ⚡ **Elevated Device Control via Shizuku**: Integrates Rikka's Shizuku v13 `UserService` to execute privileged ADB-level operations safely without requiring root access.
 - 🌐 **Real-Time Web Intelligence**: Autonomous web search (DuckDuckGo), live web page and document extraction (`fetch_url`), and GitHub repository analysis.
 - 📁 **Scoped Storage Safety**: Dedicated safe file creation (`create_file`), content reading (`read_file`), and media search without requiring dangerous broad storage permissions.
 - 🎙️ **Voice & Audio Pipeline**: Built-in speech-to-text (STT) and neural text-to-speech (TTS) interfaces for hands-free conversations.
@@ -96,7 +96,7 @@ Jarvis/
 │   ├── common/           # Shared utilities, dispatchers, extensions, Result wrappers
 │   ├── database/         # Room database, idempotency ledger, migrations, entities
 │   ├── designsystem/     # Material 3 theme, design tokens, typography, custom components
-│   ├── ml/               # On-device inference, LiteRT-LM adapters
+│   ├── ml/               # On-device inference, LiteRT / MediaPipe GenAI adapters
 │   ├── navigation/       # Type-safe Jetpack Navigation destinations and graphs
 │   ├── network/          # SSE clients, Retrofit/OkHttp, multi-provider LLM adapters
 │   ├── preferences/      # Encrypted SharedPreferences, DataStore, user settings
@@ -114,7 +114,7 @@ Jarvis/
 
 | Provider | Type | Supported Models / Engine | Capabilities |
 |---|---|---|---|
-| **Local On-Device** | Local Engine | LiteRT-LM (`.litertlm` models: Gemma, Phi, Llama, Qwen) | 100% Offline, Zero Cloud Egress, Fast Local Latency |
+| **Local On-Device** | Local Engine | LiteRT, MediaPipe GenAI (Gemma 2B/9B, Phi, Llama, Qwen) | 100% Offline, Zero Cloud Egress, Fast Local Latency |
 | **Google Gemini** | Cloud API | `gemini-2.5-flash`, `gemini-1.5-pro`, `gemini-1.5-flash` | Multimodal, Function Calling, Fast SSE Streaming |
 | **Anthropic Claude**| Cloud API | `claude-3-5-sonnet`, `claude-3-haiku`, `claude-3-opus` | Complex Multi-Step Reasoning, Native Tool Calling |
 | **OpenAI / Custom** | Cloud / Self-Host | GPT-4o, GPT-4o-mini, Groq, Ollama, OpenRouter, LM Studio | OpenAI-compatible SSE Streaming & Tool Parsing |
@@ -190,28 +190,6 @@ Jarvis supports elevated device controls through [Shizuku](https://shizuku.rikka
 3. Open **Jarvis Settings → Control Center → Shizuku Integration**.
 4. Grant Jarvis permission when prompted.
 5. Privileged tools will now automatically bind through the Shizuku v13 `UserService` IPC bridge.
-
-### Privileged Shell Policy Model
-
-Shizuku grants ADB-level (UID 2000) privileges, and `sh -c` executes whatever it is
-given, so Jarvis gates that boundary deterministically:
-
-- Every shell command is parsed as a **complete shell expression** before evaluation.
-  Only single simple commands (no operators, substitution, redirection, quoting,
-  escaping, or expansions) are eligible for any automatic classification.
-- A small allowlist of read-only inspection commands (`dumpsys`, `getprop`,
-  `pm list`, `settings get`, `uptime`, `df`, `ls`, `cat /proc/...`) is auto-allowed.
-- A denylist of destructive commands (`rm -rf /`, `mkfs`, `dd` to block devices,
-  `reboot`, `wipe data`, `pm uninstall` of critical system packages, ...) is
-  permanently blocked and cannot be executed even with confirmation.
-- Everything else — including any composed shell expression — requires explicit
-  user confirmation before privileged execution.
-- Typed operations (grant/revoke permission, force-stop, settings writes, appops)
-  validate their string components against strict character allowlists before they
-  are translated into shell commands.
-
-This is a policy-gating layer on top of a privileged executor, not a sandbox:
-confirmed commands still run with Shizuku privileges.
 
 ---
 
