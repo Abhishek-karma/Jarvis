@@ -42,6 +42,9 @@ class OperationRepositoryTest {
 
         override suspend fun listForTask(taskId: String): List<OperationEntity> =
             store.filter { it.taskId == taskId }
+
+        override suspend fun listExecuting(): List<OperationEntity> =
+            store.filter { it.status == OperationStatus.EXECUTING.name }
     }
 
     private lateinit var repo: RoomOperationRepository

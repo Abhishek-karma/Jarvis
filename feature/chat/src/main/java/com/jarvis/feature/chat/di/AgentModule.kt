@@ -165,7 +165,6 @@ object AgentModule {
             FilesTools.all(
                 search = { query -> searchFiles(context, query) },
                 read = { path -> readLocalFile(context, path) },
-                write = { path, content, append -> writeLocalFile(context, path, content, append) },
                 create = { fileName, content, location -> createNamedFile(context, fileName, content, location) },
             ),
         )
@@ -256,6 +255,7 @@ object AgentModule {
                 registry = toolRegistry,
                 audit = auditLogger,
                 confirmationGate = { _, _ -> false },
+                toolPolicy = com.jarvis.core.agent.BackgroundToolPolicy(),
                 stepCap = 10,
             )
             val memories = memoryRepository.getActiveNonPrivate()
@@ -1093,24 +1093,6 @@ object AgentModule {
                     } else {
                         throw e
                     }
-                }
-            }
-        }
-
-    private suspend fun writeLocalFile(
-        context: Context,
-        path: String,
-        content: String,
-        append: Boolean,
-    ): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                val resolvedFile = resolveFilePath(context, path)
-                resolvedFile.parentFile?.mkdirs()
-                if (append) {
-                    resolvedFile.appendText(content)
-                } else {
-                    resolvedFile.writeText(content)
                 }
             }
         }

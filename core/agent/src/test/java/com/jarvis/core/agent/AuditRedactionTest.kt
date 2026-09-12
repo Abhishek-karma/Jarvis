@@ -15,8 +15,9 @@ class AuditRedactionTest {
         val redacted = AuditRedaction.redact("""{"to": "a@b.c", "body": "hello world"}""")
 
         assertFalse(redacted.contains("hello world"))
+        assertFalse(redacted.contains("a@b.c"))
         assertTrue(redacted.contains("[redacted len=11 sha256="))
-        assertTrue(redacted.contains("a@b.c"))
+        assertTrue(redacted.contains("[redacted len=5 sha256="))
     }
 
     @Test
@@ -37,9 +38,12 @@ class AuditRedactionTest {
     }
 
     @Test
-    fun `unparseable args pass through untouched`() {
+    fun `unparseable args are redacted wholesale (fail closed)`() {
         val raw = "not json"
-        assertEquals(raw, AuditRedaction.redact(raw))
+        assertEquals(
+            "{\"error\":\"[redaction failed — unparseable args]\"}",
+            AuditRedaction.redact(raw),
+        )
     }
 
     @Test

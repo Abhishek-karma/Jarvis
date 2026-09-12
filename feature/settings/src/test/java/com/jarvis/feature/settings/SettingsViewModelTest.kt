@@ -192,13 +192,13 @@ class SettingsViewModelTest {
                     peakMemoryMb = 310L,
                     threadCount = 4,
                 )
-            coEvery { benchmarkRunner.runBenchmark(any(), any()) } returns Result.success(expectedBench)
+            coEvery { benchmarkRunner.runBenchmark(any()) } returns Result.success(expectedBench)
             coEvery { userPreferences.setLocalBenchmarkResult(any()) } just Runs
 
             viewModel.runLocalBenchmark()
             advanceUntilIdle()
 
-            coVerify { benchmarkRunner.runBenchmark(any(), any()) }
+            coVerify { benchmarkRunner.runBenchmark(any()) }
             coVerify { userPreferences.setLocalBenchmarkResult(expectedBench) }
             assertEquals(expectedBench, viewModel.prefsState.value.localBenchmarkResult)
             assertFalse(viewModel.prefsState.value.isBenchmarking)

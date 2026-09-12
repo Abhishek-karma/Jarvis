@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.UUID
@@ -74,6 +75,9 @@ class TaskEngineTest {
 
         override suspend fun listForTask(taskId: String): List<Operation> =
             byKey.values.filter { it.taskId == taskId }.sortedBy { it.createdAt }
+
+        override suspend fun listExecuting(): List<Operation> =
+            byKey.values.filter { it.status == OperationStatus.EXECUTING }
     }
 
     private fun newEngine(
@@ -203,5 +207,81 @@ class TaskEngineTest {
         assertEquals(TaskState.QUEUED, recovered?.state)
         assertEquals(1, recovered?.retries)
         assertTrue(recovered?.failureReason?.contains("Interrupted") == true)
+    }
+
+    @Test
+    fun `recover orphaned tasks fails stale EXECUTING operation rows`() = runTest {
+        val taskRepo = FakeTaskRepository()
+        val opRepo = FakeOperationRepository()
+        val engine = newEngine(taskRepo, opRepo)
+
+        // Simulate a crash mid-operation by inserting an old EXECUTING row directly.
+        // The row's updatedAt is set to well before the stale threshold.
+        val staleTs = System.currentTimeMillis() - (TaskEngine.STALE_EXECUTING_THRESHOLD_MILLIS + 10_000)
+        opRepo.insert(
+            Operation(
+                id = UUID.randomUUID().toString(),
+                taskId = "task-stale",
+                toolName = "create_file",
+                idempotencyKey = "file-create-stale",
+                status = OperationStatus.EXECUTING,
+                createdAt = staleTs,
+                updatedAt = staleTs,
+            ),
+        )
+
+        engine.recoverOrphanedTasks()
+
+        val row = opRepo.getByKey("file-create-stale")
+        assertNotNull(row)
+        assertEquals(OperationStatus.FAILED, row?.status)
+        assertTrue(row?.errorMessage?.contains("app shutdown") == true)
+    }
+
+    @Test
+    fun `recent EXECUTING rows are not reclaimed during recovery`() = runTest {
+        val taskRepo = FakeTaskRepository()
+        val opRepo = FakeOperationRepository()
+        val engine = newEngine(taskRepo, opRepo)
+
+        val freshTs = System.currentTimeMillis() - 1_000 // 1 second ago — within threshold
+        opRepo.insert(
+            Operation(
+                id = UUID.randomUUID().toString(),
+                taskId = "task-fresh",
+                toolName = "create_file",
+                idempotencyKey = "file-create-fresh",
+                status = OperationStatus.EXECUTING,
+                createdAt = freshTs,
+                updatedAt = freshTs,
+            ),
+        )
+
+        engine.recoverOrphanedTasks()
+
+        val row = opRepo.getByKey("file-create-fresh")
+        assertNotNull(row)
+        assertEquals(OperationStatus.EXECUTING, row?.status)
+    }
+
+    @Test
+    fun `cancellation exception rethrow leaves operation FAILED and propagates`() = runTest {
+        val taskRepo = FakeTaskRepository()
+        val opRepo = FakeOperationRepository()
+        val engine = newEngine(taskRepo, opRepo)
+
+        try {
+            engine.executeIdempotentOperation("task-cancel", "cancel-key", "dummy") {
+                throw kotlinx.coroutines.CancellationException("cancelled")
+            }
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            // Expected propagation
+        }
+
+        assertEquals(
+            OperationStatus.FAILED,
+            opRepo.getByKey("cancel-key")?.status,
+            "CancellationException must mark the ledger FAILED before rethrowing",
+        )
     }
 }

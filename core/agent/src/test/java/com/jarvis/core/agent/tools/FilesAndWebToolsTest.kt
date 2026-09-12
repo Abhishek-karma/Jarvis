@@ -105,10 +105,10 @@ class FilesAndWebToolsTest {
         }
 
     @Test
-    fun `read_file and write_file tiers and execution`() =
+    fun `read_file and create_file tiers and execution`() =
         runBlocking {
             assertEquals(PermissionTier.READ_ONLY, FilesTools.readFile { Result.success("abc") }.tier)
-            assertEquals(PermissionTier.REVERSIBLE_WRITE, FilesTools.writeFile { _, _, _ -> Result.success(Unit) }.tier)
+            assertEquals(PermissionTier.REVERSIBLE_WRITE, FilesTools.createFile { _, _, _ -> Result.success("Downloads/test.txt") }.tier)
 
             val readTool = FilesTools.readFile { path ->
                 assertEquals("/data/test.txt", path)
@@ -117,21 +117,6 @@ class FilesAndWebToolsTest {
             val readRes = readTool.execute("""{"path":"/data/test.txt"}""")
             assertTrue(readRes.success)
             assertEquals("file content", readRes.observationText)
-
-            var writtenPath = ""
-            var writtenContent = ""
-            var writtenAppend = false
-            val writeTool = FilesTools.writeFile { path, content, append ->
-                writtenPath = path
-                writtenContent = content
-                writtenAppend = append
-                Result.success(Unit)
-            }
-            val writeRes = writeTool.execute("""{"path":"/data/out.txt","content":"hello world","append":true}""")
-            assertTrue(writeRes.success)
-            assertEquals("/data/out.txt", writtenPath)
-            assertEquals("hello world", writtenContent)
-            assertTrue(writtenAppend)
 
             var createdName = ""
             var createdContent = ""

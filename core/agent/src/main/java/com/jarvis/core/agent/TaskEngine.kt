@@ -6,6 +6,7 @@ import com.jarvis.core.common.Task
 import com.jarvis.core.common.TaskState
 import com.jarvis.core.database.repository.OperationRepository
 import com.jarvis.core.database.repository.TaskRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -81,23 +82,9 @@ class TaskEngine(
                 ),
             )
 
-            runCatching {
-                val outcome = action()
-                operationRepository.updateStatus(
-                    Operation(
-                        id = operationId,
-                        taskId = taskId,
-                        toolName = toolName,
-                        idempotencyKey = idempotencyKey,
-                        status = OperationStatus.SUCCEEDED,
-                        resultJson = outcome,
-                        createdAt = now,
-                        updatedAt = System.currentTimeMillis(),
-                    ),
-                )
-                _events.tryEmit(TaskEngineEvent.StepCompleted(taskId, 0, "Executed operation: $idempotencyKey"))
-                outcome
-            }.onFailure { err ->
+            val outcome = try {
+                action()
+            } catch (e: CancellationException) {
                 operationRepository.updateStatus(
                     Operation(
                         id = operationId,
@@ -105,12 +92,42 @@ class TaskEngine(
                         toolName = toolName,
                         idempotencyKey = idempotencyKey,
                         status = OperationStatus.FAILED,
-                        errorMessage = err.message,
+                        errorMessage = "Operation cancelled",
                         createdAt = now,
                         updatedAt = System.currentTimeMillis(),
                     ),
                 )
+                throw e
+            } catch (e: Exception) {
+                operationRepository.updateStatus(
+                    Operation(
+                        id = operationId,
+                        taskId = taskId,
+                        toolName = toolName,
+                        idempotencyKey = idempotencyKey,
+                        status = OperationStatus.FAILED,
+                        errorMessage = e.message,
+                        createdAt = now,
+                        updatedAt = System.currentTimeMillis(),
+                    ),
+                )
+                return@withLock Result.failure(e)
             }
+
+            operationRepository.updateStatus(
+                Operation(
+                    id = operationId,
+                    taskId = taskId,
+                    toolName = toolName,
+                    idempotencyKey = idempotencyKey,
+                    status = OperationStatus.SUCCEEDED,
+                    resultJson = outcome,
+                    createdAt = now,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            )
+            _events.tryEmit(TaskEngineEvent.StepCompleted(taskId, 0, "Executed operation: $idempotencyKey"))
+            Result.success(outcome)
         }
     }
 
@@ -123,6 +140,26 @@ class TaskEngine(
      * Prevents orphaned running tasks or duplicate side effects.
      */
     suspend fun recoverOrphanedTasks() = mutex.withLock {
+        // Ledger rows stuck in EXECUTING mean the process died mid-operation. Fail them
+        // so a re-queued task can attempt the operation again (idempotency is preserved
+        // because the side effect never completed).
+        val staleOps = operationRepository.listExecuting()
+        val staleTimeout = System.currentTimeMillis() - STALE_EXECUTING_THRESHOLD_MILLIS
+        staleOps
+            .filter { it.updatedAt < staleTimeout }
+            .forEach { op ->
+                operationRepository.updateStatus(
+                    op.copy(
+                        status = OperationStatus.FAILED,
+                        errorMessage = "Interrupted by app shutdown, operation did not complete.",
+                        updatedAt = System.currentTimeMillis(),
+                    ),
+                )
+                _events.tryEmit(
+                    TaskEngineEvent.StateChanged(op.taskId, TaskState.QUEUED, "Recovered stale in-flight operation"),
+                )
+            }
+
         val pending = taskRepository.getActiveOrPendingTasks()
         for (task in pending) {
             if (task.state == TaskState.RUNNING) {
@@ -205,6 +242,9 @@ class TaskEngine(
     }
 
     companion object {
+        /** Operations stuck in EXECUTING for longer than this are considered crashed and reclaimed on startup. */
+        const val STALE_EXECUTING_THRESHOLD_MILLIS = 10 * 60 * 1000L
+
         fun isValidTransition(from: TaskState, to: TaskState): Boolean {
             if (from == to) return true
             return when (from) {

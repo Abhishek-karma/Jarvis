@@ -18,6 +18,7 @@ interface OperationRepository {
     suspend fun insert(operation: Operation)
     suspend fun updateStatus(operation: Operation)
     suspend fun listForTask(taskId: String): List<Operation>
+    suspend fun listExecuting(): List<Operation>
 }
 
 @Singleton
@@ -43,6 +44,9 @@ class RoomOperationRepository @Inject constructor(
 
     override suspend fun listForTask(taskId: String): List<Operation> =
         operationDao.listForTask(taskId).map { it.toDomain() }
+
+    override suspend fun listExecuting(): List<Operation> =
+        operationDao.listExecuting().map { it.toDomain() }
 }
 
 private fun OperationEntity.toDomain(): Operation = Operation(

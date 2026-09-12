@@ -255,7 +255,6 @@ class SettingsViewModel
                     }
                     val result =
                         benchmarkRunner.runBenchmark(
-                            threads = _prefsState.value.localThreads,
                             onProgress = { progress, status ->
                                 _prefsState.update {
                                     it.copy(

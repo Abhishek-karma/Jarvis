@@ -34,9 +34,18 @@ fun ChatRoute(
     onOpenVoiceMode: () -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel(),
     historyViewModel: HistoryViewModel = hiltViewModel(),
+    pendingShareText: String? = null,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // Surface a share/process-text payload into the composer on first composition.
+    LaunchedEffect(pendingShareText) {
+        val text = pendingShareText?.takeIf { it.isNotBlank() }
+        if (text != null) {
+            viewModel.onTextChange(text)
+        }
+    }
 
     LaunchedEffect(Unit) {
         historyViewModel.uiEvents.collect { event ->

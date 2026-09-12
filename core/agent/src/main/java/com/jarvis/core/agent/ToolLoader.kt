@@ -11,6 +11,9 @@ import com.jarvis.core.database.repository.ToolCatalogRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.util.UUID
 
 /**
@@ -175,13 +178,16 @@ class ToolLoader(
     }
 
     private suspend fun logAudit(toolName: String, status: String, message: String) {
+        val paramsJson = buildJsonObject {
+            put("message", JsonPrimitive(message))
+        }.toString()
         auditLogRepository?.record(
             AuditLogEntry(
                 id = UUID.randomUUID().toString(),
                 agentRunId = null,
                 toolName = toolName,
                 tier = PermissionTier.READ_ONLY.wireName,
-                paramsRedactedJson = "{\"message\":\"$message\"}",
+                paramsRedactedJson = AuditRedaction.redact(paramsJson),
                 resultStatus = status,
                 userConfirmed = false,
             ),

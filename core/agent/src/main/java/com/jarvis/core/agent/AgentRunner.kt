@@ -213,7 +213,7 @@ class AgentRunner(
             val validCalls = mutableListOf<Pair<ChatStreamEvent.ToolCallRequested, Tool>>()
             for (call in requestedTools) {
                 val tool = registry.get(call.name)
-                if (tool == null || call.name in disabledTools) {
+                if (tool == null) {
                     emit(
                         AgentEvent.ToolRejected(
                             call.name,
@@ -223,6 +223,24 @@ class AgentRunner(
                     turnLog += assistantMessage(assistantText)
                     turnLog += userMessage(
                         "Unknown tool \"${call.name}\". Available tools: ${definitions.joinToString { it.name }}.",
+                    )
+                    hasRejection = true
+                    break
+                }
+
+                // Use canonical tool.name for disabled-check, not caller-provided call.name.
+                // ToolRegistry aliases can map webSearch → search_web; disabledTools are indexed
+                // by canonical name, so checking tool.name ensures the alias bypass is prevented.
+                if (tool.name in disabledTools) {
+                    emit(
+                        AgentEvent.ToolRejected(
+                            tool.name,
+                            "Tool '${tool.name}' is disabled in this environment.",
+                        ),
+                    )
+                    turnLog += assistantMessage(assistantText)
+                    turnLog += userMessage(
+                        "Tool \"${tool.name}\" is disabled in this environment.",
                     )
                     hasRejection = true
                     break
@@ -246,6 +264,45 @@ class AgentRunner(
                 }
             }
 
+            if (hasRejection) {
+                continue
+            }
+
+            // Run toolPolicy evaluate on each valid tool before dispatch.
+            // This applies to both parallel and sequential paths — the parallel path
+            // was missing this entirely, allowing disabled/SENSITIVE tools to execute
+            // unchecked in read-only batches.
+            val policyDecisions = validCalls.map { (call, tool) ->
+                toolPolicy.evaluate(tool, call.argsJson, forceConfirm)
+            }
+
+            // Deny from policy blocks the whole batch: surface the rejection and retry the turn.
+            // RequireConfirmation is handled downstream by the sequential path, so no pre-check here.
+            for (i in validCalls.indices) {
+                val (call, tool) = validCalls[i]
+                if (policyDecisions[i] is PolicyDecision.Deny) {
+                    val decision = policyDecisions[i] as PolicyDecision.Deny
+                    emit(AgentEvent.ToolRejected(tool.name, decision.reason))
+                    turnLog += assistantMessage(assistantText)
+                    turnLog += userMessage(
+                        "Execution blocked by policy for \"${tool.name}\": ${decision.reason}",
+                    )
+                    withContext(NonCancellable) {
+                        audit.record(
+                            AuditRecord(
+                                agentRunId = request.agentRunId,
+                                toolName = tool.name,
+                                tier = tool.tier.name.lowercase(),
+                                paramsRedactedJson = AuditRedaction.redact(call.argsJson),
+                                resultStatus = "blocked",
+                                userConfirmed = false,
+                            ),
+                        )
+                    }
+                    hasRejection = true
+                    break
+                }
+            }
             if (hasRejection) {
                 continue
             }
@@ -278,6 +335,11 @@ class AgentRunner(
                                     )
                                 }
                                 throw e
+                            } catch (e: Exception) {
+                                ToolResult(
+                                    success = false,
+                                    observationText = "Tool execution failed: ${e.message ?: e.javaClass.simpleName}",
+                                )
                             }
                             val clampedObs = contextManager.clampObservation(
                                 r.observationText,
@@ -380,6 +442,11 @@ class AgentRunner(
                             )
                         }
                         throw e
+                    } catch (e: Exception) {
+                        ToolResult(
+                            success = false,
+                            observationText = "Tool execution failed: ${e.message ?: e.javaClass.simpleName}",
+                        )
                     }
                     val clampedObs = contextManager.clampObservation(
                         result.observationText,

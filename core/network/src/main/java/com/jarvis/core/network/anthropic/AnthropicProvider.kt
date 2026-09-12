@@ -67,11 +67,13 @@ class AnthropicProvider(
 
     override suspend fun listModels(): Result<List<ModelInfo>> =
         withRetries {
+            val key = apiKeyProvider()?.takeIf { it.isNotBlank() }
+                ?: throw IOException("API key is missing or empty. Please set a valid API key.")
             val request =
                 Request
                     .Builder()
                     .url(buildUrl("/v1/models"))
-                    .header("x-api-key", apiKeyProvider() ?: "")
+                    .header("x-api-key", key)
                     .header("anthropic-version", "2023-06-01")
                     .get()
                     .build()
@@ -118,11 +120,18 @@ class AnthropicProvider(
                             }?.ifEmpty { null },
                 )
 
+            val key = apiKeyProvider()?.takeIf { it.isNotBlank() }
+            if (key == null) {
+                trySend(ChatStreamEvent.Error("API_KEY_MISSING", "API key is missing or empty. Please set a valid API key.", retryable = false))
+                close()
+                return@callbackFlow
+            }
+
             val httpRequest =
                 Request
                     .Builder()
                     .url(buildUrl("/v1/messages"))
-                    .header("x-api-key", apiKeyProvider() ?: "")
+                    .header("x-api-key", key)
                     .header("anthropic-version", "2023-06-01")
                     .header("Accept", "text/event-stream")
                     .post(requestAdapter.toJson(dto).toRequestBody(jsonMedia))

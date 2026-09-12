@@ -14,9 +14,22 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import rikka.shizuku.Shizuku
 import java.io.BufferedReader
+import java.util.regex.Pattern
 
 private const val TAG = "ShizukuBridge"
 const val SHIZUKU_PERMISSION_REQUEST_CODE = 8742
+
+/** Shell metacharacters that must never reach an interpolated `sh -c` command. */
+internal val SHELL_SAFE = Pattern.compile("^[a-zA-Z0-9_.:/@+\\-]+$")
+
+/** Rejects any argument that could break out of its interpolated position in a `sh -c` command. */
+internal fun shellSafe(vararg values: String) {
+    for (v in values) {
+        if (!SHELL_SAFE.matcher(v).matches()) {
+            throw IllegalArgumentException("Invalid shell argument: $v")
+        }
+    }
+}
 
 /**
  * Pluggable adapter interface isolating raw Shizuku static API calls.
@@ -292,28 +305,59 @@ class ShizukuBridge(
             )
         }
 
-        val shellCommand = when (op) {
-            is TypedOp.GrantPermission -> "pm grant ${op.packageName} ${op.permission}"
-            is TypedOp.RevokePermission -> "pm revoke ${op.packageName} ${op.permission}"
-            is TypedOp.SetGlobalSetting -> "settings put global ${op.key} ${op.value}"
-            is TypedOp.SetSecureSetting -> "settings put secure ${op.key} ${op.value}"
-            is TypedOp.ForceStop -> "am force-stop ${op.packageName}"
-            is TypedOp.SetAppEnabled -> "pm ${if (op.enabled) "enable" else "disable"} ${op.packageName}"
-            is TypedOp.AppOp -> "cmd appops set ${op.packageName} ${op.op} ${op.mode}"
-            is TypedOp.Screenshot -> "screencap -p /sdcard/jarvis_screencap.png"
-            is TypedOp.InputGesture -> {
-                if (op.points.size >= 2) {
-                    val p1 = op.points[0]
-                    val p2 = op.points[1]
-                    "input swipe ${p1.first} ${p1.second} ${p2.first} ${p2.second}"
-                } else if (op.points.isNotEmpty()) {
-                    val p = op.points[0]
-                    "input tap ${p.first} ${p.second}"
-                } else {
-                    "input keyevent 3" // Home
+        val shellCommand = try {
+            when (op) {
+                is TypedOp.GrantPermission -> {
+                    shellSafe(op.packageName, op.permission)
+                    "pm grant ${op.packageName} ${op.permission}"
                 }
+                is TypedOp.RevokePermission -> {
+                    shellSafe(op.packageName, op.permission)
+                    "pm revoke ${op.packageName} ${op.permission}"
+                }
+                is TypedOp.SetGlobalSetting -> {
+                    shellSafe(op.key, op.value)
+                    "settings put global ${op.key} ${op.value}"
+                }
+                is TypedOp.SetSecureSetting -> {
+                    shellSafe(op.key, op.value)
+                    "settings put secure ${op.key} ${op.value}"
+                }
+                is TypedOp.ForceStop -> {
+                    shellSafe(op.packageName)
+                    "am force-stop ${op.packageName}"
+                }
+                is TypedOp.SetAppEnabled -> {
+                    shellSafe(op.packageName)
+                    "pm ${if (op.enabled) "enable" else "disable"} ${op.packageName}"
+                }
+                is TypedOp.AppOp -> {
+                    // AppOp modes are either named (allow/deny/default/ignore/foreground)
+                    // or a UID offset — both fit the shell-safe charset.
+                    shellSafe(op.packageName, op.op, op.mode)
+                    "cmd appops set ${op.packageName} ${op.op} ${op.mode}"
+                }
+                is TypedOp.Screenshot -> "screencap -p /sdcard/jarvis_screencap.png"
+                is TypedOp.InputGesture -> {
+                    if (op.points.size >= 2) {
+                        val p1 = op.points[0]
+                        val p2 = op.points[1]
+                        "input swipe ${p1.first} ${p1.second} ${p2.first} ${p2.second}"
+                    } else if (op.points.isNotEmpty()) {
+                        val p = op.points[0]
+                        "input tap ${p.first} ${p.second}"
+                    } else {
+                        "input keyevent 3" // Home
+                    }
+                }
+                // ShellCommand is explicitly arbitrary — gated at SENSITIVE-tier with user confirmation.
+                is TypedOp.ShellCommand -> op.command
             }
-            is TypedOp.ShellCommand -> op.command
+        } catch (e: IllegalArgumentException) {
+            return@withContext OpResult.Failed(
+                error = "Bridge rejected command: ${e.message}",
+                exitCode = -1,
+            )
         }
 
         try {

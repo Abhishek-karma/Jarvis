@@ -1,5 +1,6 @@
 package com.jarvis.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -48,6 +49,9 @@ class MainActivity : ComponentActivity() {
     /** Throttled startup update check — posts a notification when a newer release exists. */
     private val updateViewModel: UpdateViewModel by viewModels()
 
+    /** Text received via ACTION_SEND / ACTION_PROCESS_TEXT, surfaced to ChatRoute. */
+    private val pendingShareText = androidx.compose.runtime.mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
 
         val splash = installSplashScreen()
@@ -55,6 +59,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         enableEdgeToEdge()
+        handleSharedIntent(intent)
         setContent {
 
             val mainViewModel: MainViewModel = hiltViewModel()
@@ -78,16 +83,41 @@ class MainActivity : ComponentActivity() {
                     when (val firstRun = showOnboarding) {
 
                         null -> Unit
-                        else -> JarvisNavHost(startOnboarding = firstRun)
+                        else -> JarvisNavHost(startOnboarding = firstRun, pendingShareText)
                     }
                 }
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleSharedIntent(intent)
+    }
+
+    private fun handleSharedIntent(intent: Intent?) {
+        if (intent == null) return
+        val text = when (intent.action) {
+            Intent.ACTION_SEND ->
+                if (intent.type?.startsWith("text/") == true || intent.type == null) {
+                    @Suppress("DEPRECATION")
+                    intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+                } else {
+                    null
+                }
+            Intent.ACTION_PROCESS_TEXT ->
+                intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
+            else -> null
+        }
+        if (!text.isNullOrBlank()) pendingShareText.value = text
+    }
 }
 
 @Composable
-private fun JarvisNavHost(startOnboarding: Boolean) {
+private fun JarvisNavHost(
+    startOnboarding: Boolean,
+    pendingShareText: androidx.compose.runtime.State<String?>,
+) {
     val navController = rememberNavController()
     NavHost(
         navController = navController,
@@ -110,6 +140,7 @@ private fun JarvisNavHost(startOnboarding: Boolean) {
             ChatRoute(
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 onOpenVoiceMode = { navController.navigate(Routes.VOICE_MODE) },
+                pendingShareText = pendingShareText.value,
             )
         }
         composable(Routes.VOICE_MODE) { backStackEntry ->

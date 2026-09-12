@@ -8,7 +8,6 @@ import com.jarvis.core.common.PermissionTier
 object FilesTools {
     const val SEARCH_FILES = "search_files"
     const val READ_FILE = "read_file"
-    const val WRITE_FILE = "write_file"
     const val CREATE_FILE = "create_file"
 
     val manifestNames: List<String> = listOf(SEARCH_FILES, READ_FILE, CREATE_FILE)
@@ -24,19 +23,11 @@ object FilesTools {
     fun all(
         search: suspend (query: String) -> Result<List<FileHit>>,
         read: (suspend (path: String) -> Result<String>)? = null,
-        write: (suspend (path: String, content: String, append: Boolean) -> Result<Unit>)? = null,
         create: (suspend (fileName: String, content: String, location: String?) -> Result<String>)? = null,
     ): List<Tool> = buildList {
         add(searchFiles(search))
         if (read != null) add(readFile(read))
-        if (create != null) {
-            add(createFile(create))
-        } else if (write != null) {
-            // Fallback: wire createFile to writeFile if custom create not passed
-            add(createFile { fileName, content, _ ->
-                write(fileName, content, false).map { fileName }
-            })
-        }
+        if (create != null) add(createFile(create))
     }
 
     fun createFile(create: suspend (fileName: String, content: String, location: String?) -> Result<String>): Tool =
@@ -161,50 +152,6 @@ object FilesTools {
             }
         }
 
-    @Deprecated("Use createFile instead for safe scoped storage file creation")
-    fun writeFile(write: suspend (String, String, Boolean) -> Result<Unit>): Tool =
-        object : Tool {
-            override val name = WRITE_FILE
-            override val description =
-                "[Deprecated: use create_file instead] Create or write text content to a local file at the given path. Specify append=true to append."
-            override val tier = PermissionTier.REVERSIBLE_WRITE
-            override val parametersSchemaJson = WRITE_SCHEMA
-
-            override suspend fun execute(argsJson: String): ToolResult {
-                val args = Args.parse(argsJson)
-                    ?: return ToolResult(
-                        success = false,
-                        observationText = "Arguments are not valid JSON.",
-                        error = "invalid JSON arguments",
-                    )
-                val path = args.string("path")
-                val content = args.string("content")
-                val append = args.boolean("append") ?: false
-                if (path.isNullOrBlank() || content == null) {
-                    return ToolResult(
-                        success = false,
-                        observationText = "Missing arguments: path and content are required.",
-                        error = "path and content are required",
-                    )
-                }
-                return write(path.trim(), content, append).fold(
-                    onSuccess = {
-                        ToolResult(
-                            success = true,
-                            observationText = "Successfully ${if (append) "appended to" else "wrote"} file at \"$path\".",
-                            structuredData = mapOf("path" to path, "bytes" to content.toByteArray().size),
-                        )
-                    },
-                    onFailure = { error ->
-                        ToolResult(
-                            success = false,
-                            observationText = "Could not write file at \"$path\".",
-                            error = error.message ?: "File write failed",
-                        )
-                    },
-                )
-            }
-        }
 
     fun searchFiles(search: suspend (String) -> Result<List<FileHit>>): Tool =
         object : Tool {
@@ -284,8 +231,6 @@ object FilesTools {
         """{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}"""
     private const val READ_SCHEMA =
         """{"type":"object","properties":{"path":{"type":"string","description":"Absolute path of the file to read."}},"required":["path"]}"""
-    private const val WRITE_SCHEMA =
-        """{"type":"object","properties":{"path":{"type":"string","description":"Absolute path of the file to write."},"content":{"type":"string","description":"Text content to write."},"append":{"type":"boolean","description":"If true, appends to the file instead of overwriting."}},"required":["path","content"]}"""
     private const val CREATE_FILE_SCHEMA =
         """{"type":"object","properties":{"file_name":{"type":"string","description":"Name of the file to create (e.g. welcome.txt)."},"content":{"type":"string","description":"Text content to write into the file."},"location":{"type":"string","description":"Target directory: 'downloads' (default), 'documents', or 'app_private'."}},"required":["file_name","content"]}"""
 }

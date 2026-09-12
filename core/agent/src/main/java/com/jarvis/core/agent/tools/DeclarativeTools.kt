@@ -18,6 +18,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.InetAddress
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 @Serializable
@@ -55,7 +56,10 @@ class DeclarativeHttpTool(
             var resolvedUrl = config.url
             for ((key, value) in parsedArgs) {
                 val primValue = (value as? JsonPrimitive)?.content ?: value.toString()
-                resolvedUrl = resolvedUrl.replace("{$key}", primValue)
+                // URL-encode path substitutions to prevent path traversal / query-injection
+                // via untrusted argument values (e.g. "path=/etc/passwd", "q=x?y=1#z").
+                val encoded = URLEncoder.encode(primValue, "UTF-8")
+                resolvedUrl = resolvedUrl.replace("{$key}", encoded)
             }
 
             ensurePublicHttpUrl(resolvedUrl)
@@ -126,6 +130,8 @@ class DeclarativeHttpTool(
         private val defaultHttpClient = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
+            .followRedirects(false)
+            .followSslRedirects(false)
             .build()
 
         fun ensurePublicHttpUrl(url: String) {

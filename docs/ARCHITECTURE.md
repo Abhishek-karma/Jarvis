@@ -80,7 +80,9 @@ RoutineSchedule → WorkManager → RoutineWorker → AgentRunner
 - Non-blocking: failures in audit recording do not abort primary user tool results.
 
 ### `WorkManager` & `RoutineWorker`
-- Android platform-native background execution, supporting network constraints, device charging constraints, and exponential backoff retry.
+- Android platform-native background execution via chained one-time work requests (`ExistingWorkPolicy.REPLACE`).
+- Routine workers enforce the strict `BackgroundToolPolicy` — only READ_ONLY tools may execute unattended.
+- Note: jobs currently run without network/charging constraints; retry relies on WorkManager's default backoff.
 
 ---
 

@@ -65,11 +65,13 @@ class OpenAiCompatibleProvider(
 
     override suspend fun listModels(): Result<List<ModelInfo>> =
         withRetries {
+            val key = apiKeyProvider()?.takeIf { it.isNotBlank() }
+                ?: throw IOException("API key is missing or empty. Please set a valid API key.")
             val request =
                 Request
                     .Builder()
                     .url(buildUrl("/v1/models"))
-                    .header("Authorization", "Bearer ${apiKeyProvider() ?: ""}")
+                    .header("Authorization", "Bearer $key")
                     .get()
                     .build()
 
@@ -110,11 +112,18 @@ class OpenAiCompatibleProvider(
 
                     reasoning_effort = if (request.reasoningRequested) "medium" else null,
                 )
+            val key = apiKeyProvider()?.takeIf { it.isNotBlank() }
+            if (key == null) {
+                trySend(ChatStreamEvent.Error("API_KEY_MISSING", "API key is missing or empty. Please set a valid API key.", retryable = false))
+                close()
+                return@callbackFlow
+            }
+
             val httpRequest =
                 Request
                     .Builder()
                     .url(buildUrl("/v1/chat/completions"))
-                    .header("Authorization", "Bearer ${apiKeyProvider() ?: ""}")
+                    .header("Authorization", "Bearer $key")
                     .header("Accept", "text/event-stream")
                     .post(chatAdapter.toJson(dto).toRequestBody(jsonMedia))
                     .build()

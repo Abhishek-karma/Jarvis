@@ -23,6 +23,7 @@ class RoutineSchedulerTest {
         override suspend fun insert(operation: Operation) {}
         override suspend fun updateStatus(operation: Operation) {}
         override suspend fun listForTask(taskId: String): List<Operation> = emptyList()
+        override suspend fun listExecuting(): List<Operation> = emptyList()
     }
 
     private class FakeRoutineRepository : RoutineRepository {

@@ -58,3 +58,28 @@ class DefaultToolPolicy(
         return PolicyDecision.Allow
     }
 }
+
+/**
+ * Strict policy for unattended background routines (WorkManager / RoutineWorker).
+ * Denies any tool with tier != READ_ONLY, enforcing zero unattended side effects.
+ */
+class BackgroundToolPolicy(
+    private val disabledTools: Set<String> = emptySet(),
+) : ToolPolicy {
+
+    override suspend fun evaluate(
+        tool: Tool,
+        argsJson: String,
+        isForceConfirm: Boolean,
+    ): PolicyDecision {
+        if (tool.name in disabledTools) {
+            return PolicyDecision.Deny("Tool '${tool.name}' is disabled in this environment.")
+        }
+
+        if (tool.tier != PermissionTier.READ_ONLY) {
+            return PolicyDecision.Deny("Tool '${tool.name}' (tier ${tool.tier}) is not permitted in unattended background runs.")
+        }
+
+        return PolicyDecision.Allow
+    }
+}

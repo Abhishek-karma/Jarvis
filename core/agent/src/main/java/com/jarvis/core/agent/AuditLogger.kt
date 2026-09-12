@@ -25,6 +25,7 @@ fun interface AuditLogger {
 
 
 object AuditRedaction {
+    // Keys matched by substring — long enough to be unambiguous.
     private val sensitiveKeyParts =
         listOf(
             "message",
@@ -39,11 +40,20 @@ object AuditRedaction {
             "api_key",
             "key",
             "code",
+            "number",   // phone_number, contact numbers
+            "phone",
+            "url",
+            "path",
         )
+
+    // Keys matched exactly — too short for substring matching without collateral.
+    private val sensitiveExactKeys = setOf("to")
+
     fun redact(argsJson: String): String {
-        val root =
-            runCatching { Json.parseToJsonElement(argsJson) }.getOrNull()
-                ?: return argsJson
+        val root = runCatching { Json.parseToJsonElement(argsJson) }.getOrNull()
+            // Fail closed: an unparseable blob may contain sensitive data, so it is
+            // replaced wholesale rather than passed through.
+            ?: return "{\"error\":\"[redaction failed — unparseable args]\"}"
         return redactElement(root).toString()
     }
 
@@ -58,7 +68,10 @@ object AuditRedaction {
         key: String,
         value: JsonElement,
     ): JsonElement {
-        if (value is JsonPrimitive && sensitiveKeyParts.any { key.lowercase().contains(it) }) {
+        val lowerKey = key.lowercase()
+        val sensitive = lowerKey in sensitiveExactKeys ||
+            sensitiveKeyParts.any { lowerKey.contains(it) }
+        if (value is JsonPrimitive && sensitive) {
             return JsonPrimitive(marker(value.content))
         }
         return redactElement(value)

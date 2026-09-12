@@ -99,7 +99,7 @@ class OpenAiCompatibleProviderTest {
                 OpenAiCompatibleProvider(
                     id = "v1-base",
                     baseUrl = mockServer.url("/").toString().trimEnd('/') + "/v1",
-                    apiKeyProvider = { null },
+                    apiKeyProvider = { "test-api-key" },
                     client = client,
                     moshi = Moshi.Builder().add(Any::class.java, JsonTreeAdapter).build(),
                     dispatchers = dispatchers,
@@ -107,6 +107,34 @@ class OpenAiCompatibleProviderTest {
 
             assertTrue(adapterWithV1Base.listModels().isSuccess)
             assertEquals("/v1/models", mockServer.takeRequest().path)
+        }
+
+    @Test
+    fun `listModels fails fast when api key is missing or blank`() =
+        runTest {
+            val noKeyProvider =
+                OpenAiCompatibleProvider(
+                    id = "no-key",
+                    baseUrl = mockServer.url("/").toString().trimEnd('/'),
+                    apiKeyProvider = { null },
+                    client = OkHttpClient(),
+                    moshi = Moshi.Builder().add(Any::class.java, JsonTreeAdapter).build(),
+                    dispatchers = mockk<com.jarvis.core.common.DispatcherProvider>(relaxed = true),
+                )
+            val blankKeyProvider =
+                OpenAiCompatibleProvider(
+                    id = "blank-key",
+                    baseUrl = mockServer.url("/").toString().trimEnd('/'),
+                    apiKeyProvider = { "  " },
+                    client = OkHttpClient(),
+                    moshi = Moshi.Builder().add(Any::class.java, JsonTreeAdapter).build(),
+                    dispatchers = mockk<com.jarvis.core.common.DispatcherProvider>(relaxed = true),
+                )
+
+            assertTrue(noKeyProvider.listModels().isFailure)
+            assertTrue(blankKeyProvider.listModels().isFailure)
+            // No request should have hit the server — the guard fails before dispatch.
+            assertEquals(0, mockServer.requestCount)
         }
 
     @Test

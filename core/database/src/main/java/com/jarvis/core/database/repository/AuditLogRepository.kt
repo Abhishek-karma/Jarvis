@@ -217,3 +217,41 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
     }
 }
 
+/** v7 → v8: add FK from operations.taskId → tasks.id with CASCADE delete. */
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // 1. Remove any orphaned operations rows (taskId references missing task)
+        db.execSQL("DELETE FROM `operations` WHERE `taskId` NOT IN (SELECT `id` FROM `tasks`)")
+
+        // 2. Create new table with FK constraint
+        db.execSQL(
+            "CREATE TABLE `operations_new` (" +
+                "`id` TEXT NOT NULL PRIMARY KEY, " +
+                "`taskId` TEXT NOT NULL, " +
+                "`toolName` TEXT NOT NULL, " +
+                "`idempotencyKey` TEXT NOT NULL, " +
+                "`status` TEXT NOT NULL, " +
+                "`resultJson` TEXT, " +
+                "`errorMessage` TEXT, " +
+                "`createdAt` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, " +
+                "FOREIGN KEY(`taskId`) REFERENCES `tasks`(`id`) ON DELETE CASCADE" +
+                ")"
+        )
+
+        // 3. Copy data
+        db.execSQL(
+            "INSERT INTO `operations_new` (`id`, `taskId`, `toolName`, `idempotencyKey`, `status`, `resultJson`, `errorMessage`, `createdAt`, `updatedAt`) " +
+            "SELECT `id`, `taskId`, `toolName`, `idempotencyKey`, `status`, `resultJson`, `errorMessage`, `createdAt`, `updatedAt` FROM `operations`"
+        )
+
+        // 4. Drop old, rename new
+        db.execSQL("DROP TABLE `operations`")
+        db.execSQL("ALTER TABLE `operations_new` RENAME TO `operations`")
+
+        // 5. Recreate indices
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_operations_taskId` ON `operations` (`taskId`)")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_operations_idempotencyKey` ON `operations` (`idempotencyKey`)")
+    }
+}
+

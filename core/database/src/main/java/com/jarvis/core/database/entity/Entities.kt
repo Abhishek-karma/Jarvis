@@ -157,6 +157,12 @@ data class ReversibleActionEntity(
 @Entity(
     tableName = "operations",
     indices = [Index("taskId"), Index(value = ["idempotencyKey"], unique = true)],
+    foreignKeys = [ForeignKey(
+        entity = TaskEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["taskId"],
+        onDelete = ForeignKey.CASCADE,
+    )],
 )
 data class OperationEntity(
     @PrimaryKey val id: String,

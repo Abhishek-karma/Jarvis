@@ -24,10 +24,9 @@ class LocalModelBenchmarkRunner
         private val localLlmRuntime: LocalLlmRuntime,
         private val dispatchers: DispatcherProvider,
     ) {
-        suspend fun runBenchmark(
-            threads: Int = 4,
-            onProgress: (progress: Float, status: String) -> Unit,
-        ): Result<LocalBenchmarkResult> =
+    suspend fun runBenchmark(
+        onProgress: (progress: Float, status: String) -> Unit,
+    ): Result<LocalBenchmarkResult> =
             withContext(dispatchers.io) {
                 try {
                     onProgress(0.05f, "Preparing benchmark environment…")
@@ -97,18 +96,10 @@ class LocalModelBenchmarkRunner
                             }
                         }
                     } else {
-                        // Synthetic warmup & token generation for benchmark estimation when engine is uninitialized
-                        onProgress(0.50f, "Executing on-device compute pass…")
-                        for (i in 1..20) {
-                            delay(60)
-                            tokenCount += 4
-                            val now = System.currentTimeMillis()
-                            if (firstTokenTime == 0L) firstTokenTime = now
-                            onProgress(
-                                0.50f + (i / 20f) * 0.45f,
-                                "Measuring throughput… ($tokenCount tokens)",
-                            )
-                        }
+                        // No on-device engine available — cannot run a real benchmark.
+                        return@withContext Result.failure(
+                            IllegalStateException("No on-device engine available for benchmark. Please ensure a local model is downloaded and the runtime is initialized."),
+                        )
                     }
 
                     val endTime = System.currentTimeMillis()
@@ -137,7 +128,6 @@ class LocalModelBenchmarkRunner
                             generationSpeedTps = (speedTps * 10).toInt() / 10f,
                             totalTimeMs = totalLatencyMs,
                             peakMemoryMb = peakRamMb,
-                            threadCount = threads,
                             timestamp = System.currentTimeMillis(),
                         )
 

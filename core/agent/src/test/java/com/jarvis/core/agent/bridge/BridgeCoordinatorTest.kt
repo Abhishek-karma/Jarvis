@@ -2,6 +2,7 @@ package com.jarvis.core.agent.bridge
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -39,5 +40,58 @@ class BridgeCoordinatorTest {
         assertFalse(TypedOp.GrantPermission("com.example", "android.permission.CAMERA").isReadOnly)
         assertFalse(TypedOp.RevokePermission("com.example", "android.permission.CAMERA").isReadOnly)
         assertFalse(TypedOp.ForceStop("com.example").isReadOnly)
+    }
+
+    // — shell injection regression tests —
+
+    @Test
+    fun `shellSafe rejects semicolons in package name`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            shellSafe("com.x; rm -rf /")
+        }
+    }
+
+    @Test
+    fun `shellSafe rejects pipe metacharacter in permission`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            shellSafe("android.permission.cam|id")
+        }
+    }
+
+    @Test
+    fun `shellSafe rejects ampersand in settings value`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            shellSafe("x&calc")
+        }
+    }
+
+    @Test
+    fun `shellSafe rejects backtick injection in key`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            shellSafe("key`whoami`")
+        }
+    }
+
+    @Test
+    fun `shellSafe rejects shell-dollar substitution in package name`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            shellSafe("\${IFS}rm")
+        }
+    }
+
+    @Test
+    fun `shellSafe rejects single quotes injection`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            shellSafe("com.example app'malicious")
+        }
+    }
+
+    @Test
+    fun `shellSafe accepts valid package names`() {
+        shellSafe("com.example.app")
+        shellSafe("android.permission.INTERNET")
+        shellSafe("settings_global_timeout")
+        shellSafe("allow")
+        shellSafe("deny")
     }
 }

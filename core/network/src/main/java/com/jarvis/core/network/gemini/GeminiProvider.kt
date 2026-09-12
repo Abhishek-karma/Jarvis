@@ -66,13 +66,15 @@ class GeminiProvider(
 
     override suspend fun listModels(): Result<List<ModelInfo>> =
         withRetries {
+            val key = apiKeyProvider()?.takeIf { it.isNotBlank() }
+                ?: throw IOException("API key is missing or empty. Please set a valid API key.")
             val request =
                 Request
                     .Builder()
                     .url(buildUrl("/v1/models"))
 
 
-                    .header("x-goog-api-key", apiKeyProvider() ?: "")
+                    .header("x-goog-api-key", key)
                     .get()
                     .build()
 
@@ -126,13 +128,20 @@ class GeminiProvider(
                             }?.ifEmpty { null },
                 )
 
+            val key = apiKeyProvider()?.takeIf { it.isNotBlank() }
+            if (key == null) {
+                trySend(ChatStreamEvent.Error("API_KEY_MISSING", "API key is missing or empty. Please set a valid API key.", retryable = false))
+                close()
+                return@callbackFlow
+            }
+
             val modelId = request.model.ifEmpty { "gemini-2.0-flash" }
             val httpRequest =
                 Request
                     .Builder()
                     .url(buildUrl("/v1/models/$modelId:streamGenerateContent?alt=sse"))
 
-                    .header("x-goog-api-key", apiKeyProvider() ?: "")
+                    .header("x-goog-api-key", key)
                     .header("Accept", "text/event-stream")
                     .post(requestAdapter.toJson(dto).toRequestBody(jsonMedia))
                     .build()

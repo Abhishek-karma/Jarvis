@@ -126,6 +126,9 @@ interface OperationDao {
 
     @Query("SELECT * FROM operations WHERE taskId = :taskId ORDER BY createdAt ASC")
     suspend fun listForTask(taskId: String): List<OperationEntity>
+
+    @Query("SELECT * FROM operations WHERE status = 'EXECUTING'")
+    suspend fun listExecuting(): List<OperationEntity>
 }
 
 @Dao
