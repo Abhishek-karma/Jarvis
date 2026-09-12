@@ -105,7 +105,7 @@ class AudioRecorder
         }
 
 
-        fun stop(): ByteArray? {
+        suspend fun stop(): ByteArray? {
             val record: android.media.AudioRecord?
             synchronized(lock) {
                 if (!isRecording) return null
@@ -121,7 +121,9 @@ class AudioRecorder
                 record?.release()
             }
 
-            Thread.sleep(50)
+            // Brief delay to allow the reader thread to flush remaining buffer data
+            kotlinx.coroutines.delay(50)
+
             val pcm =
                 synchronized(captured) {
                     val bytes = captured.toByteArray()

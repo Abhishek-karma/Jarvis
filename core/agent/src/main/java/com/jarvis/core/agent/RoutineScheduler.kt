@@ -187,7 +187,14 @@ class RoutineScheduler(
             if (scheduleType == RoutineScheduleType.ONE_TIME) {
                 return cronOrInterval.toLongOrNull() ?: (fromTime + 3600_000L)
             }
-            val minutes = cronOrInterval.trim().toLongOrNull() ?: 60L
+            val trimmed = cronOrInterval.trim()
+            val minutes = when {
+                trimmed.toLongOrNull() != null -> trimmed.toLong()
+                trimmed.contains("hourly", ignoreCase = true) -> 60L
+                trimmed.contains("daily", ignoreCase = true) -> 1440L
+                trimmed.contains("weekly", ignoreCase = true) -> 10080L
+                else -> 60L
+            }
             return fromTime + (minutes.coerceAtLeast(5L) * 60_000L)
         }
     }

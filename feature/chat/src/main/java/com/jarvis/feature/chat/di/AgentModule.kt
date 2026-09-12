@@ -630,12 +630,13 @@ object AgentModule {
                     .build()
 
                 var response = client.newCall(request).execute()
+                val responseCode = response.code
 
                 // If GitHub returns 404/failure on a repo URL (or raw/blob), try GitHub API or README fallback
                 val gitHubRepoRegex = Regex("""^https?://(?:www\.)?github\.com/([^/]+)/([^/#?]+)(?:/.*)?$""", RegexOption.IGNORE_CASE)
                 val gitHubMatch = gitHubRepoRegex.find(url)
 
-                if ((!response.isSuccessful || response.code == 404) && gitHubMatch != null) {
+                if ((!response.isSuccessful || responseCode == 404) && gitHubMatch != null) {
                     response.close()
                     val owner = gitHubMatch.groupValues[1]
                     val repo = gitHubMatch.groupValues[2].removeSuffix(".git")
@@ -670,7 +671,7 @@ object AgentModule {
                     if (fallbackPage != null) {
                         return@runCatching fallbackPage
                     }
-                    error("HTTP ${response.code}: Could not fetch GitHub repository at $url")
+                    error("HTTP $responseCode: Could not fetch GitHub repository at $url")
                 }
 
                 response.use { resp ->

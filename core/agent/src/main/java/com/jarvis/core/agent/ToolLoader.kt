@@ -31,12 +31,12 @@ class ToolLoader(
      */
     suspend fun syncBuiltIns(builtInTools: List<Tool>) = withContext(Dispatchers.IO) {
         val existingEntries = catalogRepository.getAll().associateBy { it.name }
-        val toInsert = mutableListOf<ToolCatalogEntry>()
+        val toUpsert = mutableListOf<ToolCatalogEntry>()
 
         for (tool in builtInTools) {
             val existing = existingEntries[tool.name]
             if (existing == null) {
-                toInsert.add(
+                toUpsert.add(
                     ToolCatalogEntry(
                         id = "builtin_${tool.name}",
                         name = tool.name,
@@ -48,11 +48,26 @@ class ToolLoader(
                         enabled = tool.enabled,
                     ),
                 )
+            } else if (
+                existing.description != tool.description ||
+                existing.parametersSchemaJson != tool.parametersSchemaJson ||
+                existing.tier != tool.tier ||
+                existing.version != tool.version
+            ) {
+                toUpsert.add(
+                    existing.copy(
+                        description = tool.description,
+                        parametersSchemaJson = tool.parametersSchemaJson,
+                        tier = tool.tier,
+                        version = tool.version,
+                        updatedAt = System.currentTimeMillis(),
+                    ),
+                )
             }
         }
 
-        if (toInsert.isNotEmpty()) {
-            catalogRepository.upsertAll(toInsert)
+        if (toUpsert.isNotEmpty()) {
+            catalogRepository.upsertAll(toUpsert)
         }
     }
 
