@@ -173,19 +173,29 @@ class LocalModelStore(
         val active =
             installed.firstOrNull { it.spec.id == registry.activeId }
                 ?: installed.firstOrNull()
-        _installedModels.value = installed.map { it.copy(isActive = it.spec.id == active?.spec?.id) }
 
-        if (installed.isEmpty()) {
-            _status.value =
-                if (catalogById.isEmpty() && registry.imports.isEmpty()) {
-                    LocalModelState.None
-                } else {
-                    LocalModelState.NotDownloaded
+        synchronized(mutationLock) {
+            if (
+                _status.value is LocalModelState.Importing ||
+                _status.value is LocalModelState.Downloading
+            ) return
+
+            _installedModels.value = installed.map { it.copy(isActive = it.spec.id == active?.spec?.id) }
+
+            if (installed.isEmpty()) {
+                if (_status.value !is LocalModelState.Error) {
+                    _status.value =
+                        if (catalogById.isEmpty() && registry.imports.isEmpty()) {
+                            LocalModelState.None
+                        } else {
+                            LocalModelState.NotDownloaded
+                        }
                 }
-            return
+                return
+            }
+            val activeModel = active!!
+            _status.value = LocalModelState.Ready(activeModel.spec, activeModel.file)
         }
-        val activeModel = active!!
-        _status.value = LocalModelState.Ready(activeModel.spec, activeModel.file)
     }
 
     /** Starts a background download for [modelId]; a no-op if already downloading. */

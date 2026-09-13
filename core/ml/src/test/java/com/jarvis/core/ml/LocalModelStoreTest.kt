@@ -198,6 +198,7 @@ class LocalModelStoreTest {
             signature.copyInto(payload)
 
             val store = store()
+            store.refresh()
             val result = store.importModel("picked.task", "Bad file") { payload.inputStream() }
 
             assertTrue(result.isFailure)
@@ -208,6 +209,7 @@ class LocalModelStoreTest {
     fun `rejects an invalid import with Error state and no leftover file`() =
         runBlocking {
             val store = store()
+            store.refresh()
 
             val result = store.importModel("bad.task", "Bad file") { ByteArray(5) { 0x00 }.inputStream() }
 
