@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-09-13
+
+### Fixed
+- **Persistent Native LiteRT-LM Conversation Session**: Resolved on-device state and KV-cache resets during multi-turn agent tool execution by introducing `AgentChatSession` (`LlmProvider`) and `OnDeviceSession` (`OnDeviceEngine`). `LiteRtLmEngine` now maintains an active C++/JNI `Conversation` session across turns, feeding tool observation outputs back into the continuous native conversation rather than recreating the conversation per turn.
+- **Local Agent Tool-Calling Protocol Hardening**: Added robust parsing and normalization for local model markup (including Gemma `<|toolcall|>call:...<tool_call>`), stripping raw markup tokens from user-visible streaming text and routing recognized tool calls into structured execution.
+- **Tolerant Tool Argument Validation**: `ToolArgsValidator` now handles common parameter aliases (`file`, `content`, `text`, `message`, `data`), and `create_file` gracefully defaults empty content.
+
+### Added
+- Comprehensive test coverage for local tool-calling integration and multi-turn session continuity in `LocalAgentToolCallingIntegrationTest`.
+
+### Changed
+- Added `workflow_dispatch` to CI and automated nightly schedule with manual trigger support in GitHub Actions workflows.
+- Bumped `versionName` to `0.2.3` (`versionCode = 13`).
+
 ## [0.2.2] - 2026-09-12
 
 ### Fixed
