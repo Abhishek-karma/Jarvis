@@ -8,6 +8,7 @@ import com.jarvis.core.common.PermissionTier
 import com.jarvis.core.network.ChatRequest
 import com.jarvis.core.network.ChatStreamEvent
 import com.jarvis.core.network.LlmProvider
+import com.jarvis.core.network.ToolResponsePayload
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
@@ -165,288 +166,193 @@ class AgentRunner(
             ),
         )
 
-        var steps = 0
-        while (steps < stepCap) {
-            steps++
-            emit(AgentEvent.IterationStarted(steps))
+        val session = if (supportsTools && request.provider.capabilities.supportsSessions) {
+            request.provider.startSession(
+                ChatRequest(
+                    conversationHistory = baseHistory,
+                    systemPrompt = effectiveSystemPrompt,
+                    model = request.modelId,
+                    reasoningRequested = request.reasoningRequested,
+                    toolsAvailable = definitions,
+                ),
+            )
+        } else null
 
-            val historyBudget = if (request.isLocal) 1500 else 3200
-            val effectiveHistory = contextManager.compactHistory(
-                baseHistory + turnLog,
-                historyTokenBudget = historyBudget,
-            ).messages
+        try {
+            var steps = 0
+            var pendingToolResponses: List<ToolResponsePayload>? = null
 
-            val streamEvents = request.provider
-                .streamChat(
-                    ChatRequest(
-                        conversationHistory = effectiveHistory,
-                        systemPrompt = effectiveSystemPrompt,
-                        model = request.modelId,
-                        reasoningRequested = request.reasoningRequested,
-                        toolsAvailable = if (supportsTools) definitions else null,
-                    ),
-                ).toList()
+            while (steps < stepCap) {
+                steps++
+                emit(AgentEvent.IterationStarted(steps))
 
-            var assistantText = ""
-            val requestedTools = mutableListOf<ChatStreamEvent.ToolCallRequested>()
-            var streamError: ChatStreamEvent.Error? = null
-            for (event in streamEvents) {
-                when (event) {
-                    is ChatStreamEvent.TokenDelta -> assistantText += event.text
-                    is ChatStreamEvent.ToolCallRequested -> requestedTools.add(event)
-                    is ChatStreamEvent.Error -> streamError = event
-                    is ChatStreamEvent.ReasoningDelta, is ChatStreamEvent.Usage, ChatStreamEvent.Done -> Unit
-                }
-            }
+                val streamEvents = if (session != null) {
+                    if (steps == 1) {
+                        session.sendInitial().toList()
+                    } else {
+                        val responses = pendingToolResponses.orEmpty()
+                        pendingToolResponses = null
+                        session.sendToolResponses(responses).toList()
+                    }
+                } else {
+                    val historyBudget = if (request.isLocal) 1500 else 3200
+                    val effectiveHistory = contextManager.compactHistory(
+                        baseHistory + turnLog,
+                        historyTokenBudget = historyBudget,
+                    ).messages
 
-            if (streamError != null) {
-                emit(AgentEvent.Failed(streamError.code, streamError.message))
-                return@flow
-            }
-
-            if (requestedTools.isEmpty()) {
-                emit(AgentEvent.FinalAnswer(assistantText))
-                return@flow
-            }
-
-            var hasRejection = false
-            val validCalls = mutableListOf<Pair<ChatStreamEvent.ToolCallRequested, Tool>>()
-            for (call in requestedTools) {
-                val tool = registry.get(call.name)
-                if (tool == null) {
-                    emit(
-                        AgentEvent.ToolRejected(
-                            call.name,
-                            "Unknown tool. Available tools: ${definitions.joinToString { it.name }}.",
-                        ),
-                    )
-                    // Close the tool-call turn with a tool-role response so the model's
-                    // tool call is properly paired in the conversation protocol.
-                    val callId = UUID.randomUUID().toString()
-                    turnLog += assistantToolCallMessage(
-                        toolCallId = callId,
-                        toolCallName = call.name,
-                        toolCallArgsJson = call.argsJson,
-                    )
-                    turnLog += toolResultMessage(
-                        observation = "Unknown tool \"${call.name}\". Available tools: ${definitions.joinToString { it.name }}.",
-                        toolCallId = callId,
-                        toolCallName = call.name,
-                    )
-                    hasRejection = true
-                    break
+                    request.provider
+                        .streamChat(
+                            ChatRequest(
+                                conversationHistory = effectiveHistory,
+                                systemPrompt = effectiveSystemPrompt,
+                                model = request.modelId,
+                                reasoningRequested = request.reasoningRequested,
+                                toolsAvailable = if (supportsTools) definitions else null,
+                            ),
+                        ).toList()
                 }
 
-                // Use canonical tool.name for disabled-check, not caller-provided call.name.
-                // ToolRegistry aliases can map webSearch → search_web; disabledTools are indexed
-                // by canonical name, so checking tool.name ensures the alias bypass is prevented.
-                if (tool.name in disabledTools) {
-                    emit(
-                        AgentEvent.ToolRejected(
-                            tool.name,
-                            "Tool '${tool.name}' is disabled in this environment.",
-                        ),
-                    )
-                    turnLog += assistantMessage(assistantText)
-                    turnLog += userMessage(
-                        "Tool \"${tool.name}\" is disabled in this environment.",
-                    )
-                    hasRejection = true
-                    break
+                var assistantText = ""
+                val requestedTools = mutableListOf<ChatStreamEvent.ToolCallRequested>()
+                var streamError: ChatStreamEvent.Error? = null
+                for (event in streamEvents) {
+                    when (event) {
+                        is ChatStreamEvent.TokenDelta -> assistantText += event.text
+                        is ChatStreamEvent.ToolCallRequested -> requestedTools.add(event)
+                        is ChatStreamEvent.Error -> streamError = event
+                        is ChatStreamEvent.ReasoningDelta, is ChatStreamEvent.Usage, ChatStreamEvent.Done -> Unit
+                    }
                 }
 
-                emit(AgentEvent.ToolRequested(tool.name, call.argsJson, tool.tier))
+                if (streamError != null) {
+                    emit(AgentEvent.Failed(streamError.code, streamError.message))
+                    return@flow
+                }
 
-                when (val validation = validator.validate(tool.parametersSchemaJson, call.argsJson)) {
-                    is ToolArgsValidator.Result.Rejected -> {
-                        emit(AgentEvent.ToolRejected(tool.name, validation.reason))
-                        // Close the tool-call turn with a tool-role response so the model
-                        // can retry with corrected arguments in the next turn.
+                if (requestedTools.isEmpty()) {
+                    emit(AgentEvent.FinalAnswer(assistantText))
+                    return@flow
+                }
+
+                var hasRejection = false
+                val validCalls = mutableListOf<Pair<ChatStreamEvent.ToolCallRequested, Tool>>()
+                for (call in requestedTools) {
+                    val tool = registry.get(call.name)
+                    if (tool == null) {
+                        emit(
+                            AgentEvent.ToolRejected(
+                                call.name,
+                                "Unknown tool. Available tools: ${definitions.joinToString { it.name }}.",
+                            ),
+                        )
+                        // Close the tool-call turn with a tool-role response so the model's
+                        // tool call is properly paired in the conversation protocol.
                         val callId = UUID.randomUUID().toString()
                         turnLog += assistantToolCallMessage(
                             toolCallId = callId,
-                            toolCallName = tool.name,
+                            toolCallName = call.name,
                             toolCallArgsJson = call.argsJson,
                         )
+                        val obs = "Unknown tool \"${call.name}\". Available tools: ${definitions.joinToString { it.name }}."
                         turnLog += toolResultMessage(
-                            observation = "Tool \"${tool.name}\" rejected its arguments: ${validation.reason} Fix the arguments and retry.",
+                            observation = obs,
                             toolCallId = callId,
-                            toolCallName = tool.name,
+                            toolCallName = call.name,
+                        )
+                        pendingToolResponses = listOf(
+                            ToolResponsePayload(
+                                toolName = call.name,
+                                observation = obs,
+                                toolCallId = callId,
+                            ),
                         )
                         hasRejection = true
                         break
                     }
-                    ToolArgsValidator.Result.Valid -> {
-                        validCalls.add(call to tool)
-                    }
-                }
-            }
 
-            if (hasRejection) {
-                continue
-            }
-
-            // Run toolPolicy evaluate on each valid tool before dispatch.
-            // This applies to both parallel and sequential paths — the parallel path
-            // was missing this entirely, allowing disabled/SENSITIVE tools to execute
-            // unchecked in read-only batches.
-            val policyDecisions = validCalls.map { (call, tool) ->
-                toolPolicy.evaluate(tool, call.argsJson, forceConfirm)
-            }
-
-            // Deny from policy blocks the whole batch: surface the rejection and retry the turn.
-            // RequireConfirmation is handled downstream by the sequential path, so no pre-check here.
-            for (i in validCalls.indices) {
-                val (call, tool) = validCalls[i]
-                if (policyDecisions[i] is PolicyDecision.Deny) {
-                    val decision = policyDecisions[i] as PolicyDecision.Deny
-                    emit(AgentEvent.ToolRejected(tool.name, decision.reason))
-                    turnLog += assistantMessage(assistantText)
-                    turnLog += userMessage(
-                        "Execution blocked by policy for \"${tool.name}\": ${decision.reason}",
-                    )
-                    withContext(NonCancellable) {
-                        audit.record(
-                            AuditRecord(
-                                agentRunId = request.agentRunId,
-                                toolName = tool.name,
-                                tier = tool.tier.name.lowercase(),
-                                paramsRedactedJson = AuditRedaction.redact(call.argsJson),
-                                resultStatus = "blocked",
-                                userConfirmed = false,
+                    // Use canonical tool.name for disabled-check, not caller-provided call.name.
+                    // ToolRegistry aliases can map webSearch → search_web; disabledTools are indexed
+                    // by canonical name, so checking tool.name ensures the alias bypass is prevented.
+                    if (tool.name in disabledTools) {
+                        emit(
+                            AgentEvent.ToolRejected(
+                                tool.name,
+                                "Tool '${tool.name}' is disabled in this environment.",
                             ),
                         )
-                    }
-                    hasRejection = true
-                    break
-                }
-            }
-            if (hasRejection) {
-                continue
-            }
-
-            val allReadOnly = validCalls.all { it.second.tier == PermissionTier.READ_ONLY && !forceConfirm }
-            if (allReadOnly && validCalls.size > 1) {
-                for ((_, tool) in validCalls) {
-                    emit(AgentEvent.ToolExecuting(tool.name))
-                }
-
-                val semaphore = Semaphore(parallelReadLimit)
-                val executedResults = coroutineScope {
-                    validCalls.map { (call, tool) ->
-                        async {
-                            val r = try {
-                                semaphore.withPermit {
-                                    tool.execute(call.argsJson)
-                                }
-                            } catch (e: CancellationException) {
-                                withContext(NonCancellable) {
-                                    audit.record(
-                                        AuditRecord(
-                                            agentRunId = request.agentRunId,
-                                            toolName = tool.name,
-                                            tier = tool.tier.name.lowercase(),
-                                            paramsRedactedJson = AuditRedaction.redact(call.argsJson),
-                                            resultStatus = "cancelled",
-                                            userConfirmed = false,
-                                        ),
-                                    )
-                                }
-                                throw e
-                            } catch (e: Exception) {
-                                ToolResult(
-                                    success = false,
-                                    observationText = "Tool execution failed: ${e.message ?: e.javaClass.simpleName}",
-                                )
-                            }
-                            val clampedObs = contextManager.clampObservation(
-                                r.observationText,
-                                maxTokens = if (request.isLocal) 400 else 1000,
-                            )
-                            withContext(NonCancellable) {
-                                audit.record(
-                                    AuditRecord(
-                                        agentRunId = request.agentRunId,
-                                        toolName = tool.name,
-                                        tier = tool.tier.name.lowercase(),
-                                        paramsRedactedJson = AuditRedaction.redact(call.argsJson),
-                                        resultStatus = if (r.success) "success" else "failed",
-                                        userConfirmed = false,
-                                    ),
-                                )
-                            }
-                            Triple(call, tool, r.copy(observationText = clampedObs))
-                        }
-                    }.awaitAll()
-                }
-
-                for ((call, tool, r) in executedResults) {
-                    val obs = r.observationText
-                    emit(AgentEvent.ToolExecuted(tool.name, r.success, obs))
-                    val callId = UUID.randomUUID().toString()
-                    turnLog += assistantToolCallMessage(
-                        toolCallId = callId,
-                        toolCallName = tool.name,
-                        toolCallArgsJson = call.argsJson,
-                    )
-                    turnLog += toolResultMessage(
-                        observation = obs,
-                        toolCallId = callId,
-                        toolCallName = tool.name,
-                    )
-                }
-            } else {
-                for ((call, tool) in validCalls) {
-                    when (val decision = toolPolicy.evaluate(tool, call.argsJson, forceConfirm)) {
-                        is PolicyDecision.Deny -> {
-                            emit(AgentEvent.ToolRejected(tool.name, decision.reason))
-                            turnLog += assistantMessage(assistantText)
-                            turnLog += userMessage(
-                                "Execution blocked by policy for \"${tool.name}\": ${decision.reason}",
-                            )
-                            withContext(NonCancellable) {
-                                audit.record(
-                                    AuditRecord(
-                                        agentRunId = request.agentRunId,
-                                        toolName = tool.name,
-                                        tier = tool.tier.name.lowercase(),
-                                        paramsRedactedJson = AuditRedaction.redact(call.argsJson),
-                                        resultStatus = "blocked",
-                                        userConfirmed = false,
-                                    ),
-                                )
-                            }
-                            continue
-                        }
-                        is PolicyDecision.RequireConfirmation -> {
-                            emit(AgentEvent.ConfirmationRequired(tool.name, call.argsJson))
-                            val allowed = confirmationGate.confirm(tool.name, call.argsJson)
-                            if (!allowed) {
-                                emit(AgentEvent.ToolCancelled(tool.name))
-                                withContext(NonCancellable) {
-                                    audit.record(
-                                        AuditRecord(
-                                            agentRunId = request.agentRunId,
-                                            toolName = tool.name,
-                                            tier = tool.tier.name.lowercase(),
-                                            paramsRedactedJson = AuditRedaction.redact(call.argsJson),
-                                            resultStatus = "cancelled",
-                                            userConfirmed = false,
-                                        ),
-                                    )
-                                }
-                                return@flow
-                            }
-                        }
-                        PolicyDecision.Allow -> {
-                            // Proceed directly
-                        }
+                        val obs = "Tool \"${tool.name}\" is disabled in this environment."
+                        turnLog += assistantMessage(assistantText)
+                        turnLog += userMessage(obs)
+                        pendingToolResponses = listOf(
+                            ToolResponsePayload(
+                                toolName = tool.name,
+                                observation = obs,
+                            ),
+                        )
+                        hasRejection = true
+                        break
                     }
 
-                    emit(AgentEvent.ToolExecuting(tool.name))
-                    val result = try {
-                        tool.execute(call.argsJson)
-                    } catch (e: CancellationException) {
+                    emit(AgentEvent.ToolRequested(tool.name, call.argsJson, tool.tier))
+
+                    when (val validation = validator.validate(tool.parametersSchemaJson, call.argsJson)) {
+                        is ToolArgsValidator.Result.Rejected -> {
+                            emit(AgentEvent.ToolRejected(tool.name, validation.reason))
+                            // Close the tool-call turn with a tool-role response so the model
+                            // can retry with corrected arguments in the next turn.
+                            val callId = UUID.randomUUID().toString()
+                            turnLog += assistantToolCallMessage(
+                                toolCallId = callId,
+                                toolCallName = tool.name,
+                                toolCallArgsJson = call.argsJson,
+                            )
+                            val obs = "Tool \"${tool.name}\" rejected its arguments: ${validation.reason} Fix the arguments and retry."
+                            turnLog += toolResultMessage(
+                                observation = obs,
+                                toolCallId = callId,
+                                toolCallName = tool.name,
+                            )
+                            pendingToolResponses = listOf(
+                                ToolResponsePayload(
+                                    toolName = tool.name,
+                                    observation = obs,
+                                    toolCallId = callId,
+                                ),
+                            )
+                            hasRejection = true
+                            break
+                        }
+                        ToolArgsValidator.Result.Valid -> {
+                            validCalls.add(call to tool)
+                        }
+                    }
+                }
+
+                if (hasRejection) {
+                    continue
+                }
+
+                // Run toolPolicy evaluate on each valid tool before dispatch.
+                val policyDecisions = validCalls.map { (call, tool) ->
+                    toolPolicy.evaluate(tool, call.argsJson, forceConfirm)
+                }
+
+                // Deny from policy blocks the whole batch: surface the rejection and retry the turn.
+                for (i in validCalls.indices) {
+                    val (call, tool) = validCalls[i]
+                    if (policyDecisions[i] is PolicyDecision.Deny) {
+                        val decision = policyDecisions[i] as PolicyDecision.Deny
+                        emit(AgentEvent.ToolRejected(tool.name, decision.reason))
+                        val obs = "Execution blocked by policy for \"${tool.name}\": ${decision.reason}"
+                        turnLog += assistantMessage(assistantText)
+                        turnLog += userMessage(obs)
+                        pendingToolResponses = listOf(
+                            ToolResponsePayload(
+                                toolName = tool.name,
+                                observation = obs,
+                            ),
+                        )
                         withContext(NonCancellable) {
                             audit.record(
                                 AuditRecord(
@@ -454,52 +360,214 @@ class AgentRunner(
                                     toolName = tool.name,
                                     tier = tool.tier.name.lowercase(),
                                     paramsRedactedJson = AuditRedaction.redact(call.argsJson),
-                                    resultStatus = "cancelled",
+                                    resultStatus = "blocked",
                                     userConfirmed = false,
                                 ),
                             )
                         }
-                        throw e
-                    } catch (e: Exception) {
-                        ToolResult(
-                            success = false,
-                            observationText = "Tool execution failed: ${e.message ?: e.javaClass.simpleName}",
-                        )
+                        hasRejection = true
+                        break
                     }
-                    val clampedObs = contextManager.clampObservation(
-                        result.observationText,
-                        maxTokens = if (request.isLocal) 400 else 1000,
-                    )
-                    withContext(NonCancellable) {
-                        audit.record(
-                            AuditRecord(
-                                agentRunId = request.agentRunId,
-                                toolName = tool.name,
-                                tier = tool.tier.name.lowercase(),
-                                paramsRedactedJson = AuditRedaction.redact(call.argsJson),
-                                resultStatus = if (result.success) "success" else "failed",
-                                userConfirmed = tool.tier == PermissionTier.SENSITIVE || forceConfirm,
-                            ),
-                        )
+                }
+                if (hasRejection) {
+                    continue
+                }
+
+                val allReadOnly = validCalls.all { it.second.tier == PermissionTier.READ_ONLY && !forceConfirm }
+                if (allReadOnly && validCalls.size > 1) {
+                    for ((_, tool) in validCalls) {
+                        emit(AgentEvent.ToolExecuting(tool.name))
                     }
 
-                    emit(AgentEvent.ToolExecuted(tool.name, result.success, clampedObs))
-                    val callId = UUID.randomUUID().toString()
-                    turnLog += assistantToolCallMessage(
-                        toolCallId = callId,
-                        toolCallName = tool.name,
-                        toolCallArgsJson = call.argsJson,
-                    )
-                    turnLog += toolResultMessage(
-                        observation = clampedObs,
-                        toolCallId = callId,
-                        toolCallName = tool.name,
-                    )
+                    val semaphore = Semaphore(parallelReadLimit)
+                    val executedResults = coroutineScope {
+                        validCalls.map { (call, tool) ->
+                            async {
+                                val r = try {
+                                    semaphore.withPermit {
+                                        tool.execute(call.argsJson)
+                                    }
+                                } catch (e: CancellationException) {
+                                    withContext(NonCancellable) {
+                                        audit.record(
+                                            AuditRecord(
+                                                agentRunId = request.agentRunId,
+                                                toolName = tool.name,
+                                                tier = tool.tier.name.lowercase(),
+                                                paramsRedactedJson = AuditRedaction.redact(call.argsJson),
+                                                resultStatus = "cancelled",
+                                                userConfirmed = false,
+                                            ),
+                                        )
+                                    }
+                                    throw e
+                                } catch (e: Exception) {
+                                    ToolResult(
+                                        success = false,
+                                        observationText = "Tool execution failed: ${e.message ?: e.javaClass.simpleName}",
+                                    )
+                                }
+                                val clampedObs = contextManager.clampObservation(
+                                    r.observationText,
+                                    maxTokens = if (request.isLocal) 400 else 1000,
+                                )
+                                withContext(NonCancellable) {
+                                    audit.record(
+                                        AuditRecord(
+                                            agentRunId = request.agentRunId,
+                                            toolName = tool.name,
+                                            tier = tool.tier.name.lowercase(),
+                                            paramsRedactedJson = AuditRedaction.redact(call.argsJson),
+                                            resultStatus = if (r.success) "success" else "failed",
+                                            userConfirmed = false,
+                                        ),
+                                    )
+                                }
+                                Triple(call, tool, r.copy(observationText = clampedObs))
+                            }
+                        }.awaitAll()
+                    }
+
+                    val parallelResponses = mutableListOf<ToolResponsePayload>()
+                    for ((call, tool, r) in executedResults) {
+                        val obs = r.observationText
+                        emit(AgentEvent.ToolExecuted(tool.name, r.success, obs))
+                        val callId = UUID.randomUUID().toString()
+                        turnLog += assistantToolCallMessage(
+                            toolCallId = callId,
+                            toolCallName = tool.name,
+                            toolCallArgsJson = call.argsJson,
+                        )
+                        turnLog += toolResultMessage(
+                            observation = obs,
+                            toolCallId = callId,
+                            toolCallName = tool.name,
+                        )
+                        parallelResponses += ToolResponsePayload(
+                            toolName = tool.name,
+                            observation = obs,
+                            toolCallId = callId,
+                        )
+                    }
+                    pendingToolResponses = parallelResponses
+                } else {
+                    val sequentialResponses = mutableListOf<ToolResponsePayload>()
+                    for ((call, tool) in validCalls) {
+                        when (val decision = toolPolicy.evaluate(tool, call.argsJson, forceConfirm)) {
+                            is PolicyDecision.Deny -> {
+                                emit(AgentEvent.ToolRejected(tool.name, decision.reason))
+                                val obs = "Execution blocked by policy for \"${tool.name}\": ${decision.reason}"
+                                turnLog += assistantMessage(assistantText)
+                                turnLog += userMessage(obs)
+                                sequentialResponses += ToolResponsePayload(
+                                    toolName = tool.name,
+                                    observation = obs,
+                                )
+                                withContext(NonCancellable) {
+                                    audit.record(
+                                        AuditRecord(
+                                            agentRunId = request.agentRunId,
+                                            toolName = tool.name,
+                                            tier = tool.tier.name.lowercase(),
+                                            paramsRedactedJson = AuditRedaction.redact(call.argsJson),
+                                            resultStatus = "blocked",
+                                            userConfirmed = false,
+                                        ),
+                                    )
+                                }
+                                continue
+                            }
+                            is PolicyDecision.RequireConfirmation -> {
+                                emit(AgentEvent.ConfirmationRequired(tool.name, call.argsJson))
+                                val allowed = confirmationGate.confirm(tool.name, call.argsJson)
+                                if (!allowed) {
+                                    emit(AgentEvent.ToolCancelled(tool.name))
+                                    withContext(NonCancellable) {
+                                        audit.record(
+                                            AuditRecord(
+                                                agentRunId = request.agentRunId,
+                                                toolName = tool.name,
+                                                tier = tool.tier.name.lowercase(),
+                                                paramsRedactedJson = AuditRedaction.redact(call.argsJson),
+                                                resultStatus = "cancelled",
+                                                userConfirmed = false,
+                                            ),
+                                        )
+                                    }
+                                    return@flow
+                                }
+                            }
+                            PolicyDecision.Allow -> {
+                                // Proceed directly
+                            }
+                        }
+
+                        emit(AgentEvent.ToolExecuting(tool.name))
+                        val result = try {
+                            tool.execute(call.argsJson)
+                        } catch (e: CancellationException) {
+                            withContext(NonCancellable) {
+                                audit.record(
+                                    AuditRecord(
+                                        agentRunId = request.agentRunId,
+                                        toolName = tool.name,
+                                        tier = tool.tier.name.lowercase(),
+                                        paramsRedactedJson = AuditRedaction.redact(call.argsJson),
+                                        resultStatus = "cancelled",
+                                        userConfirmed = false,
+                                    ),
+                                )
+                            }
+                            throw e
+                        } catch (e: Exception) {
+                            ToolResult(
+                                success = false,
+                                observationText = "Tool execution failed: ${e.message ?: e.javaClass.simpleName}",
+                            )
+                        }
+                        val clampedObs = contextManager.clampObservation(
+                            result.observationText,
+                            maxTokens = if (request.isLocal) 400 else 1000,
+                        )
+                        withContext(NonCancellable) {
+                            audit.record(
+                                AuditRecord(
+                                    agentRunId = request.agentRunId,
+                                    toolName = tool.name,
+                                    tier = tool.tier.name.lowercase(),
+                                    paramsRedactedJson = AuditRedaction.redact(call.argsJson),
+                                    resultStatus = if (result.success) "success" else "failed",
+                                    userConfirmed = tool.tier == PermissionTier.SENSITIVE || forceConfirm,
+                                ),
+                            )
+                        }
+
+                        emit(AgentEvent.ToolExecuted(tool.name, result.success, clampedObs))
+                        val callId = UUID.randomUUID().toString()
+                        turnLog += assistantToolCallMessage(
+                            toolCallId = callId,
+                            toolCallName = tool.name,
+                            toolCallArgsJson = call.argsJson,
+                        )
+                        turnLog += toolResultMessage(
+                            observation = clampedObs,
+                            toolCallId = callId,
+                            toolCallName = tool.name,
+                        )
+                        sequentialResponses += ToolResponsePayload(
+                            toolName = tool.name,
+                            observation = clampedObs,
+                            toolCallId = callId,
+                        )
+                    }
+                    pendingToolResponses = sequentialResponses
                 }
             }
-        }
 
-        emit(AgentEvent.StepCapReached(steps))
+            emit(AgentEvent.StepCapReached(steps))
+        } finally {
+            session?.close()
+        }
     }
 
     private fun assistantMessage(text: String) =

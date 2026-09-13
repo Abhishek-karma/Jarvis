@@ -11,6 +11,7 @@ data class ProviderCapabilities(
     val maxContext: Int = 128_000,
     val supportsTools: Boolean = false,
     val supportsReasoning: Boolean = false,
+    val supportsSessions: Boolean = false,
 )
 
 
@@ -29,6 +30,22 @@ data class ChatRequest(
     val reasoningRequested: Boolean = false,
     val toolsAvailable: List<ToolDefinition>? = null,
 )
+
+/** Payload of one executed tool response to be sent back to the active session. */
+data class ToolResponsePayload(
+    val toolName: String,
+    val observation: String,
+    val toolCallId: String? = null,
+)
+
+/**
+ * Stateful session interface allowing an agent run to communicate with the SAME conversation
+ * across multiple turns (Initial -> Model Tool Call -> Tool Result -> Final Answer).
+ */
+interface AgentChatSession : AutoCloseable {
+    fun sendInitial(): Flow<ChatStreamEvent>
+    fun sendToolResponses(responses: List<ToolResponsePayload>): Flow<ChatStreamEvent>
+}
 
 /** Normalized streaming contract — one sealed class for every adapter. */
 sealed class ChatStreamEvent {
@@ -69,6 +86,13 @@ interface LlmProvider {
     suspend fun listModels(): Result<List<ModelInfo>>
 
     fun streamChat(request: ChatRequest): Flow<ChatStreamEvent>
+
+    /**
+     * Starts a stateful agent conversation session when supported by the provider (e.g. on-device LiteRT-LM).
+     * Returns null if the provider is purely stateless (e.g. cloud REST providers), in which case AgentRunner
+     * falls back to streamChat with compacted conversation history.
+     */
+    fun startSession(request: ChatRequest): AgentChatSession? = null
 
     /** Aborts in-flight streams and releases socket resources — invoked on cancellation. */
     fun close()

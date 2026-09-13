@@ -20,6 +20,7 @@ import com.jarvis.core.common.Message
 import com.jarvis.core.common.MessageRole
 import com.jarvis.core.network.ChatStreamEvent
 import com.jarvis.core.network.ToolDefinition
+import com.jarvis.core.network.ToolResponsePayload
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -64,12 +65,9 @@ class LiteRtLmEngine private constructor(
             }
 
             val toolProviders = tools?.map { tool(LiteRtLmOpenApiTool(it)) }.orEmpty()
-            // Replay full history as initialMessages + an empty nudge: the tail may be a
-            // TOOL(result); dropLast(1)/last() would invert the tool protocol. The mapping
-            // in LiteRtMessageCodec is protocol-identical to a live LiteRT conversation —
-            // see its doc for the pairing guarantee.
             val nativeMessages = conversationHistory.map { LiteRtMessageCodec.toNativeMessage(it) }
-            val lastMessage = Contents.of(Content.Text(""))
+            val initialMessages = nativeMessages.dropLast(1)
+            val lastMessage = nativeMessages.last()
 
             val systemContents = systemPrompt?.takeIf { it.isNotBlank() }?.let { Contents.of(it) }
             val samplerConfig = temperature?.let {
@@ -79,15 +77,17 @@ class LiteRtLmEngine private constructor(
             val conversation = try {
                 val config = ConversationConfig(
                     systemInstruction = systemContents,
-                    initialMessages = nativeMessages,
+                    initialMessages = initialMessages,
                     tools = toolProviders,
                     samplerConfig = samplerConfig,
                     automaticToolCalling = false,
                 )
+                Log.d(TAG, "Created one-shot LiteRT conversation (tools: ${toolProviders.size}, initialMsgs: ${initialMessages.size})")
                 engine.createConversation(config)
             } catch (t: CancellationException) {
                 throw t
             } catch (t: Throwable) {
+                Log.e(TAG, "Failed to create conversation", t)
                 trySend(ChatStreamEvent.Error(code = "local", message = t.message ?: "Failed to create conversation", retryable = false))
                 close()
                 return@withLock
@@ -101,6 +101,7 @@ class LiteRtLmEngine private constructor(
             }
 
             try {
+                Log.d(TAG, "LiteRtLmEngine streamChat: sending lastMessage")
                 var seenText = ""
                 var firstText = true
                 val emittedToolCalls = mutableSetOf<String>()
@@ -115,6 +116,7 @@ class LiteRtLmEngine private constructor(
                         val effectiveName = canonical ?: call.name
                         val effectiveKey = "$effectiveName:$argsJson"
                         if (emittedToolCalls.add(callKey) && emittedToolCalls.add("canon:$effectiveKey")) {
+                            Log.d(TAG, "LiteRtLmEngine native tool call: $effectiveName")
                             trySend(
                                 ChatStreamEvent.ToolCallRequested(
                                     name = effectiveName,
@@ -154,6 +156,7 @@ class LiteRtLmEngine private constructor(
             } catch (t: Throwable) {
                 runCatching { conversation.cancelProcess() }
                 closeConversationOnce()
+                Log.e(TAG, "LiteRtLmEngine inference error", t)
                 trySend(ChatStreamEvent.Error(code = "local", message = t.message ?: "On-device inference failed", retryable = false))
                 close()
             } finally {
@@ -161,6 +164,167 @@ class LiteRtLmEngine private constructor(
             }
         }
         awaitClose { }
+    }
+
+    override fun startSession(
+        conversationHistory: List<Message>,
+        systemPrompt: String?,
+        tools: List<ToolDefinition>?,
+        temperature: Double?,
+    ): OnDeviceSession? {
+        if (closed.get()) return null
+        val toolProviders = tools?.map { tool(LiteRtLmOpenApiTool(it)) }.orEmpty()
+        val systemContents = systemPrompt?.takeIf { it.isNotBlank() }?.let { Contents.of(it) }
+        val samplerConfig = temperature?.let {
+            SamplerConfig(topK = 40, topP = 0.95, temperature = it)
+        }
+
+        val nativeMessages = conversationHistory.map { LiteRtMessageCodec.toNativeMessage(it) }
+        val initialMessages = if (nativeMessages.isNotEmpty() && conversationHistory.last().role == MessageRole.USER) {
+            nativeMessages.dropLast(1)
+        } else {
+            nativeMessages
+        }
+        val initialUserMessage = if (conversationHistory.isNotEmpty() && conversationHistory.last().role == MessageRole.USER) {
+            nativeMessages.last()
+        } else null
+
+        val conversation = try {
+            val config = ConversationConfig(
+                systemInstruction = systemContents,
+                initialMessages = initialMessages,
+                tools = toolProviders,
+                samplerConfig = samplerConfig,
+                automaticToolCalling = false,
+            )
+            Log.i(TAG, "startSession: created native LiteRT conversation session (tools=${toolProviders.size}, initialMsgs=${initialMessages.size})")
+            engine.createConversation(config)
+        } catch (t: Throwable) {
+            Log.e(TAG, "startSession: failed to create native LiteRT conversation", t)
+            return null
+        }
+
+        return object : OnDeviceSession {
+            private val sessionClosed = AtomicBoolean(false)
+
+            override fun sendInitial(): Flow<ChatStreamEvent> = callbackFlow {
+                if (sessionClosed.get() || closed.get()) {
+                    trySend(ChatStreamEvent.Error(code = "local", message = "Session is closed", retryable = false))
+                    close()
+                    return@callbackFlow
+                }
+                if (initialUserMessage == null) {
+                    trySend(ChatStreamEvent.Done)
+                    close()
+                    return@callbackFlow
+                }
+
+                mutex.withLock {
+                    if (sessionClosed.get() || closed.get()) {
+                        trySend(ChatStreamEvent.Error(code = "local", message = "Session is closed", retryable = false))
+                        close()
+                        return@withLock
+                    }
+                    Log.i(TAG, "sendInitial: sending initial user message to native conversation")
+                    collectStream(conversation, initialUserMessage)
+                }
+                awaitClose { }
+            }
+
+            override fun sendToolResponses(responses: List<ToolResponsePayload>): Flow<ChatStreamEvent> = callbackFlow {
+                if (sessionClosed.get() || closed.get()) {
+                    trySend(ChatStreamEvent.Error(code = "local", message = "Session is closed", retryable = false))
+                    close()
+                    return@callbackFlow
+                }
+                if (responses.isEmpty()) {
+                    trySend(ChatStreamEvent.Done)
+                    close()
+                    return@callbackFlow
+                }
+
+                mutex.withLock {
+                    if (sessionClosed.get() || closed.get()) {
+                        trySend(ChatStreamEvent.Error(code = "local", message = "Session is closed", retryable = false))
+                        close()
+                        return@withLock
+                    }
+                    Log.i(TAG, "sendToolResponses: sending ${responses.size} tool responses to SAME native conversation: ${responses.joinToString { it.toolName }}")
+                    val toolContents = responses.map {
+                        Content.ToolResponse(name = it.toolName, response = it.observation)
+                    }
+                    val toolMsg = LiteRtMessage.tool(Contents.of(toolContents))
+                    collectStream(conversation, toolMsg)
+                }
+                awaitClose { }
+            }
+
+            override fun close() {
+                if (sessionClosed.compareAndSet(false, true)) {
+                    Log.i(TAG, "close: releasing native LiteRT conversation session")
+                    runCatching { conversation.close() }
+                }
+            }
+
+            private suspend fun kotlinx.coroutines.channels.ProducerScope<ChatStreamEvent>.collectStream(
+                conv: com.google.ai.edge.litertlm.Conversation,
+                msg: LiteRtMessage,
+            ) {
+                try {
+                    var seenText = ""
+                    var firstText = true
+                    val emittedToolCalls = mutableSetOf<String>()
+
+                    conv.sendMessageAsync(msg).collect { message ->
+                        for (call in message.toolCalls) {
+                            val argsJson = gson.toJson(call.arguments)
+                            val callKey = "${call.name}:$argsJson"
+                            val canonical = LocalToolNameAliases.resolve(call.name)
+                            val effectiveName = canonical ?: call.name
+                            val effectiveKey = "$effectiveName:$argsJson"
+                            if (emittedToolCalls.add(callKey) && emittedToolCalls.add("canon:$effectiveKey")) {
+                                Log.i(TAG, "Session native tool call emitted: $effectiveName, args length=${argsJson.length}")
+                                trySend(
+                                    ChatStreamEvent.ToolCallRequested(
+                                        name = effectiveName,
+                                        argsJson = argsJson,
+                                    ),
+                                )
+                            }
+                        }
+
+                        val currentText = messageText(message)
+                        if (currentText.isNotEmpty() && currentText != seenText) {
+                            when {
+                                firstText -> {
+                                    trySend(ChatStreamEvent.TokenDelta(currentText))
+                                    seenText = currentText
+                                    firstText = false
+                                }
+                                currentText.length > seenText.length && currentText.startsWith(seenText) -> {
+                                    trySend(ChatStreamEvent.TokenDelta(currentText.substring(seenText.length)))
+                                    seenText = currentText
+                                }
+                                else -> {
+                                    trySend(ChatStreamEvent.TokenDelta(currentText))
+                                    seenText = ""
+                                }
+                            }
+                        }
+                    }
+                    trySend(ChatStreamEvent.Done)
+                    close()
+                } catch (e: CancellationException) {
+                    runCatching { conv.cancelProcess() }
+                    throw e
+                } catch (t: Throwable) {
+                    runCatching { conv.cancelProcess() }
+                    Log.e(TAG, "Session inference error", t)
+                    trySend(ChatStreamEvent.Error(code = "local", message = t.message ?: "On-device inference failed", retryable = false))
+                    close()
+                }
+            }
+        }
     }
 
     override suspend fun generate(

@@ -49,9 +49,15 @@ object FilesTools {
                     )
                 val fileName = args.string("file_name")
                     ?: args.string("filename")
+                    ?: args.string("fileName")
                     ?: args.string("name")
                     ?: args.string("path")
-                val content = args.string("content") ?: ""
+                    ?: args.string("file")
+                val content = args.string("content")
+                    ?: args.string("text")
+                    ?: args.string("body")
+                    ?: args.string("data")
+                    ?: ""
                 val location = args.string("location")
 
                 if (fileName.isNullOrBlank()) {
@@ -232,5 +238,5 @@ object FilesTools {
     private const val READ_SCHEMA =
         """{"type":"object","properties":{"path":{"type":"string","description":"Absolute path of the file to read."}},"required":["path"]}"""
     private const val CREATE_FILE_SCHEMA =
-        """{"type":"object","properties":{"file_name":{"type":"string","description":"Name of the file to create (e.g. welcome.txt)."},"content":{"type":"string","description":"Text content to write into the file."},"location":{"type":"string","description":"Target directory: 'downloads' (default), 'documents', or 'app_private'."}},"required":["file_name","content"]}"""
+        """{"type":"object","properties":{"file_name":{"type":"string","description":"Name of the file to create (e.g. welcome.txt)."},"content":{"type":"string","description":"Text content to write into the file."},"location":{"type":"string","description":"Target directory: 'downloads' (default), 'documents', or 'app_private'."}},"required":["file_name"]}"""
 }

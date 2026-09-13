@@ -1,10 +1,12 @@
 package com.jarvis.core.ml
 
 import com.jarvis.core.common.ModelInfo
+import com.jarvis.core.network.AgentChatSession
 import com.jarvis.core.network.ChatRequest
 import com.jarvis.core.network.ChatStreamEvent
 import com.jarvis.core.network.LlmProvider
 import com.jarvis.core.network.ProviderCapabilities
+import com.jarvis.core.network.ToolResponsePayload
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -22,6 +24,7 @@ class LocalLlmProvider(
             maxContext = spec.contextLength,
             supportsTools = spec.supportsTools,
             supportsReasoning = spec.supportsReasoning,
+            supportsSessions = spec.supportsTools,
         )
 
     override suspend fun listModels(): Result<List<ModelInfo>> =
@@ -106,6 +109,64 @@ class LocalLlmProvider(
                 }
             }
             emit(ChatStreamEvent.Done)
+        }
+    }
+
+    override fun startSession(request: ChatRequest): AgentChatSession? {
+        val effectiveSystemPrompt =
+            if (request.systemPrompt.isNullOrBlank() && request.toolsAvailable.isNullOrEmpty()) {
+                DEFAULT_SYSTEM_PROMPT
+            } else {
+                request.systemPrompt
+            }
+
+        val onDeviceSession = engine.startSession(
+            conversationHistory = request.conversationHistory,
+            systemPrompt = effectiveSystemPrompt,
+            tools = request.toolsAvailable,
+            temperature = AGENT_TEMPERATURE,
+        ) ?: return null
+
+        return object : AgentChatSession {
+            override fun sendInitial(): Flow<ChatStreamEvent> =
+                filterAndParseEvents(onDeviceSession.sendInitial())
+
+            override fun sendToolResponses(responses: List<ToolResponsePayload>): Flow<ChatStreamEvent> =
+                filterAndParseEvents(onDeviceSession.sendToolResponses(responses))
+
+            override fun close() {
+                onDeviceSession.close()
+            }
+
+            private fun filterAndParseEvents(upstream: Flow<ChatStreamEvent>): Flow<ChatStreamEvent> = flow {
+                val textBuffer = StringBuilder()
+                val emittedToolKeys = mutableSetOf<String>()
+                var failed = false
+                upstream.collect { event ->
+                    when (event) {
+                        is ChatStreamEvent.ToolCallRequested -> {
+                            if (emittedToolKeys.add(event.name + "\n" + event.argsJson)) emit(event)
+                        }
+                        is ChatStreamEvent.TokenDelta -> textBuffer.append(event.text)
+                        is ChatStreamEvent.Error -> {
+                            failed = true
+                            emit(event)
+                        }
+                        is ChatStreamEvent.Done -> Unit
+                        is ChatStreamEvent.ReasoningDelta, is ChatStreamEvent.Usage -> emit(event)
+                    }
+                }
+                if (failed) return@flow
+                val fullText = textBuffer.toString()
+                val prose = ToolCallParser.stripToolCalls(fullText).trim()
+                if (prose.isNotEmpty()) emit(ChatStreamEvent.TokenDelta(prose))
+                for (call in ToolCallParser.parseAll(fullText)) {
+                    if (emittedToolKeys.add(call.name + "\n" + call.argsJson)) {
+                        emit(ChatStreamEvent.ToolCallRequested(name = call.name, argsJson = call.argsJson))
+                    }
+                }
+                emit(ChatStreamEvent.Done)
+            }
         }
     }
 

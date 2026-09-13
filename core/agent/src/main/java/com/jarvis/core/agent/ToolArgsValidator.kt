@@ -57,8 +57,9 @@ class ToolArgsValidator {
         if (args.containsKey(snake)) return snake
         return when (key) {
             "package_name" -> listOf("packageName", "app_name", "appName", "target", "app").firstOrNull { args.containsKey(it) }
-            "file_name" -> listOf("filename", "name", "path").firstOrNull { args.containsKey(it) }
-            "text" -> listOf("content", "message", "body").firstOrNull { args.containsKey(it) }
+            "file_name" -> listOf("filename", "name", "path", "file").firstOrNull { args.containsKey(it) }
+            "content" -> listOf("text", "message", "body", "data").firstOrNull { args.containsKey(it) }
+            "text" -> listOf("content", "message", "body", "data").firstOrNull { args.containsKey(it) }
             "message" -> listOf("text", "content", "body").firstOrNull { args.containsKey(it) }
             "duration_seconds" -> listOf("durationSeconds", "seconds", "duration").firstOrNull { args.containsKey(it) }
             "at_utc_millis" -> listOf("atUtcMillis", "timestamp", "time").firstOrNull { args.containsKey(it) }
