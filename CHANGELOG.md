@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-09-13
+
+### Fixed
+- **On-Device Gemma Tool-Call Parsing & Normalization**: Added robust handling for Gemma on-device token variations (`<|tool_call>`, `<|toolcall|>`, `<tool_call|>`, `</tool_call>`), lenient JSON argument cleanup supporting single-quoted strings and escaped newlines, and unclosed EOF tool-call recovery.
+- **Tool Name Aliasing & Namespace Stripping**: Automatically strip namespace prefixes like `devicecontrol:` and map aliases to canonical tool names (`get_current_datetime`, `battery_level`, `calculator`, `create_file`, `search_files`).
+- **Flexible Mathematical Expression Arguments**: `ToolArgsValidator` and `CalculatorTool` accept `expr`, `equation`, `formula`, `input`, and `query` synonym keys.
+- **LocalModelStore Concurrent Refresh**: Synchronized status assignment in mutation lock and guarded against clearing error states during empty model scans.
+
+### Changed
+- Bumped `versionName` to `0.2.4` (`versionCode = 14`).
+
 ## [0.2.3] - 2026-09-13
 
 ### Fixed
