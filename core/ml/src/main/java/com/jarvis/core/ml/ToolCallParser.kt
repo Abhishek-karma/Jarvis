@@ -83,10 +83,20 @@ object ToolCallParser {
         var i = 0
         while (i < text.length) {
             val open = indexOfMarkerOpen(text, i) ?: break
-            val close = indexOfMarkerClose(text, open.endExclusive) ?: break
-            val inner = text.substring(open.endExclusive, close.start)
-            parseGemmaCall(inner)?.let { spans += Span(open.start, close.endExclusive, listOf(it)) }
-            i = close.endExclusive
+            val close = indexOfMarkerClose(text, open.endExclusive)
+            val inner = if (close != null) {
+                text.substring(open.endExclusive, close.start)
+            } else {
+                text.substring(open.endExclusive)
+            }
+            val calls = parseGemmaCalls(inner)
+            if (calls.isNotEmpty()) {
+                val endExclusive = close?.endExclusive ?: text.length
+                spans += Span(open.start, endExclusive, calls)
+                i = endExclusive
+            } else {
+                i = (close?.endExclusive ?: (open.endExclusive + 1))
+            }
         }
         return spans
     }
@@ -94,9 +104,10 @@ object ToolCallParser {
     private data class Marker(val start: Int, val endExclusive: Int)
 
     private fun indexOfMarkerOpen(text: String, from: Int): Marker? {
-        val idx = text.indexOf(OPEN_MARKER, from, ignoreCase = true)
-        if (idx == -1) return null
-        return Marker(idx, idx + OPEN_MARKER.length)
+        return OPEN_MARKERS.mapNotNull { marker ->
+            val idx = text.indexOf(marker, from, ignoreCase = true)
+            if (idx == -1) null else Marker(idx, idx + marker.length)
+        }.minByOrNull { it.start }
     }
 
     private fun indexOfMarkerClose(text: String, from: Int): Marker? {
@@ -106,33 +117,44 @@ object ToolCallParser {
         }.minByOrNull { it.start }
     }
 
-    private fun parseGemmaCall(inner: String): ParsedToolCall? {
-        val callIdx = findCallKeyword(inner) ?: return null
-        val brace = inner.indexOf('{', callIdx + CALL_KEYWORD.length)
-        if (brace == -1) return null
-        val rawName = inner.substring(callIdx + CALL_KEYWORD.length, brace).trim().trimEnd(':').trim()
-        if (rawName.isEmpty() || rawName.length > 128) return null
-        val argsEnd = findObjectClose(inner, brace)
-        if (argsEnd == -1) return null
-        if (inner.substring(argsEnd + 1).trim().trim(':').isNotEmpty()) return null
-        val rawArgs = inner.substring(brace, argsEnd + 1)
-        val argsJson = normalizeLenientArgs(rawArgs) ?: return null
-        // Well-formed calls with unknown names are surfaced with the raw name so the
-        // agent layer (ToolRegistry lookup) rejects them through the canonical path —
-        // silently dropping them would hide the protocol mismatch from the model.
-        val canonical = LocalToolNameAliases.resolve(rawName) ?: return ParsedToolCall(rawName, argsJson)
-        return ParsedToolCall(canonical, argsJson)
+    private fun parseGemmaCalls(inner: String): List<ParsedToolCall> {
+        val calls = mutableListOf<ParsedToolCall>()
+        var cursor = 0
+        while (cursor < inner.length) {
+            val callKeywordIdx = findCallKeyword(inner, cursor)
+            val startIdx = if (callKeywordIdx != null && callKeywordIdx >= cursor) {
+                callKeywordIdx + CALL_KEYWORD.length
+            } else {
+                cursor
+            }
+            val brace = inner.indexOf('{', startIdx)
+            if (brace == -1) break
+            val rawName = inner.substring(startIdx, brace).trim().trimEnd(':').trim()
+            if (rawName.isEmpty() || rawName.length > 128) {
+                cursor = brace + 1
+                continue
+            }
+            val argsEnd = findObjectClose(inner, brace)
+            if (argsEnd == -1) break
+            val rawArgs = inner.substring(brace, argsEnd + 1)
+            val argsJson = normalizeLenientArgs(rawArgs)
+            if (argsJson != null) {
+                val canonical = LocalToolNameAliases.resolve(rawName) ?: rawName
+                calls += ParsedToolCall(canonical, argsJson)
+            }
+            cursor = argsEnd + 1
+        }
+        return calls
     }
 
-    private fun findCallKeyword(inner: String): Int? {
-        var from = 0
-        while (true) {
-            val idx = inner.indexOf(CALL_KEYWORD, from, ignoreCase = true)
-            if (idx == -1) return null
+    private fun findCallKeyword(inner: String, from: Int = 0): Int? {
+        var idx = inner.indexOf(CALL_KEYWORD, from, ignoreCase = true)
+        while (idx != -1) {
             val prev = if (idx == 0) ' ' else inner[idx - 1]
             if (!prev.isLetterOrDigit() && prev != '_') return idx
-            from = idx + 1
+            idx = inner.indexOf(CALL_KEYWORD, idx + 1, ignoreCase = true)
         }
+        return null
     }
 
     /** Normalizes lenient `{key:"v"}` args into strict JSON; null when invalid. */
@@ -146,7 +168,24 @@ object ToolCallParser {
             when {
                 c == '"' -> {
                     val end = findStringEnd(raw, j) ?: return null
-                    out.append(raw, j, end + 1)
+                    val innerStr = raw.substring(j + 1, end)
+                        .replace("\r\n", "\\n")
+                        .replace("\n", "\\n")
+                        .replace("\r", "\\r")
+                        .replace("\t", "\\t")
+                    out.append('"').append(innerStr).append('"')
+                    j = end + 1
+                }
+                c == '\'' -> {
+                    val end = findSingleQuoteStringEnd(raw, j) ?: return null
+                    val innerStr = raw.substring(j + 1, end)
+                        .replace("\\'", "'")
+                        .replace("\"", "\\\"")
+                        .replace("\r\n", "\\n")
+                        .replace("\n", "\\n")
+                        .replace("\r", "\\r")
+                        .replace("\t", "\\t")
+                    out.append('"').append(innerStr).append('"')
                     j = end + 1
                 }
                 c == '{' -> {
@@ -202,7 +241,24 @@ object ToolCallParser {
                 j += 2
             } else if (c == '"') {
                 return j
-            } else if (c < ' ') {
+            } else if (c < ' ' && c != '\n' && c != '\r' && c != '\t') {
+                return null
+            } else {
+                j++
+            }
+        }
+        return null
+    }
+
+    private fun findSingleQuoteStringEnd(text: String, quoteIndex: Int): Int? {
+        var j = quoteIndex + 1
+        while (j < text.length) {
+            val c = text[j]
+            if (c == '\\') {
+                j += 2
+            } else if (c == '\'') {
+                return j
+            } else if (c < ' ' && c != '\n' && c != '\r' && c != '\t') {
                 return null
             } else {
                 j++
@@ -219,14 +275,14 @@ object ToolCallParser {
 
     private fun stripOrphanMarkers(text: String): String {
         var out = text
-        for (marker in CLOSE_MARKERS + OPEN_MARKER) {
+        for (marker in CLOSE_MARKERS + OPEN_MARKERS) {
             out = out.replace(marker, "", ignoreCase = true)
         }
         return out
     }
 
-    private const val OPEN_MARKER = "<|toolcall|>"
-    private val CLOSE_MARKERS = listOf("<tool_call>", "</tool_call>", "<|tool_call|>", "<|toolcall|>")
+    private val OPEN_MARKERS = listOf("<|tool_call>", "<|toolcall|>", "<tool_call>")
+    private val CLOSE_MARKERS = listOf("<tool_call|>", "<|tool_call|>", "<|toolcall|>", "</tool_call>", "<tool_call>")
     private const val CALL_KEYWORD = "call:"
     private const val MAX_GEMMA_ARGS_CHARS = 4000
     private const val MAX_GEMMA_ARGS_DEPTH = 4

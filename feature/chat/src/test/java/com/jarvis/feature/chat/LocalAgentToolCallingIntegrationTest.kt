@@ -843,4 +843,142 @@ class LocalAgentToolCallingIntegrationTest {
             assertTrue(toolResults.any { it.toolCallId == call.toolCallId })
         }
     }
+
+    @Test
+    fun `17 acceptance test sequence time battery and calculator`() = runTest {
+        val timeTool = FakeTool("get_current_datetime", PermissionTier.READ_ONLY) {
+            ToolResult(true, "Current date and time: 2026-09-13 10:30:00")
+        }
+        val batteryTool = FakeTool("battery_level", PermissionTier.READ_ONLY) {
+            ToolResult(true, "Battery level: 85%, charging: false")
+        }
+        val calcTool = com.jarvis.core.agent.tools.CalculatorTool.create()
+
+        val registry = ToolRegistry().apply {
+            register(timeTool)
+            register(batteryTool)
+            register(calcTool)
+        }
+        val audit = RecordingAudit()
+
+        // 1. Time query
+        val timeEngine = ScriptableLocalEngine { history, _ ->
+            if (history.none { it.role == MessageRole.TOOL }) {
+                listOf(
+                    ChatStreamEvent.TokenDelta("<|tool_call>call:devicecontrol:currenttime{}<tool_call|>"),
+                    ChatStreamEvent.Done,
+                )
+            } else {
+                listOf(ChatStreamEvent.TokenDelta("It is 10:30 AM."), ChatStreamEvent.Done)
+            }
+        }
+        val runner = AgentRunner(registry = registry, audit = audit, confirmationGate = RecordingGate())
+        val timeEvents = runner.run(
+            AgentRunRequest(
+                provider = createLocalProvider(toolCapableSpec, timeEngine),
+                modelId = toolCapableSpec.id,
+                messages = listOf(userRequest("What time is it?")),
+            )
+        ).toList()
+        assertEquals(1, timeTool.executions)
+        assertTrue(timeEvents.any { it is AgentEvent.FinalAnswer && it.text.contains("10:30 AM") })
+
+        // 2. Battery query
+        val batteryEngine = ScriptableLocalEngine { history, _ ->
+            if (history.none { it.role == MessageRole.TOOL }) {
+                listOf(
+                    ChatStreamEvent.TokenDelta("<|tool_call>call:devicecontrol:battery{}<tool_call|>"),
+                    ChatStreamEvent.Done,
+                )
+            } else {
+                listOf(ChatStreamEvent.TokenDelta("Battery is at 85%."), ChatStreamEvent.Done)
+            }
+        }
+        val batteryEvents = runner.run(
+            AgentRunRequest(
+                provider = createLocalProvider(toolCapableSpec, batteryEngine),
+                modelId = toolCapableSpec.id,
+                messages = listOf(userRequest("Check battery")),
+            )
+        ).toList()
+        assertEquals(1, batteryTool.executions)
+        assertTrue(batteryEvents.any { it is AgentEvent.FinalAnswer && it.text.contains("85%") })
+
+        // 3. Calculator query
+        val calcEngine = ScriptableLocalEngine { history, _ ->
+            if (history.none { it.role == MessageRole.TOOL }) {
+                listOf(
+                    ChatStreamEvent.TokenDelta("<|tool_call>call:devicecontrol:calculator{expression:\"24 * 7\"}<tool_call|>"),
+                    ChatStreamEvent.Done,
+                )
+            } else {
+                listOf(ChatStreamEvent.TokenDelta("24 * 7 is 168."), ChatStreamEvent.Done)
+            }
+        }
+        val calcEvents = runner.run(
+            AgentRunRequest(
+                provider = createLocalProvider(toolCapableSpec, calcEngine),
+                modelId = toolCapableSpec.id,
+                messages = listOf(userRequest("Calculate 24 * 7")),
+            )
+        ).toList()
+        assertTrue(calcEvents.any { it is AgentEvent.ToolExecuted && it.name == "calculator" && it.success })
+        assertTrue(calcEvents.any { it is AgentEvent.FinalAnswer && it.text.contains("168") })
+    }
+
+    @Test
+    fun `18 multi-turn text file creation and follow-up interaction`() = runTest {
+        var createdFile = ""
+        val createFileTool = TrackingFileTool(
+            com.jarvis.core.agent.tools.FilesTools.createFile { fileName, content, _ ->
+                createdFile = "$fileName: $content"
+                Result.success("/storage/$fileName")
+            }
+        )
+        val registry = ToolRegistry().apply { register(createFileTool) }
+        val audit = RecordingAudit()
+        val runner = AgentRunner(registry = registry, audit = audit, confirmationGate = RecordingGate())
+
+        // Turn 1: Create file
+        val engine1 = ScriptableLocalEngine { history, _ ->
+            if (history.none { it.role == MessageRole.TOOL }) {
+                listOf(
+                    ChatStreamEvent.TokenDelta("<|tool_call>call:devicecontrol:createfile{filename:'welcome.txt',content:'welcome'}<tool_call|>"),
+                    ChatStreamEvent.Done,
+                )
+            } else {
+                listOf(ChatStreamEvent.TokenDelta("I created welcome.txt with content welcome."), ChatStreamEvent.Done)
+            }
+        }
+        val turn1Events = runner.run(
+            AgentRunRequest(
+                provider = createLocalProvider(toolCapableSpec, engine1),
+                modelId = toolCapableSpec.id,
+                messages = listOf(userRequest("Create a text file welcome.txt with content welcome")),
+            )
+        ).toList()
+        assertEquals(1, createFileTool.executions)
+        assertEquals("welcome.txt: welcome", createdFile)
+        val turn1Answer = turn1Events.filterIsInstance<AgentEvent.FinalAnswer>().last()
+
+        // Turn 2: Follow-up question with history preserved
+        val engine2 = ScriptableLocalEngine { history, _ ->
+            assertTrue(history.any { it.role == MessageRole.USER && it.content.contains("welcome.txt") })
+            assertTrue(history.any { it.role == MessageRole.ASSISTANT && it.content.contains("created welcome.txt") })
+            listOf(ChatStreamEvent.TokenDelta("I previously created welcome.txt for you."), ChatStreamEvent.Done)
+        }
+        val turn2Messages = listOf(
+            userRequest("Create a text file welcome.txt with content welcome"),
+            Message(id = "msg-2", conversationId = "conv-local", role = MessageRole.ASSISTANT, content = turn1Answer.text),
+            userRequest("What did you just create?"),
+        )
+        val turn2Events = runner.run(
+            AgentRunRequest(
+                provider = createLocalProvider(toolCapableSpec, engine2),
+                modelId = toolCapableSpec.id,
+                messages = turn2Messages,
+            )
+        ).toList()
+        assertTrue(turn2Events.any { it is AgentEvent.FinalAnswer && it.text.contains("welcome.txt") })
+    }
 }

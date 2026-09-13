@@ -105,4 +105,48 @@ class ToolCallParserTest {
             ToolCallParser.parseAll("<|toolcall|>call:devicecontrol:unknown{}<tool_call>").single().name,
         )
     }
+
+    @Test
+    fun `parses gemma 4 syntax with underscore in tool_call markers`() {
+        val text = "<|tool_call>call:devicecontrol:createfile{filename:\"welcome.txt\",content:\"welcome\"}<tool_call|>"
+        val calls = ToolCallParser.parseAll(text)
+        assertEquals(1, calls.size)
+        assertEquals("create_file", calls[0].name)
+        assertTrue(calls[0].argsJson.contains("\"welcome.txt\""))
+        val stripped = ToolCallParser.stripToolCalls(text)
+        assertEquals("", stripped.trim())
+    }
+
+    @Test
+    fun `parses gemma call with single quoted arguments`() {
+        val text = "<|tool_call>call:devicecontrol:createfile{filename:'notes.txt',content:'hello world'}<tool_call|>"
+        val calls = ToolCallParser.parseAll(text)
+        assertEquals(1, calls.size)
+        assertEquals("create_file", calls[0].name)
+        assertTrue(calls[0].argsJson.contains("\"filename\":\"notes.txt\""))
+        assertTrue(calls[0].argsJson.contains("\"content\":\"hello world\""))
+    }
+
+    @Test
+    fun `parses date time and battery calls`() {
+        val timeCalls = ToolCallParser.parseAll("<|tool_call>call:devicecontrol:currenttime{}<tool_call|>")
+        assertEquals(1, timeCalls.size)
+        assertEquals("get_current_datetime", timeCalls[0].name)
+
+        val batteryCalls = ToolCallParser.parseAll("<|tool_call>call:devicecontrol:battery{}<tool_call|>")
+        assertEquals(1, batteryCalls.size)
+        assertEquals("battery_level", batteryCalls[0].name)
+
+        val calcCalls = ToolCallParser.parseAll("<|tool_call>call:devicecontrol:calculator{expression:\"24 * 7\"}<tool_call|>")
+        assertEquals(1, calcCalls.size)
+        assertEquals("calculator", calcCalls[0].name)
+    }
+
+    @Test
+    fun `parses gemma call without closing marker at end of text`() {
+        val text = "<|tool_call>call:devicecontrol:createfile{filename:\"welcome.txt\",content:\"welcome\"}"
+        val calls = ToolCallParser.parseAll(text)
+        assertEquals(1, calls.size)
+        assertEquals("create_file", calls[0].name)
+    }
 }

@@ -25,6 +25,11 @@ object CalculatorTool {
             val args = Args.parse(argsJson)
                 ?: return ToolResult(success = false, observationText = "Invalid arguments", error = "Malformed JSON")
             val expr = args.string("expression")
+                ?: args.string("expr")
+                ?: args.string("equation")
+                ?: args.string("formula")
+                ?: args.string("input")
+                ?: args.string("query")
                 ?: return ToolResult(success = false, observationText = "Missing 'expression'", error = "expression required")
 
             return runCatching {
