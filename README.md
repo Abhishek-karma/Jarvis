@@ -16,7 +16,7 @@
 ## Key Features
 
 - 🧠 **Dual Reasoning Runtime**: Run completely offline with local on-device LLMs (LiteRT / MediaPipe LLM Inference) or connect to cloud providers (Google Gemini, Anthropic Claude, OpenAI, Ollama, OpenRouter, Groq).
-- ⚙️ **Canonical Execution Loop (`AgentRunner`)**: Deterministic multi-turn tool-calling engine featuring strict JSON schema validation, parallel read execution, bounded step limits, and full cancellation cooperativity.
+- ⚙️ **Canonical Execution Loop (`AgentRunner`)**: Deterministic multi-turn tool-calling engine featuring strict JSON schema validation, sequential execution, bounded step limits, and full cancellation cooperativity.
 - 🛡️ **Zero-Trust Security & Policy Gate**: 3-tiered permission architecture (`READ_ONLY`, `ACTION`, `SENSITIVE`). Destructive and sensitive operations require explicit user approval before execution; models cannot bypass policy checks.
 - 💾 **Durable Idempotency Ledger**: SQLite/Room-backed state machine tracking every operation from initiation to completion. Guarantees zero duplicate side-effects across app kills, background retries, and device reboots.
 - ⚡ **Elevated Device Control via Shizuku**: Integrates Rikka's Shizuku v13 `UserService` to execute privileged ADB-level operations safely without requiring root access.

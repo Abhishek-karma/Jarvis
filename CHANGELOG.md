@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] - 2026-09-15
+
+### Changed & Simplified
+- **Canonical Tool Registry Architecture**:
+  - Simplified `ToolRegistry` to exact-name registration and lookup (`get(name) = tools[name]`), eliminating redundant alias resolution layers and secondary dispatching abstractions.
+  - Consolidated local SLM compatibility alias resolution exclusively inside `LocalToolNameAliases`, preserving verified real-device model aliases (`toolcameracontrol` -> `launch_app`, `tooldatequery` -> `get_current_datetime`, `battery` -> `battery_level`, etc.).
+  - Preserved zero-trust safety gates (`ToolPolicy`, `ConfirmationGate`, `ToolArgsValidator`, and `AuditLogger`) with strict sequential execution.
+- Bumped `versionName` to `0.2.7` (`versionCode = 17`).
+
 ## [0.2.6] - 2026-09-15
 
 ### Fixed & Hardened
