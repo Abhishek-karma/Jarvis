@@ -265,12 +265,12 @@ class AgentRunner(
                             ),
                         )
                         val obs = "Tool \"${tool.name}\" is disabled in this environment."
-                        turnLog += assistantMessage(assistantText)
-                        turnLog += userMessage(obs)
                         pendingToolResponses = listOf(
-                            ToolResponsePayload(
+                            recordToolTurn(
                                 toolName = tool.name,
+                                argsJson = call.argsJson,
                                 observation = obs,
+                                turnLog = turnLog,
                             ),
                         )
                         hasRejection = true
@@ -319,12 +319,12 @@ class AgentRunner(
                     if (decision is PolicyDecision.Deny) {
                         emit(AgentEvent.ToolRejected(tool.name, decision.reason))
                         val obs = "Execution blocked by policy for \"${tool.name}\": ${decision.reason}"
-                        turnLog += assistantMessage(assistantText)
-                        turnLog += userMessage(obs)
                         pendingToolResponses = listOf(
-                            ToolResponsePayload(
+                            recordToolTurn(
                                 toolName = tool.name,
+                                argsJson = call.argsJson,
                                 observation = obs,
+                                turnLog = turnLog,
                             ),
                         )
                         withContext(NonCancellable) {
@@ -475,13 +475,6 @@ class AgentRunner(
         )
     }
 
-    private fun assistantMessage(text: String) =
-        Message(
-            conversationId = "",
-            role = MessageRole.ASSISTANT,
-            content = text,
-        )
-
     private fun assistantToolCallMessage(
         toolCallId: String,
         toolCallName: String,
@@ -506,13 +499,6 @@ class AgentRunner(
         toolCallId = toolCallId,
         toolCallName = toolCallName,
     )
-
-    private fun userMessage(note: String) =
-        Message(
-            conversationId = "",
-            role = MessageRole.USER,
-            content = note,
-        )
 
     companion object {
         const val DEFAULT_STEP_CAP = 15

@@ -239,6 +239,68 @@ class AgentRunnerTest {
 
         assertEquals(0, tool.executions)
         assertTrue(events.any { it is AgentEvent.FinalAnswer && it.text == "Search disabled acknowledged" })
+
+        // Verify protocol consistency: 2nd request history includes assistant tool call followed by tool result
+        val secondReq = provider.requests[1]
+        val lastTwo = secondReq.conversationHistory.takeLast(2)
+        assertEquals(com.jarvis.core.common.MessageRole.ASSISTANT, lastTwo[0].role)
+        assertEquals("web_search", lastTwo[0].toolCallName)
+        assertEquals(com.jarvis.core.common.MessageRole.TOOL, lastTwo[1].role)
+        assertEquals("web_search", lastTwo[1].toolCallName)
+        assertEquals(lastTwo[0].toolCallId, lastTwo[1].toolCallId)
+        assertTrue(lastTwo[1].content.contains("disabled"))
+    }
+
+    @Test
+    fun `policy denied tools record paired tool turn and notify model`() = runTest {
+        val tool = FakeTool("custom_tool", PermissionTier.READ_ONLY)
+        val registry = ToolRegistry().apply { register(tool) }
+        val audit = RecordingAudit()
+        var callCount = 0
+        val provider = FakeLlmProvider().apply {
+            script = {
+                callCount++
+                if (callCount == 1) {
+                    listOf(ChatStreamEvent.ToolCallRequested("custom_tool", """{}"""), ChatStreamEvent.Done)
+                } else {
+                    listOf(ChatStreamEvent.TokenDelta("Understood denial"), ChatStreamEvent.Done)
+                }
+            }
+        }
+
+        val denyPolicy = object : ToolPolicy {
+            override suspend fun evaluate(tool: Tool, argsJson: String, isForceConfirm: Boolean): PolicyDecision {
+                return PolicyDecision.Deny("Blocked by security policy test")
+            }
+        }
+
+        val runner = AgentRunner(
+            registry = registry,
+            audit = audit,
+            confirmationGate = RecordingGate(),
+            toolPolicy = denyPolicy,
+        )
+
+        val events = runner.run(
+            AgentRunRequest(
+                provider = provider,
+                modelId = "test",
+                messages = listOf(userRequest("Execute custom tool")),
+            )
+        ).toList()
+
+        assertEquals(0, tool.executions)
+        assertTrue(events.any { it is AgentEvent.ToolRejected && it.name == "custom_tool" })
+        assertTrue(events.any { it is AgentEvent.FinalAnswer && it.text == "Understood denial" })
+
+        val secondReq = provider.requests[1]
+        val lastTwo = secondReq.conversationHistory.takeLast(2)
+        assertEquals(com.jarvis.core.common.MessageRole.ASSISTANT, lastTwo[0].role)
+        assertEquals("custom_tool", lastTwo[0].toolCallName)
+        assertEquals(com.jarvis.core.common.MessageRole.TOOL, lastTwo[1].role)
+        assertEquals("custom_tool", lastTwo[1].toolCallName)
+        assertEquals(lastTwo[0].toolCallId, lastTwo[1].toolCallId)
+        assertTrue(lastTwo[1].content.contains("Blocked by security policy test"))
     }
 
     @Test

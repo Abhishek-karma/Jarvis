@@ -5,7 +5,9 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.longOrNull
 
 class ToolArgsValidator {
     sealed class Result {
@@ -20,14 +22,17 @@ class ToolArgsValidator {
         schemaJson: String,
         argsJson: String,
     ): Result {
-        val args =
-            runCatching { Json.parseToJsonElement(argsJson) as? JsonObject }.getOrNull()
-                ?: return Result.Rejected("Arguments are not valid JSON.")
+        val argsElement = runCatching { Json.parseToJsonElement(argsJson) }.getOrNull()
+            ?: return Result.Rejected("Arguments are not valid JSON.")
+        val args = argsElement as? JsonObject
+            ?: return Result.Rejected("Arguments must be a JSON object.")
 
         if (schemaJson.isBlank() || schemaJson.trim() == "{}") return Result.Valid
-        val schema =
-            runCatching { Json.parseToJsonElement(schemaJson) as? JsonObject }.getOrNull()
-                ?: return Result.Rejected("Tool schema definition is malformed JSON.")
+        val schemaElement = runCatching { Json.parseToJsonElement(schemaJson) }.getOrNull()
+            ?: return Result.Rejected("Tool schema definition is malformed JSON.")
+        val schema = schemaElement as? JsonObject
+            ?: return Result.Rejected("Tool schema must define an object type.")
+
         if (schema.containsKey("type") && (schema["type"] as? JsonPrimitive)?.content != "object") {
             return Result.Rejected("Tool schema must define an object type.")
         }
@@ -43,10 +48,17 @@ class ToolArgsValidator {
         val properties = schema["properties"] as? JsonObject ?: return Result.Valid
         for ((key, propertyJson) in properties) {
             val actualKey = findMatchingKey(args, key) ?: continue
-            val expectedType = (propertyJson as? JsonObject)?.get("type") as? JsonPrimitive ?: continue
-            val actual = args[actualKey]
-            if (!typeMatches(expectedType.content, actual)) {
-                return Result.Rejected("Argument '$key' must be of type ${expectedType.content}.")
+            val propObj = propertyJson as? JsonObject ?: continue
+            val expectedType = (propObj["type"] as? JsonPrimitive)?.content
+            val actual = args[actualKey] ?: continue
+
+            if (expectedType != null && !typeMatches(expectedType, actual)) {
+                return Result.Rejected("Argument '$key' must be of type $expectedType.")
+            }
+
+            val enumArray = propObj["enum"] as? JsonArray
+            if (enumArray != null && !enumMatches(enumArray, actual)) {
+                return Result.Rejected("Argument '$key' must be one of ${enumArray}.")
             }
         }
         return Result.Valid
@@ -99,23 +111,28 @@ class ToolArgsValidator {
 
     private fun typeMatches(
         expectedType: String,
-        actual: JsonElement?,
+        actual: JsonElement,
     ): Boolean =
         when (expectedType) {
-            "string" -> actual is JsonPrimitive
-            "boolean" -> (actual as? JsonPrimitive)?.let {
-                val c = it.content.lowercase()
-                c == "true" || c == "false" || c == "1" || c == "0" || c == "yes" || c == "no"
-            } == true
-            "number" -> numeric(actual)
-            "integer" -> numeric(actual) && (actual as JsonPrimitive).content.toDoubleOrNull()?.let { it % 1.0 == 0.0 } == true
+            "string" -> actual is JsonPrimitive && actual.isString
+            "boolean" -> actual is JsonPrimitive && !actual.isString && actual.booleanOrNull != null
+            "number" -> actual is JsonPrimitive && !actual.isString && actual.doubleOrNull != null
+            "integer" -> actual is JsonPrimitive && !actual.isString && actual.longOrNull != null
             "array" -> actual is JsonArray
             "object" -> actual is JsonObject
             else -> true
         }
 
-    private fun numeric(actual: JsonElement?): Boolean {
-        val content = (actual as? JsonPrimitive)?.content ?: return false
-        return content != "true" && content != "false" && content.toDoubleOrNull() != null
+    private fun enumMatches(
+        enumArray: JsonArray,
+        actual: JsonElement,
+    ): Boolean {
+        return enumArray.any { allowed ->
+            if (allowed is JsonPrimitive && actual is JsonPrimitive) {
+                allowed.isString == actual.isString && allowed.content == actual.content
+            } else {
+                allowed == actual
+            }
+        }
     }
 }

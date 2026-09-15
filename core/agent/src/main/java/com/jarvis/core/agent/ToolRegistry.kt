@@ -45,7 +45,6 @@ class ToolRegistry {
             "web_search" to "search_web",
             "webSearch" to "search_web",
             "searchWeb" to "search_web",
-            "fetch_url" to "fetch_url",
             "fetchUrl" to "fetch_url",
             "url_fetch" to "fetch_url",
             "browse_url" to "fetch_url",
