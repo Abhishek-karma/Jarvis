@@ -34,6 +34,20 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun `resolves common canonical aliases`() {
+        val searchTool = FakeTool("search_web", PermissionTier.READ_ONLY)
+        val calcTool = FakeTool("calculator", PermissionTier.READ_ONLY)
+        val registry = ToolRegistry().apply {
+            register(searchTool)
+            register(calcTool)
+        }
+
+        assertEquals(searchTool, registry.get("web_search"))
+        assertEquals(searchTool, registry.get("searchWeb"))
+        assertEquals(calcTool, registry.get("calculate"))
+    }
+
+    @Test
     fun `unregister removes registered tool`() {
         val registry = ToolRegistry().apply { register(battery) }
         assertEquals(true, registry.unregister("battery"))

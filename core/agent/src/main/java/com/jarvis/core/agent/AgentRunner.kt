@@ -11,14 +11,9 @@ import com.jarvis.core.network.LlmProvider
 import com.jarvis.core.network.ToolResponsePayload
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
@@ -124,8 +119,7 @@ sealed class AgentEvent {
  * FINAL ANSWER
  *
  * Concurrency & Cancellation rules:
- * - Read-only tools execute bounded in parallel up to MAX_PARALLEL_READS.
- * - Action & Sensitive tools execute sequentially.
+ * - Tools execute sequentially in the exact order requested by the model.
  * - Tool execution runs under the active caller coroutine context without blanket NonCancellable,
  *   so cooperative cancellations terminate promptly. NonCancellable is strictly reserved for
  *   persisting audit records or final cleanup.
@@ -137,7 +131,6 @@ class AgentRunner(
     private val toolPolicy: ToolPolicy = DefaultToolPolicy(),
     private val stepCap: Int = DEFAULT_STEP_CAP,
     private val forceConfirm: Boolean = false,
-    private val parallelReadLimit: Int = DEFAULT_PARALLEL_READ_LIMIT,
     private val disabledTools: Set<String> = emptySet(),
     private val contextManager: ContextManager = ContextManager(),
 ) {
@@ -248,23 +241,13 @@ class AgentRunner(
                         )
                         // Close the tool-call turn with a tool-role response so the model's
                         // tool call is properly paired in the conversation protocol.
-                        val callId = UUID.randomUUID().toString()
-                        turnLog += assistantToolCallMessage(
-                            toolCallId = callId,
-                            toolCallName = call.name,
-                            toolCallArgsJson = call.argsJson,
-                        )
                         val obs = "Unknown tool \"${call.name}\". Available tools: ${definitions.joinToString { it.name }}."
-                        turnLog += toolResultMessage(
-                            observation = obs,
-                            toolCallId = callId,
-                            toolCallName = call.name,
-                        )
                         pendingToolResponses = listOf(
-                            ToolResponsePayload(
+                            recordToolTurn(
                                 toolName = call.name,
+                                argsJson = call.argsJson,
                                 observation = obs,
-                                toolCallId = callId,
+                                turnLog = turnLog,
                             ),
                         )
                         hasRejection = true
@@ -301,23 +284,13 @@ class AgentRunner(
                             emit(AgentEvent.ToolRejected(tool.name, validation.reason))
                             // Close the tool-call turn with a tool-role response so the model
                             // can retry with corrected arguments in the next turn.
-                            val callId = UUID.randomUUID().toString()
-                            turnLog += assistantToolCallMessage(
-                                toolCallId = callId,
-                                toolCallName = tool.name,
-                                toolCallArgsJson = call.argsJson,
-                            )
                             val obs = "Tool \"${tool.name}\" rejected its arguments: ${validation.reason} Fix the arguments and retry."
-                            turnLog += toolResultMessage(
-                                observation = obs,
-                                toolCallId = callId,
-                                toolCallName = tool.name,
-                            )
                             pendingToolResponses = listOf(
-                                ToolResponsePayload(
+                                recordToolTurn(
                                     toolName = tool.name,
+                                    argsJson = call.argsJson,
                                     observation = obs,
-                                    toolCallId = callId,
+                                    turnLog = turnLog,
                                 ),
                             )
                             hasRejection = true
@@ -374,109 +347,51 @@ class AgentRunner(
                     continue
                 }
 
-                val allReadOnly = validCalls.all { it.second.tier == PermissionTier.READ_ONLY && !forceConfirm }
-                if (allReadOnly && validCalls.size > 1) {
-                    for ((_, tool) in validCalls) {
-                        emit(AgentEvent.ToolExecuting(tool.name))
-                    }
+                val toolResponses = mutableListOf<ToolResponsePayload>()
+                for (i in validCalls.indices) {
+                    val (call, tool) = validCalls[i]
+                    val decision = policyDecisions[i]
 
-                    val semaphore = Semaphore(parallelReadLimit)
-                    val executedResults = coroutineScope {
-                        validCalls.map { (call, tool) ->
-                            async {
-                                semaphore.withPermit {
-                                    val r = executeAndAuditTool(
-                                        tool = tool,
-                                        argsJson = call.argsJson,
+                    if (decision is PolicyDecision.RequireConfirmation) {
+                        emit(AgentEvent.ConfirmationRequired(tool.name, call.argsJson))
+                        val allowed = confirmationGate.confirm(tool.name, call.argsJson)
+                        if (!allowed) {
+                            emit(AgentEvent.ToolCancelled(tool.name))
+                            withContext(NonCancellable) {
+                                audit.record(
+                                    AuditRecord(
                                         agentRunId = request.agentRunId,
-                                        isLocal = request.isLocal,
+                                        toolName = tool.name,
+                                        tier = tool.tier.name.lowercase(),
+                                        paramsRedactedJson = AuditRedaction.redact(call.argsJson),
+                                        resultStatus = "cancelled",
                                         userConfirmed = false,
-                                    )
-                                    Triple(call, tool, r)
-                                }
+                                    ),
+                                )
                             }
-                        }.awaitAll()
-                    }
-
-                    val parallelResponses = mutableListOf<ToolResponsePayload>()
-                    for ((call, tool, r) in executedResults) {
-                        val obs = r.observationText
-                        emit(AgentEvent.ToolExecuted(tool.name, r.success, obs))
-                        val callId = UUID.randomUUID().toString()
-                        turnLog += assistantToolCallMessage(
-                            toolCallId = callId,
-                            toolCallName = tool.name,
-                            toolCallArgsJson = call.argsJson,
-                        )
-                        turnLog += toolResultMessage(
-                            observation = obs,
-                            toolCallId = callId,
-                            toolCallName = tool.name,
-                        )
-                        parallelResponses += ToolResponsePayload(
-                            toolName = tool.name,
-                            observation = obs,
-                            toolCallId = callId,
-                        )
-                    }
-                    pendingToolResponses = parallelResponses
-                } else {
-                    val sequentialResponses = mutableListOf<ToolResponsePayload>()
-                    for (i in validCalls.indices) {
-                        val (call, tool) = validCalls[i]
-                        val decision = policyDecisions[i]
-
-                        if (decision is PolicyDecision.RequireConfirmation) {
-                            emit(AgentEvent.ConfirmationRequired(tool.name, call.argsJson))
-                            val allowed = confirmationGate.confirm(tool.name, call.argsJson)
-                            if (!allowed) {
-                                emit(AgentEvent.ToolCancelled(tool.name))
-                                withContext(NonCancellable) {
-                                    audit.record(
-                                        AuditRecord(
-                                            agentRunId = request.agentRunId,
-                                            toolName = tool.name,
-                                            tier = tool.tier.name.lowercase(),
-                                            paramsRedactedJson = AuditRedaction.redact(call.argsJson),
-                                            resultStatus = "cancelled",
-                                            userConfirmed = false,
-                                        ),
-                                    )
-                                }
-                                return@flow
-                            }
+                            return@flow
                         }
-
-                        emit(AgentEvent.ToolExecuting(tool.name))
-                        val r = executeAndAuditTool(
-                            tool = tool,
-                            argsJson = call.argsJson,
-                            agentRunId = request.agentRunId,
-                            isLocal = request.isLocal,
-                            userConfirmed = tool.tier == PermissionTier.SENSITIVE || forceConfirm,
-                        )
-
-                        val obs = r.observationText
-                        emit(AgentEvent.ToolExecuted(tool.name, r.success, obs))
-                        val callId = UUID.randomUUID().toString()
-                        turnLog += assistantToolCallMessage(
-                            toolCallId = callId,
-                            toolCallName = tool.name,
-                            toolCallArgsJson = call.argsJson,
-                        )
-                        turnLog += toolResultMessage(
-                            observation = obs,
-                            toolCallId = callId,
-                            toolCallName = tool.name,
-                        )
-                        sequentialResponses += ToolResponsePayload(
-                            toolName = tool.name,
-                            observation = obs,
-                            toolCallId = callId,
-                        )
                     }
-                    pendingToolResponses = sequentialResponses
+
+                    emit(AgentEvent.ToolExecuting(tool.name))
+                    val r = executeAndAuditTool(
+                        tool = tool,
+                        argsJson = call.argsJson,
+                        agentRunId = request.agentRunId,
+                        isLocal = request.isLocal,
+                        userConfirmed = tool.tier == PermissionTier.SENSITIVE || forceConfirm,
+                    )
+
+                    val obs = r.observationText
+                    emit(AgentEvent.ToolExecuted(tool.name, r.success, obs))
+                    toolResponses += recordToolTurn(
+                        toolName = tool.name,
+                        argsJson = call.argsJson,
+                        observation = obs,
+                        turnLog = turnLog,
+                    )
                 }
+                pendingToolResponses = toolResponses
             }
 
             emit(AgentEvent.StepCapReached(steps))
@@ -536,6 +451,30 @@ class AgentRunner(
         return result.copy(observationText = clampedObs)
     }
 
+    private fun recordToolTurn(
+        toolName: String,
+        argsJson: String,
+        observation: String,
+        turnLog: MutableList<Message>,
+        toolCallId: String = UUID.randomUUID().toString(),
+    ): ToolResponsePayload {
+        turnLog += assistantToolCallMessage(
+            toolCallId = toolCallId,
+            toolCallName = toolName,
+            toolCallArgsJson = argsJson,
+        )
+        turnLog += toolResultMessage(
+            observation = observation,
+            toolCallId = toolCallId,
+            toolCallName = toolName,
+        )
+        return ToolResponsePayload(
+            toolName = toolName,
+            observation = observation,
+            toolCallId = toolCallId,
+        )
+    }
+
     private fun assistantMessage(text: String) =
         Message(
             conversationId = "",
@@ -578,7 +517,6 @@ class AgentRunner(
     companion object {
         const val DEFAULT_STEP_CAP = 15
         const val MAX_STEP_CAP = 40
-        const val DEFAULT_PARALLEL_READ_LIMIT = 4
         val SYSTEM_PROMPT = PromptBuilder.buildCloudSystemPrompt(
             PromptConfig(
                 webToolsAvailable = true,

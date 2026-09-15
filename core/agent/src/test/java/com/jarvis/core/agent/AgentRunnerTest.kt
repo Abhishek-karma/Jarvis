@@ -74,10 +74,20 @@ class AgentRunnerTest {
     }
 
     @Test
-    fun `concurrent read-only tools respect bounded parallel limit`() = runTest {
-        val tool1 = FakeTool("read_1", PermissionTier.READ_ONLY)
-        val tool2 = FakeTool("read_2", PermissionTier.READ_ONLY)
-        val tool3 = FakeTool("read_3", PermissionTier.READ_ONLY)
+    fun `multiple read-only tools execute sequentially in order`() = runTest {
+        val executionOrder = mutableListOf<String>()
+        val tool1 = FakeTool("read_1", PermissionTier.READ_ONLY) {
+            executionOrder += "read_1"
+            ToolResult(true, "ok1")
+        }
+        val tool2 = FakeTool("read_2", PermissionTier.READ_ONLY) {
+            executionOrder += "read_2"
+            ToolResult(true, "ok2")
+        }
+        val tool3 = FakeTool("read_3", PermissionTier.READ_ONLY) {
+            executionOrder += "read_3"
+            ToolResult(true, "ok3")
+        }
         val registry = ToolRegistry().apply {
             register(tool1)
             register(tool2)
@@ -103,7 +113,6 @@ class AgentRunnerTest {
             registry = registry,
             audit = audit,
             confirmationGate = RecordingGate(),
-            parallelReadLimit = 2,
         )
 
         val events = runner.run(
@@ -117,6 +126,7 @@ class AgentRunnerTest {
         assertEquals(1, tool1.executions)
         assertEquals(1, tool2.executions)
         assertEquals(1, tool3.executions)
+        assertEquals(listOf("read_1", "read_2", "read_3"), executionOrder)
         assertTrue(events.any { it is AgentEvent.FinalAnswer && it.text == "All done" })
     }
 
