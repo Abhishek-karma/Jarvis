@@ -333,16 +333,17 @@ class AgentRunner(
                     continue
                 }
 
-                // Run toolPolicy evaluate on each valid tool before dispatch.
+                // Evaluate policy once per tool call
                 val policyDecisions = validCalls.map { (call, tool) ->
                     toolPolicy.evaluate(tool, call.argsJson, forceConfirm)
                 }
 
-                // Deny from policy blocks the whole batch: surface the rejection and retry the turn.
+                // If any tool call is denied by policy, reject and retry the turn.
+                var policyDenied = false
                 for (i in validCalls.indices) {
                     val (call, tool) = validCalls[i]
-                    if (policyDecisions[i] is PolicyDecision.Deny) {
-                        val decision = policyDecisions[i] as PolicyDecision.Deny
+                    val decision = policyDecisions[i]
+                    if (decision is PolicyDecision.Deny) {
                         emit(AgentEvent.ToolRejected(tool.name, decision.reason))
                         val obs = "Execution blocked by policy for \"${tool.name}\": ${decision.reason}"
                         turnLog += assistantMessage(assistantText)
@@ -365,11 +366,11 @@ class AgentRunner(
                                 ),
                             )
                         }
-                        hasRejection = true
+                        policyDenied = true
                         break
                     }
                 }
-                if (hasRejection) {
+                if (policyDenied) {
                     continue
                 }
 
@@ -383,47 +384,16 @@ class AgentRunner(
                     val executedResults = coroutineScope {
                         validCalls.map { (call, tool) ->
                             async {
-                                val r = try {
-                                    semaphore.withPermit {
-                                        tool.execute(call.argsJson)
-                                    }
-                                } catch (e: CancellationException) {
-                                    withContext(NonCancellable) {
-                                        audit.record(
-                                            AuditRecord(
-                                                agentRunId = request.agentRunId,
-                                                toolName = tool.name,
-                                                tier = tool.tier.name.lowercase(),
-                                                paramsRedactedJson = AuditRedaction.redact(call.argsJson),
-                                                resultStatus = "cancelled",
-                                                userConfirmed = false,
-                                            ),
-                                        )
-                                    }
-                                    throw e
-                                } catch (e: Exception) {
-                                    ToolResult(
-                                        success = false,
-                                        observationText = "Tool execution failed: ${e.message ?: e.javaClass.simpleName}",
+                                semaphore.withPermit {
+                                    val r = executeAndAuditTool(
+                                        tool = tool,
+                                        argsJson = call.argsJson,
+                                        agentRunId = request.agentRunId,
+                                        isLocal = request.isLocal,
+                                        userConfirmed = false,
                                     )
+                                    Triple(call, tool, r)
                                 }
-                                val clampedObs = contextManager.clampObservation(
-                                    r.observationText,
-                                    maxTokens = if (request.isLocal) 400 else 1000,
-                                )
-                                withContext(NonCancellable) {
-                                    audit.record(
-                                        AuditRecord(
-                                            agentRunId = request.agentRunId,
-                                            toolName = tool.name,
-                                            tier = tool.tier.name.lowercase(),
-                                            paramsRedactedJson = AuditRedaction.redact(call.argsJson),
-                                            resultStatus = if (r.success) "success" else "failed",
-                                            userConfirmed = false,
-                                        ),
-                                    )
-                                }
-                                Triple(call, tool, r.copy(observationText = clampedObs))
                             }
                         }.awaitAll()
                     }
@@ -452,17 +422,15 @@ class AgentRunner(
                     pendingToolResponses = parallelResponses
                 } else {
                     val sequentialResponses = mutableListOf<ToolResponsePayload>()
-                    for ((call, tool) in validCalls) {
-                        when (val decision = toolPolicy.evaluate(tool, call.argsJson, forceConfirm)) {
-                            is PolicyDecision.Deny -> {
-                                emit(AgentEvent.ToolRejected(tool.name, decision.reason))
-                                val obs = "Execution blocked by policy for \"${tool.name}\": ${decision.reason}"
-                                turnLog += assistantMessage(assistantText)
-                                turnLog += userMessage(obs)
-                                sequentialResponses += ToolResponsePayload(
-                                    toolName = tool.name,
-                                    observation = obs,
-                                )
+                    for (i in validCalls.indices) {
+                        val (call, tool) = validCalls[i]
+                        val decision = policyDecisions[i]
+
+                        if (decision is PolicyDecision.RequireConfirmation) {
+                            emit(AgentEvent.ConfirmationRequired(tool.name, call.argsJson))
+                            val allowed = confirmationGate.confirm(tool.name, call.argsJson)
+                            if (!allowed) {
+                                emit(AgentEvent.ToolCancelled(tool.name))
                                 withContext(NonCancellable) {
                                     audit.record(
                                         AuditRecord(
@@ -470,79 +438,26 @@ class AgentRunner(
                                             toolName = tool.name,
                                             tier = tool.tier.name.lowercase(),
                                             paramsRedactedJson = AuditRedaction.redact(call.argsJson),
-                                            resultStatus = "blocked",
+                                            resultStatus = "cancelled",
                                             userConfirmed = false,
                                         ),
                                     )
                                 }
-                                continue
-                            }
-                            is PolicyDecision.RequireConfirmation -> {
-                                emit(AgentEvent.ConfirmationRequired(tool.name, call.argsJson))
-                                val allowed = confirmationGate.confirm(tool.name, call.argsJson)
-                                if (!allowed) {
-                                    emit(AgentEvent.ToolCancelled(tool.name))
-                                    withContext(NonCancellable) {
-                                        audit.record(
-                                            AuditRecord(
-                                                agentRunId = request.agentRunId,
-                                                toolName = tool.name,
-                                                tier = tool.tier.name.lowercase(),
-                                                paramsRedactedJson = AuditRedaction.redact(call.argsJson),
-                                                resultStatus = "cancelled",
-                                                userConfirmed = false,
-                                            ),
-                                        )
-                                    }
-                                    return@flow
-                                }
-                            }
-                            PolicyDecision.Allow -> {
-                                // Proceed directly
+                                return@flow
                             }
                         }
 
                         emit(AgentEvent.ToolExecuting(tool.name))
-                        val result = try {
-                            tool.execute(call.argsJson)
-                        } catch (e: CancellationException) {
-                            withContext(NonCancellable) {
-                                audit.record(
-                                    AuditRecord(
-                                        agentRunId = request.agentRunId,
-                                        toolName = tool.name,
-                                        tier = tool.tier.name.lowercase(),
-                                        paramsRedactedJson = AuditRedaction.redact(call.argsJson),
-                                        resultStatus = "cancelled",
-                                        userConfirmed = false,
-                                    ),
-                                )
-                            }
-                            throw e
-                        } catch (e: Exception) {
-                            ToolResult(
-                                success = false,
-                                observationText = "Tool execution failed: ${e.message ?: e.javaClass.simpleName}",
-                            )
-                        }
-                        val clampedObs = contextManager.clampObservation(
-                            result.observationText,
-                            maxTokens = if (request.isLocal) 400 else 1000,
+                        val r = executeAndAuditTool(
+                            tool = tool,
+                            argsJson = call.argsJson,
+                            agentRunId = request.agentRunId,
+                            isLocal = request.isLocal,
+                            userConfirmed = tool.tier == PermissionTier.SENSITIVE || forceConfirm,
                         )
-                        withContext(NonCancellable) {
-                            audit.record(
-                                AuditRecord(
-                                    agentRunId = request.agentRunId,
-                                    toolName = tool.name,
-                                    tier = tool.tier.name.lowercase(),
-                                    paramsRedactedJson = AuditRedaction.redact(call.argsJson),
-                                    resultStatus = if (result.success) "success" else "failed",
-                                    userConfirmed = tool.tier == PermissionTier.SENSITIVE || forceConfirm,
-                                ),
-                            )
-                        }
 
-                        emit(AgentEvent.ToolExecuted(tool.name, result.success, clampedObs))
+                        val obs = r.observationText
+                        emit(AgentEvent.ToolExecuted(tool.name, r.success, obs))
                         val callId = UUID.randomUUID().toString()
                         turnLog += assistantToolCallMessage(
                             toolCallId = callId,
@@ -550,13 +465,13 @@ class AgentRunner(
                             toolCallArgsJson = call.argsJson,
                         )
                         turnLog += toolResultMessage(
-                            observation = clampedObs,
+                            observation = obs,
                             toolCallId = callId,
                             toolCallName = tool.name,
                         )
                         sequentialResponses += ToolResponsePayload(
                             toolName = tool.name,
-                            observation = clampedObs,
+                            observation = obs,
                             toolCallId = callId,
                         )
                     }
@@ -568,6 +483,57 @@ class AgentRunner(
         } finally {
             session?.close()
         }
+    }
+
+    private suspend fun executeAndAuditTool(
+        tool: Tool,
+        argsJson: String,
+        agentRunId: String?,
+        isLocal: Boolean,
+        userConfirmed: Boolean,
+    ): ToolResult {
+        val result = try {
+            tool.execute(argsJson)
+        } catch (e: CancellationException) {
+            withContext(NonCancellable) {
+                audit.record(
+                    AuditRecord(
+                        agentRunId = agentRunId,
+                        toolName = tool.name,
+                        tier = tool.tier.name.lowercase(),
+                        paramsRedactedJson = AuditRedaction.redact(argsJson),
+                        resultStatus = "cancelled",
+                        userConfirmed = userConfirmed,
+                    ),
+                )
+            }
+            throw e
+        } catch (e: Exception) {
+            ToolResult(
+                success = false,
+                observationText = "Tool execution failed: ${e.message ?: e.javaClass.simpleName}",
+            )
+        }
+
+        val clampedObs = contextManager.clampObservation(
+            result.observationText,
+            maxTokens = if (isLocal) 400 else 1000,
+        )
+
+        withContext(NonCancellable) {
+            audit.record(
+                AuditRecord(
+                    agentRunId = agentRunId,
+                    toolName = tool.name,
+                    tier = tool.tier.name.lowercase(),
+                    paramsRedactedJson = AuditRedaction.redact(argsJson),
+                    resultStatus = if (result.success) "success" else "failed",
+                    userConfirmed = userConfirmed,
+                ),
+            )
+        }
+
+        return result.copy(observationText = clampedObs)
     }
 
     private fun assistantMessage(text: String) =

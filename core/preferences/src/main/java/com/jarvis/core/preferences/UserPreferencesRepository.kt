@@ -35,7 +35,7 @@ class UserPreferencesRepository
             /** When true, every agent tool call requires confirmation regardless of tier. */
             val CAUTIOUS_MODE = booleanPreferencesKey("cautious_mode")
 
-            /** ReAct step ceiling, clamped to 1..40 (AgentEngine.MAX_STEP_CAP). */
+            /** ReAct step ceiling, clamped to 1..40 (AgentRunner.MAX_STEP_CAP). */
             val AGENT_STEP_CAP = intPreferencesKey("agent_step_cap")
 
             /** Whether the first-run onboarding flow has been completed. */

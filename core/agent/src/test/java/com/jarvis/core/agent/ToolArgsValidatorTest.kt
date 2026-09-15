@@ -51,6 +51,11 @@ class ToolArgsValidatorTest {
     }
 
     @Test
+    fun `malformed schema json is rejected`() {
+        assertTrue(validator.validate("""{"type": "object", broken}""", """{"level": 1}""") is Rejected)
+    }
+
+    @Test
     fun `file_name accepts filename alias from on-device models`() {
         val schema =
             """{"type":"object","properties":{"file_name":{"type":"string"},"content":{"type":"string"}},"required":["file_name","content"]}"""

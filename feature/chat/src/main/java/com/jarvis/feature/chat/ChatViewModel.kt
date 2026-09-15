@@ -3,7 +3,6 @@ package com.jarvis.feature.chat
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.jarvis.core.agent.AgentContinuationTracker
 import com.jarvis.core.agent.AgentEvent
 import com.jarvis.core.agent.AgentRunRequest
 import com.jarvis.core.agent.AgentRunner
@@ -71,7 +70,6 @@ class ChatViewModel
         private val connectivity: LocalConnectivity,
         private val userPreferences: UserPreferencesRepository,
         private val conversationContextManager: ConversationContextManager,
-        private val agentContinuationTracker: AgentContinuationTracker = AgentContinuationTracker(),
         savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow(ChatUiState())
@@ -477,8 +475,6 @@ class ChatViewModel
                     lastRouteReason = decision.reason.name
 
                     if (target == RoutingOverride.LOCAL) {
-                        val continuation = agentContinuationTracker.consumeIfContinuation(conversationId, text)
-
                         _uiState.update { it.copy(isPreparingSend = true) }
                         val localProvider =
                             try {
@@ -521,14 +517,13 @@ class ChatViewModel
                         }
 
 
-                        val agentRequested = AgentTrigger.shouldUseAgent(text) || continuation != null
+                        val agentRequested = AgentTrigger.shouldUseAgent(text)
                         if (agentRequested && localProvider.capabilities.supportsTools) {
                             streamAgentReply(
                                 conversationId,
                                 localProvider,
                                 localProvider.modelId,
                                 reasoningRequested = ThinkModeHeuristic.shouldThink(text, thinkMode),
-                                continuation = continuation,
                             )
                         } else {
                             streamAssistantReply(
@@ -810,7 +805,6 @@ class ChatViewModel
             provider: com.jarvis.core.network.LlmProvider,
             model: String,
             reasoningRequested: Boolean = false,
-            continuation: AgentContinuationTracker.PendingContinuation? = null,
         ) {
             val planFirst = userPreferences.planFirstMode.firstOrNull() ?: false
             val initialStatus = if (planFirst) AgentStatus.PLANNING else AgentStatus.THINKING
@@ -839,25 +833,11 @@ class ChatViewModel
                 )
             val memoryContext = buildMemoryContext(history.lastOrNull { it.role == MessageRole.USER }?.content)
 
-            // Continues a parked task: the user just supplied the missing values, fold them
-            // into explicit instruction so the model issues the real call on this turn.
-            val requestMessages = if (continuation != null) {
-                val lastUser = history.lastOrNull { it.role == MessageRole.USER }?.content.orEmpty()
-                val mergedArgs = fillsArgs(continuation, lastUser)
-                history + Message(
-                    conversationId = conversationId,
-                    role = MessageRole.USER,
-                    content = "Resolve the pending tool task now. Execute $mergedArgs",
-                )
-            } else {
-                history
-            }
-
             val request =
                 AgentRunRequest(
                     provider = provider,
                     modelId = model,
-                    messages = requestMessages,
+                    messages = history,
                     reasoningRequested = reasoningRequested,
                     memoryContext = memoryContext,
                     planFirst = planFirst,
@@ -1039,7 +1019,6 @@ class ChatViewModel
             }
 
             if (answerText.isNotBlank()) {
-                maybeParkContinuation(continuation, history, executedToolNames, answerText)
                 conversationRepository.upsertMessage(
                     Message(
                         conversationId = conversationId,
@@ -1071,70 +1050,6 @@ class ChatViewModel
                     agentStatus = if (it.agentStatus.isActive) AgentStatus.COMPLETED else it.agentStatus,
                 )
             }
-        }
-
-        private fun fillsArgs(
-            continuation: AgentContinuationTracker.PendingContinuation,
-            userText: String,
-        ): String =
-            when (continuation.toolName) {
-                "create_file" -> AgentContinuationTracker.fillCreateFileArgs(continuation.partialArgsJson, userText)
-                else -> "{}"
-            }
-
-        /**
-         * Parks a continuation when the agent finished asking for missing information instead
-         * of executing the tool, so the user's next message in this conversation continues it.
-         */
-        private fun maybeParkContinuation(
-            continuation: AgentContinuationTracker.PendingContinuation?,
-            history: List<Message>,
-            executedToolNames: Set<String>,
-            answerText: String,
-        ) {
-            // Only the original request parks; a consumed continuation either executes or the
-            // user re-asks. Avoids re-parking on the folded instruction ("Resolve the pending
-            // tool task now…") which reads as user content.
-            if (continuation != null) return
-            val toolName = inferPendingToolName(history) ?: return
-            if (toolName in executedToolNames) return
-            if (!asksForMissingInfo(answerText)) return
-            val lastUserText = history.lastOrNull { it.role == MessageRole.USER }?.content.orEmpty()
-            val missing =
-                when (toolName) {
-                    "create_file" ->
-                        AgentContinuationTracker.missingCreateFileFields(
-                            null,
-                            listOf(lastUserText),
-                        )
-                    else -> return
-                }
-            if (missing.isEmpty()) return
-            agentContinuationTracker.park(
-                conversationId = history.lastOrNull()?.conversationId.orEmpty(),
-                toolName = toolName,
-                missingFields = missing,
-                partialArgsJson = null,
-                history = history,
-            )
-        }
-
-        private fun inferPendingToolName(history: List<Message>): String? {
-            val last = history.lastOrNull { it.role == MessageRole.USER }?.content.orEmpty().lowercase()
-            val fileIntent =
-                last.contains("file") ||
-                    last.contains(".txt") ||
-                    last.contains("create") ||
-                    last.contains("write")
-            return if (fileIntent) "create_file" else null
-        }
-
-        private fun asksForMissingInfo(text: String): Boolean {
-            val t = text.lowercase()
-            return t.contains("file name") ||
-                t.contains("filename") ||
-                t.contains("content") ||
-                t.contains("provide the name")
         }
 
         private suspend fun awaitConfirmation(

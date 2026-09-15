@@ -24,10 +24,13 @@ class ToolArgsValidator {
             runCatching { Json.parseToJsonElement(argsJson) as? JsonObject }.getOrNull()
                 ?: return Result.Rejected("Arguments are not valid JSON.")
 
+        if (schemaJson.isBlank() || schemaJson.trim() == "{}") return Result.Valid
         val schema =
             runCatching { Json.parseToJsonElement(schemaJson) as? JsonObject }.getOrNull()
-                ?: return Result.Valid
-        if ((schema["type"] as? JsonPrimitive)?.content != "object") return Result.Valid
+                ?: return Result.Rejected("Tool schema definition is malformed JSON.")
+        if (schema.containsKey("type") && (schema["type"] as? JsonPrimitive)?.content != "object") {
+            return Result.Rejected("Tool schema must define an object type.")
+        }
 
         (schema["required"] as? JsonArray).orEmpty().forEach { keyElement ->
             val key = (keyElement as? JsonPrimitive)?.content ?: return@forEach

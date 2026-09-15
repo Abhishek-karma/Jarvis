@@ -36,18 +36,44 @@ class ToolRegistry {
 
     fun get(name: String): Tool? {
         tools[name]?.let { return it }
-        val canonical = when (name) {
-            "web_search", "webSearch", "searchWeb" -> "search_web"
-            "fetch_url", "fetchUrl", "url_fetch", "browse_url" -> "fetch_url"
-            "calculate", "eval", "evaluate", "calc" -> "calculator"
-            "current_time", "get_current_time" -> "get_current_datetime"
-            "save_memory", "store_memory", "add_memory", "remember", "store_fact", "set_preference" -> "remember_fact"
-            "recall_memory", "get_memories", "get_memory", "list_memories", "search_memory", "search_memories" -> "recall_memories"
-            "forget_memory", "delete_memory", "remove_memory" -> "forget_fact"
-            "undo", "revert_action", "revert_last_action" -> "undo_action"
-            else -> name
-        }
-        return if (canonical == name) null else tools[canonical]
+        val canonical = CANONICAL_ALIASES[name] ?: return null
+        return tools[canonical]
+    }
+
+    companion object {
+        private val CANONICAL_ALIASES: Map<String, String> = mapOf(
+            "web_search" to "search_web",
+            "webSearch" to "search_web",
+            "searchWeb" to "search_web",
+            "fetch_url" to "fetch_url",
+            "fetchUrl" to "fetch_url",
+            "url_fetch" to "fetch_url",
+            "browse_url" to "fetch_url",
+            "calculate" to "calculator",
+            "eval" to "calculator",
+            "evaluate" to "calculator",
+            "calc" to "calculator",
+            "current_time" to "get_current_datetime",
+            "get_current_time" to "get_current_datetime",
+            "save_memory" to "remember_fact",
+            "store_memory" to "remember_fact",
+            "add_memory" to "remember_fact",
+            "remember" to "remember_fact",
+            "store_fact" to "remember_fact",
+            "set_preference" to "remember_fact",
+            "recall_memory" to "recall_memories",
+            "get_memories" to "recall_memories",
+            "get_memory" to "recall_memories",
+            "list_memories" to "recall_memories",
+            "search_memory" to "recall_memories",
+            "search_memories" to "recall_memories",
+            "forget_memory" to "forget_fact",
+            "delete_memory" to "forget_fact",
+            "remove_memory" to "forget_fact",
+            "undo" to "undo_action",
+            "revert_action" to "undo_action",
+            "revert_last_action" to "undo_action",
+        )
     }
 
     fun all(): List<Tool> = tools.values.toList()

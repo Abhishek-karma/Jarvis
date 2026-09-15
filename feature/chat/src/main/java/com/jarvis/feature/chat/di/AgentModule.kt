@@ -23,7 +23,6 @@ import android.telephony.SmsManager
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import androidx.work.WorkManager
-import com.jarvis.core.agent.AgentContinuationTracker
 import com.jarvis.core.agent.AgentEvent
 import com.jarvis.core.agent.AgentRunRequest
 import com.jarvis.core.agent.AgentRunner
@@ -210,10 +209,6 @@ object AgentModule {
         ToolRegistry().apply {
             builtInTools.forEach { register(it) }
         }
-
-    @Provides
-    fun provideAgentContinuationTracker(): AgentContinuationTracker =
-        AgentContinuationTracker()
 
     @Provides
     @Singleton
