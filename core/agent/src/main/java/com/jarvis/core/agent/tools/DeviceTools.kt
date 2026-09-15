@@ -50,6 +50,7 @@ object DeviceTools {
                     ?: args.string("appName")
                     ?: args.string("target")
                     ?: args.string("app")
+                    ?: if (args.string("command") != null || args.string("action") != null) "camera" else null
                 if (target.isNullOrBlank()) {
                     return ToolResult(
                         success = false,

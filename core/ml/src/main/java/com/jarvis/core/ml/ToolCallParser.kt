@@ -289,8 +289,8 @@ object ToolCallParser {
         return out
     }
 
-    private val OPEN_MARKERS = listOf("<|tool_call>", "<|toolcall|>", "<tool_call>")
-    private val CLOSE_MARKERS = listOf("<tool_call|>", "<|tool_call|>", "<|toolcall|>", "</tool_call>", "<tool_call>")
+    private val OPEN_MARKERS = listOf("<|tool_call>", "<|toolcall|>", "<|toolcall>", "<tool_call>")
+    private val CLOSE_MARKERS = listOf("<tool_call|>", "<|tool_call|>", "<|toolcall|>", "<toolcall|>", "</tool_call>", "<tool_call>")
     private const val CALL_KEYWORD = "call:"
     private const val MAX_GEMMA_ARGS_CHARS = 4000
     private const val MAX_GEMMA_ARGS_DEPTH = 4

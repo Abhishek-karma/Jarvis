@@ -172,5 +172,20 @@ class ToolCallParserTest {
         assertEquals("create_file", createCalls[0].name)
         assertTrue(createCalls[0].argsJson.contains("\"filename\":\"additionscript.txt\""))
         assertEquals("", ToolCallParser.stripToolCalls(create).trim())
+
+        // Tests C & D: Exact real-device strings: <|toolcall>call:toolcameracontrol{command:"open"}<toolcall|> and <|toolcall>call:tooldatequery{}<toolcall|>
+        val cameraControl = "<|toolcall>call:toolcameracontrol{command:\"open\"}<toolcall|>"
+        val cameraControlCalls = ToolCallParser.parseAll(cameraControl)
+        assertEquals(1, cameraControlCalls.size)
+        assertEquals("launch_app", cameraControlCalls[0].name)
+        assertTrue(cameraControlCalls[0].argsJson.contains("\"command\":\"open\""))
+        assertEquals("", ToolCallParser.stripToolCalls(cameraControl).trim())
+
+        val dateQuery = "<|toolcall>call:tooldatequery{}<toolcall|>"
+        val dateQueryCalls = ToolCallParser.parseAll(dateQuery)
+        assertEquals(1, dateQueryCalls.size)
+        assertEquals("get_current_datetime", dateQueryCalls[0].name)
+        assertEquals("{}", dateQueryCalls[0].argsJson)
+        assertEquals("", ToolCallParser.stripToolCalls(dateQuery).trim())
     }
 }

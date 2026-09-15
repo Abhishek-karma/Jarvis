@@ -338,4 +338,126 @@ class AgentRunnerTest {
         assertEquals(1, tool.executions)
         assertTrue(events.any { it is AgentEvent.FinalAnswer && it.text == "Setting written" })
     }
+
+    @Test
+    fun `tool execution failure returns error observation to model`() = runTest {
+        val failingTool = object : Tool {
+            override val name = "failing_tool"
+            override val description = "fails on purpose"
+            override val parametersSchemaJson = """{}"""
+            override val tier = PermissionTier.READ_ONLY
+            override suspend fun execute(argsJson: String): ToolResult =
+                ToolResult(success = false, observationText = "Failed to connect to service.", error = "network timeout")
+        }
+        val registry = ToolRegistry().apply { register(failingTool) }
+        val audit = RecordingAudit()
+        var turnCount = 0
+        val provider = FakeLlmProvider().apply {
+            script = { req ->
+                turnCount++
+                if (turnCount == 1) {
+                    listOf(ChatStreamEvent.ToolCallRequested("failing_tool", """{}"""), ChatStreamEvent.Done)
+                } else {
+                    listOf(ChatStreamEvent.TokenDelta("I noticed the failure and handled it gracefully."), ChatStreamEvent.Done)
+                }
+            }
+        }
+
+        val runner = AgentRunner(
+            registry = registry,
+            audit = audit,
+            confirmationGate = RecordingGate(),
+        )
+
+        val events = runner.run(
+            AgentRunRequest(
+                provider = provider,
+                modelId = "test",
+                messages = listOf(userRequest("Execute failing tool")),
+            )
+        ).toList()
+
+        assertTrue(events.any { it is AgentEvent.ToolExecuting && it.name == "failing_tool" })
+        assertTrue(events.any { it is AgentEvent.FinalAnswer && it.text.contains("handled it gracefully") })
+        val secondReq = provider.requests[1]
+        val toolMessage = secondReq.conversationHistory.last()
+        assertEquals(com.jarvis.core.common.MessageRole.TOOL, toolMessage.role)
+        assertTrue(toolMessage.content.contains("Failed to connect to service."))
+    }
+
+    @Test
+    fun `invalid arguments are rejected and returned as tool turn`() = runTest {
+        val schemaTool = object : Tool {
+            override val name = "calc_tool"
+            override val description = "calculator"
+            override val parametersSchemaJson = """{"type":"object","properties":{"expr":{"type":"string"}},"required":["expr"]}"""
+            override val tier = PermissionTier.READ_ONLY
+            override suspend fun execute(argsJson: String): ToolResult = ToolResult(true, "42")
+        }
+        val registry = ToolRegistry().apply { register(schemaTool) }
+        val audit = RecordingAudit()
+        var turnCount = 0
+        val provider = FakeLlmProvider().apply {
+            script = { req ->
+                turnCount++
+                if (turnCount == 1) {
+                    // Send invalid arguments missing "expr"
+                    listOf(ChatStreamEvent.ToolCallRequested("calc_tool", """{"wrong_field":"1+1"}"""), ChatStreamEvent.Done)
+                } else {
+                    listOf(ChatStreamEvent.TokenDelta("Recovered from invalid args"), ChatStreamEvent.Done)
+                }
+            }
+        }
+
+        val runner = AgentRunner(
+            registry = registry,
+            audit = audit,
+            confirmationGate = RecordingGate(),
+        )
+
+        val events = runner.run(
+            AgentRunRequest(
+                provider = provider,
+                modelId = "test",
+                messages = listOf(userRequest("Calculate")),
+            )
+        ).toList()
+
+        assertTrue(events.any { it is AgentEvent.ToolRejected && it.name == "calc_tool" })
+        assertTrue(events.any { it is AgentEvent.FinalAnswer && it.text == "Recovered from invalid args" })
+    }
+
+    @Test
+    fun `unknown tool is rejected and allows model recovery`() = runTest {
+        val registry = ToolRegistry()
+        val audit = RecordingAudit()
+        var turnCount = 0
+        val provider = FakeLlmProvider().apply {
+            script = { req ->
+                turnCount++
+                if (turnCount == 1) {
+                    listOf(ChatStreamEvent.ToolCallRequested("nonexistent_tool", """{}"""), ChatStreamEvent.Done)
+                } else {
+                    listOf(ChatStreamEvent.TokenDelta("I will answer without the tool."), ChatStreamEvent.Done)
+                }
+            }
+        }
+
+        val runner = AgentRunner(
+            registry = registry,
+            audit = audit,
+            confirmationGate = RecordingGate(),
+        )
+
+        val events = runner.run(
+            AgentRunRequest(
+                provider = provider,
+                modelId = "test",
+                messages = listOf(userRequest("Use magic")),
+            )
+        ).toList()
+
+        assertTrue(events.any { it is AgentEvent.ToolRejected && it.name == "nonexistent_tool" })
+        assertTrue(events.any { it is AgentEvent.FinalAnswer && it.text == "I will answer without the tool." })
+    }
 }

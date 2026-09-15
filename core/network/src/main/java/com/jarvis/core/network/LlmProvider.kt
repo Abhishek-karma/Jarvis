@@ -38,15 +38,6 @@ data class ToolResponsePayload(
     val toolCallId: String? = null,
 )
 
-/**
- * Stateful session interface allowing an agent run to communicate with the SAME conversation
- * across multiple turns (Initial -> Model Tool Call -> Tool Result -> Final Answer).
- */
-interface AgentChatSession : AutoCloseable {
-    fun sendInitial(): Flow<ChatStreamEvent>
-    fun sendToolResponses(responses: List<ToolResponsePayload>): Flow<ChatStreamEvent>
-}
-
 /** Normalized streaming contract — one sealed class for every adapter. */
 sealed class ChatStreamEvent {
     data class TokenDelta(
