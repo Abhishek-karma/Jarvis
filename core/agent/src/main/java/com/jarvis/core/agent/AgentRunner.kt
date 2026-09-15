@@ -147,7 +147,7 @@ class AgentRunner(
         val baseHistory = request.messages.filterNot { it.role == MessageRole.TOOL }
         val turnLog = mutableListOf<Message>()
 
-        val webAvailable = definitions.any { it.name == "search_web" || it.name == "fetch_url" || it.name == "web_search" }
+        val webAvailable = definitions.any { it.name == "search_web" || it.name == "fetch_url" }
         val effectiveSystemPrompt = request.systemPromptOverride ?: PromptBuilder.buildSystemPrompt(
             PromptConfig(
                 isLocal = request.isLocal || !supportsTools,

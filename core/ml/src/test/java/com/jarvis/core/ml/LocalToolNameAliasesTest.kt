@@ -16,6 +16,20 @@ class LocalToolNameAliasesTest {
     }
 
     @Test
+    fun `real device observed aliases resolve correctly`() {
+        assertEquals("launch_app", LocalToolNameAliases.resolve("toolcameracontrol"))
+        assertEquals("launch_app", LocalToolNameAliases.resolve("cameracontrol"))
+        assertEquals("launch_app", LocalToolNameAliases.resolve("opencamera"))
+        assertEquals("get_current_datetime", LocalToolNameAliases.resolve("tooldatequery"))
+        assertEquals("get_current_datetime", LocalToolNameAliases.resolve("datequery"))
+        assertEquals("get_current_datetime", LocalToolNameAliases.resolve("currenttime"))
+        assertEquals("battery_level", LocalToolNameAliases.resolve("battery"))
+        assertEquals("calculator", LocalToolNameAliases.resolve("calc"))
+        assertEquals("search_web", LocalToolNameAliases.resolve("searchweb"))
+        assertEquals("fetch_url", LocalToolNameAliases.resolve("fetchurl"))
+    }
+
+    @Test
     fun `unknown names are rejected`() {
         assertNull(LocalToolNameAliases.resolve("unknown:foo"))
         assertNull(LocalToolNameAliases.resolve("devicecontrol:unknown"))
