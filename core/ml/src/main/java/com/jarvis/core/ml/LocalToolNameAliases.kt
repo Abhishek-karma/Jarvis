@@ -58,14 +58,21 @@ object LocalToolNameAliases {
         // App Launch
         put("launchapp", "launch_app")
         put("openapp", "launch_app")
+        put("opencamera", "launch_app")
+        put("camera", "launch_app")
         put("devicecontrollaunchapp", "launch_app")
         put("devicecontrolopenapp", "launch_app")
+        put("devicecontrolopencamera", "launch_app")
+        put("devicecontrolcamera", "launch_app")
 
         // Web Search & Fetch
         put("searchweb", "search_web")
         put("websearch", "search_web")
+        put("search", "search_web")
+        put("googlesearch", "search_web")
         put("google", "search_web")
         put("devicecontrolsearchweb", "search_web")
+        put("devicecontrolsearch", "search_web")
         put("fetchurl", "fetch_url")
         put("browseurl", "fetch_url")
 

@@ -149,4 +149,28 @@ class ToolCallParserTest {
         assertEquals(1, calls.size)
         assertEquals("create_file", calls[0].name)
     }
+
+    @Test
+    fun `parses and strips real-device observed toolcall syntax variations`() {
+        val search = "<|toolcall|>call:google:search{queries:[\"kotlin tutorials\"]}<|tool_call|>"
+        val searchCalls = ToolCallParser.parseAll(search)
+        assertEquals(1, searchCalls.size)
+        assertEquals("search_web", searchCalls[0].name)
+        assertTrue(searchCalls[0].argsJson.contains("\"queries\":[\"kotlin tutorials\"]"))
+        assertEquals("", ToolCallParser.stripToolCalls(search).trim())
+
+        val camera = "<|toolcall|>call:device:opencamera{}<|tool_call|>"
+        val cameraCalls = ToolCallParser.parseAll(camera)
+        assertEquals(1, cameraCalls.size)
+        assertEquals("launch_app", cameraCalls[0].name)
+        assertEquals("{}", cameraCalls[0].argsJson)
+        assertEquals("", ToolCallParser.stripToolCalls(camera).trim())
+
+        val create = "<|toolcall|>call:device:createfile{filename:\"additionscript.txt\",content:\"echo 1+1\"}<|tool_call|>"
+        val createCalls = ToolCallParser.parseAll(create)
+        assertEquals(1, createCalls.size)
+        assertEquals("create_file", createCalls[0].name)
+        assertTrue(createCalls[0].argsJson.contains("\"filename\":\"additionscript.txt\""))
+        assertEquals("", ToolCallParser.stripToolCalls(create).trim())
+    }
 }

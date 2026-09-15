@@ -77,7 +77,7 @@ class ToolArgsValidator {
             "text" -> listOf("content", "message", "body", "data").firstOrNull { args.containsKey(it) }
             "message" -> listOf("text", "content", "body").firstOrNull { args.containsKey(it) }
             "expression" -> listOf("expr", "equation", "formula", "input", "query", "math").firstOrNull { args.containsKey(it) }
-            "query" -> listOf("q", "search", "text", "term").firstOrNull { args.containsKey(it) }
+            "query" -> listOf("q", "search", "text", "term", "queries", "keywords", "input").firstOrNull { args.containsKey(it) }
             "duration_seconds" -> listOf("durationSeconds", "seconds", "duration").firstOrNull { args.containsKey(it) }
             "at_utc_millis" -> listOf("atUtcMillis", "timestamp", "time").firstOrNull { args.containsKey(it) }
             "start_utc_millis" -> listOf("startUtcMillis", "start").firstOrNull { args.containsKey(it) }

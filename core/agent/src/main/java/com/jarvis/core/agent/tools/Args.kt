@@ -9,10 +9,17 @@ internal class Args
     private constructor(
         private val json: JsonObject,
     ) {
-        fun string(key: String): String? =
-            (json[key] as? JsonPrimitive)
-                ?.content
-                ?.takeIf { it.isNotEmpty() }
+        fun string(key: String): String? {
+            val element = json[key] ?: return null
+            if (element is JsonPrimitive) {
+                return element.content.takeIf { it.isNotEmpty() }
+            }
+            if (element is kotlinx.serialization.json.JsonArray) {
+                val first = element.firstOrNull() as? JsonPrimitive
+                return first?.content?.takeIf { it.isNotEmpty() }
+            }
+            return null
+        }
 
         fun long(key: String): Long? {
             val raw = (json[key] as? JsonPrimitive)?.content?.trim() ?: return null

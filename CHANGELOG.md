@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-09-15
+
+### Fixed & Hardened
+- **On-Device Tool-Call Markup Isolation & Normalization**:
+  - Enhanced `ToolCallParser` to parse array argument payloads (e.g. `queries: ["..."]`) and strip internal model protocol markup (such as `<|toolcall|>...<|tool_call|>`) from user-visible streaming text.
+  - Added alias mappings for `search`, `googlesearch`, `opencamera`, and `camera` in `LocalToolNameAliases` to ensure canonical resolution for shorthand on-device tool invocations.
+  - Expanded `ToolArgsValidator` and `Args` parser to support list-wrapped strings and query synonyms (`queries`, `keywords`, `input`).
+  - Guaranteed that `Message.content` is fully cleaned of raw model protocol tokens prior to UI rendering and Room database persistence.
+
+### Changed
+- Bumped `versionName` to `0.2.6` (`versionCode = 16`).
+
 ## [0.2.5] - 2026-09-15
 
 ### Fixed & Hardened

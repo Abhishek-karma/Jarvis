@@ -204,6 +204,14 @@ object ToolCallParser {
                     out.append(c)
                     j++
                 }
+                c == '[' -> {
+                    out.append(c)
+                    j++
+                }
+                c == ']' -> {
+                    out.append(c)
+                    j++
+                }
                 c.isWhitespace() -> {
                     out.append(c)
                     j++
