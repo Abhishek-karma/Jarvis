@@ -9,18 +9,17 @@ be automated in CI.
 USER → ChatViewModel → AgentRunner → LocalLlmProvider → LiteRtLmEngine
      → LiteRT-LM native structured tool call (ConversationConfig, automaticToolCalling = false)
      → ToolCallRequested → AgentRunner (validation → policy → execution) → ToolResult
-     → history replay into the next LiteRT conversation turn → FinalAnswer → UI
+     → history replay / session turn in LiteRT conversation → FinalAnswer → UI
 ```
 
 Layers and their verification status:
 
 | Layer | Verification |
 |---|---|
-| Gemma `<\|toolcall\|>` text fallback parsing | `ToolCallParserTest` (JVM) |
-| Canonical tool-name aliases (allowlisted) | `LocalToolNameAliasesTest` (JVM) |
-| Schema validation incl. `file_name`/`filename` alias | `ToolArgsValidatorTest` (JVM) |
+| Native LiteRT-LM structured tool calls (`message.toolCalls`) | `LiteRtLmEngine` (runtime) |
+| Schema validation & argument parsing | `ToolArgsValidatorTest` (JVM) |
 | Agent loop: policy → execution → observation → next turn | `AgentRunnerTest`, `AgentEngineTest` (JVM) |
-| Full local-agent loop with fake engine (native + text + Gemma markup) | `LocalAgentToolCallingIntegrationTest` (JVM) |
+| Full local-agent loop with fake engine (native structured tool calls) | `LocalAgentToolCallingIntegrationTest` (JVM) |
 | History → native LiteRT protocol mapping | `LiteRtMessageCodecTest` (JVM, pure mapping) |
 | Real LiteRT-LM runtime (JNI, actual model weights) | **Manual, real device only** — see below |
 

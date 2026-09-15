@@ -107,26 +107,21 @@ class LiteRtLmEngine private constructor(
                 val emittedToolCalls = mutableSetOf<String>()
 
                 conversation.sendMessageAsync(lastMessage).collect { message ->
-                    // Native structured tool calls win; STOP after this turn (AgentRunner owns
-                    // validation → policy → execution; next turn replays the updated history).
+                    // Native structured tool calls from LiteRT-LM
                     for (call in message.toolCalls) {
                         val argsJson = gson.toJson(call.arguments)
                         val callKey = "${call.name}:$argsJson"
-                        val canonical = LocalToolNameAliases.resolve(call.name)
-                        val effectiveName = canonical ?: call.name
-                        val effectiveKey = "$effectiveName:$argsJson"
-                        if (emittedToolCalls.add(callKey) && emittedToolCalls.add("canon:$effectiveKey")) {
-                            Log.d(TAG, "LiteRtLmEngine native tool call: $effectiveName")
+                        if (emittedToolCalls.add(callKey)) {
+                            Log.d(TAG, "LiteRtLmEngine native tool call: ${call.name}")
                             trySend(
                                 ChatStreamEvent.ToolCallRequested(
-                                    name = effectiveName,
+                                    name = call.name,
                                     argsJson = argsJson,
                                 ),
                             )
                         }
                     }
 
-                    // Text fallback parsing ([[...]] / <|toolcall|>) lives in LocalLlmProvider.
                     val currentText = messageText(message)
                     if (currentText.isNotEmpty() && currentText != seenText) {
                         when {
@@ -279,14 +274,11 @@ class LiteRtLmEngine private constructor(
                         for (call in message.toolCalls) {
                             val argsJson = gson.toJson(call.arguments)
                             val callKey = "${call.name}:$argsJson"
-                            val canonical = LocalToolNameAliases.resolve(call.name)
-                            val effectiveName = canonical ?: call.name
-                            val effectiveKey = "$effectiveName:$argsJson"
-                            if (emittedToolCalls.add(callKey) && emittedToolCalls.add("canon:$effectiveKey")) {
-                                Log.i(TAG, "Session native tool call emitted: $effectiveName, args length=${argsJson.length}")
+                            if (emittedToolCalls.add(callKey)) {
+                                Log.i(TAG, "Session native tool call emitted: ${call.name}, args length=${argsJson.length}")
                                 trySend(
                                     ChatStreamEvent.ToolCallRequested(
-                                        name = effectiveName,
+                                        name = call.name,
                                         argsJson = argsJson,
                                     ),
                                 )

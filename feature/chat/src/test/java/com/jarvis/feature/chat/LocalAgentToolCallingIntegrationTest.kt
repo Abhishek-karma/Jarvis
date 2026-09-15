@@ -665,7 +665,7 @@ class LocalAgentToolCallingIntegrationTest {
     }
 
     @Test
-    fun `13 observed gemma toolcall markup executes create_file via AgentRunner`() = runTest {
+    fun `13 native structured tool call executes create_file via AgentRunner`() = runTest {
         val createFileTool =
             TrackingFileTool(
                 com.jarvis.core.agent.tools.FilesTools.createFile { fileName, content, location ->
@@ -679,8 +679,10 @@ class LocalAgentToolCallingIntegrationTest {
             ScriptableLocalEngine { history, _ ->
                 if (history.none { it.role == MessageRole.TOOL }) {
                     listOf(
-                        ChatStreamEvent.TokenDelta(
-                            "<|toolcall|>call:devicecontrol:createfile{filename:\"welcome.txt\",content:\"welcome\"}<tool_call>",
+                        ChatStreamEvent.ToolCallRequested(
+                            name = "create_file",
+                            argsJson = """{"filename":"welcome.txt","content":"welcome"}""",
+                            id = "c-create-1",
                         ),
                         ChatStreamEvent.Done,
                     )
@@ -706,13 +708,11 @@ class LocalAgentToolCallingIntegrationTest {
         assertTrue(createFileTool.lastArgs!!.contains("\"welcome\""))
         val finalAnswer = events.filterIsInstance<AgentEvent.FinalAnswer>().last()
         assertTrue(finalAnswer.text.contains("Created"))
-        assertTrue(!finalAnswer.text.contains("toolcall", ignoreCase = true))
-        assertTrue(!finalAnswer.text.contains("devicecontrol", ignoreCase = true))
         assertEquals(1, audit.records.size)
     }
 
     @Test
-    fun `14 unknown gemma toolcall markup is rejected and never executes`() = runTest {
+    fun `14 unknown tool call is rejected and never executes`() = runTest {
         val createFileTool =
             TrackingFileTool(
                 com.jarvis.core.agent.tools.FilesTools.createFile { fileName, content, location ->
@@ -726,8 +726,10 @@ class LocalAgentToolCallingIntegrationTest {
             ScriptableLocalEngine { history, _ ->
                 if (history.none { it.role == MessageRole.TOOL }) {
                     listOf(
-                        ChatStreamEvent.TokenDelta(
-                            "<|toolcall|>call:devicecontrol:delete_everything{}<tool_call>",
+                        ChatStreamEvent.ToolCallRequested(
+                            name = "delete_everything",
+                            argsJson = "{}",
+                            id = "c-del-1",
                         ),
                         ChatStreamEvent.Done,
                     )
@@ -751,7 +753,7 @@ class LocalAgentToolCallingIntegrationTest {
         assertEquals(0, audit.records.size)
         assertTrue(events.any { it is AgentEvent.ToolRejected })
         val finalAnswer = events.filterIsInstance<AgentEvent.FinalAnswer>().last()
-        assertTrue(!finalAnswer.text.contains("toolcall", ignoreCase = true))
+        assertTrue(finalAnswer.text.contains("I can't do that."))
     }
 
     @Test
@@ -767,8 +769,10 @@ class LocalAgentToolCallingIntegrationTest {
             ScriptableLocalEngine { history, _ ->
                 if (history.none { it.role == MessageRole.TOOL }) {
                     listOf(
-                        ChatStreamEvent.TokenDelta(
-                            "<|toolcall|>call:createfile{filename:\"x.txt\",content:\"hi\"}<tool_call>",
+                        ChatStreamEvent.ToolCallRequested(
+                            name = "create_file",
+                            argsJson = """{"filename":"x.txt","content":"hi"}""",
+                            id = "c-fail-1",
                         ),
                         ChatStreamEvent.Done,
                     )
@@ -865,7 +869,7 @@ class LocalAgentToolCallingIntegrationTest {
         val timeEngine = ScriptableLocalEngine { history, _ ->
             if (history.none { it.role == MessageRole.TOOL }) {
                 listOf(
-                    ChatStreamEvent.TokenDelta("<|tool_call>call:devicecontrol:currenttime{}<tool_call|>"),
+                    ChatStreamEvent.ToolCallRequested("get_current_datetime", "{}", id = "t1"),
                     ChatStreamEvent.Done,
                 )
             } else {
@@ -887,7 +891,7 @@ class LocalAgentToolCallingIntegrationTest {
         val batteryEngine = ScriptableLocalEngine { history, _ ->
             if (history.none { it.role == MessageRole.TOOL }) {
                 listOf(
-                    ChatStreamEvent.TokenDelta("<|tool_call>call:devicecontrol:battery{}<tool_call|>"),
+                    ChatStreamEvent.ToolCallRequested("battery_level", "{}", id = "b1"),
                     ChatStreamEvent.Done,
                 )
             } else {
@@ -908,7 +912,7 @@ class LocalAgentToolCallingIntegrationTest {
         val calcEngine = ScriptableLocalEngine { history, _ ->
             if (history.none { it.role == MessageRole.TOOL }) {
                 listOf(
-                    ChatStreamEvent.TokenDelta("<|tool_call>call:devicecontrol:calculator{expression:\"24 * 7\"}<tool_call|>"),
+                    ChatStreamEvent.ToolCallRequested("calculator", """{"expression":"24 * 7"}""", id = "c1"),
                     ChatStreamEvent.Done,
                 )
             } else {
@@ -943,7 +947,7 @@ class LocalAgentToolCallingIntegrationTest {
         val engine1 = ScriptableLocalEngine { history, _ ->
             if (history.none { it.role == MessageRole.TOOL }) {
                 listOf(
-                    ChatStreamEvent.TokenDelta("<|tool_call>call:devicecontrol:createfile{filename:'welcome.txt',content:'welcome'}<tool_call|>"),
+                    ChatStreamEvent.ToolCallRequested("create_file", """{"filename":"welcome.txt","content":"welcome"}""", id = "f1"),
                     ChatStreamEvent.Done,
                 )
             } else {

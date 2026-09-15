@@ -56,9 +56,7 @@ class LocalLlmProvider(
                 tools = request.toolsAvailable,
                 temperature = temperature,
             )
-        // Agent mode: buffer text deltas so embedded tool markup ([[...]] / <|toolcall|>) is
-        // converted into ToolCallRequested events, never user-visible text. In plain chat a
-        // ToolCallRequested is a protocol mismatch — surface it, never drop it silently.
+
         if (!agentMode) {
             return flow {
                 var sawToolCall = false
@@ -81,35 +79,7 @@ class LocalLlmProvider(
                 }
             }
         }
-        return flow {
-            val textBuffer = StringBuilder()
-            val emittedToolKeys = mutableSetOf<String>()
-            var failed = false
-            upstream.collect { event ->
-                when (event) {
-                    is ChatStreamEvent.ToolCallRequested -> {
-                        if (emittedToolKeys.add(event.name + "\n" + event.argsJson)) emit(event)
-                    }
-                    is ChatStreamEvent.TokenDelta -> textBuffer.append(event.text)
-                    is ChatStreamEvent.Error -> {
-                        failed = true
-                        emit(event)
-                    }
-                    is ChatStreamEvent.Done -> Unit // re-emitted below, after text parsing
-                    is ChatStreamEvent.ReasoningDelta, is ChatStreamEvent.Usage -> emit(event)
-                }
-            }
-            if (failed) return@flow
-            val fullText = textBuffer.toString()
-            val prose = ToolCallParser.stripToolCalls(fullText).trim()
-            if (prose.isNotEmpty()) emit(ChatStreamEvent.TokenDelta(prose))
-            for (call in ToolCallParser.parseAll(fullText)) {
-                if (emittedToolKeys.add(call.name + "\n" + call.argsJson)) {
-                    emit(ChatStreamEvent.ToolCallRequested(name = call.name, argsJson = call.argsJson))
-                }
-            }
-            emit(ChatStreamEvent.Done)
-        }
+        return upstream
     }
 
     override fun startSession(request: ChatRequest): AgentChatSession? {
@@ -128,44 +98,13 @@ class LocalLlmProvider(
         ) ?: return null
 
         return object : AgentChatSession {
-            override fun sendInitial(): Flow<ChatStreamEvent> =
-                filterAndParseEvents(onDeviceSession.sendInitial())
+            override fun sendInitial(): Flow<ChatStreamEvent> = onDeviceSession.sendInitial()
 
             override fun sendToolResponses(responses: List<ToolResponsePayload>): Flow<ChatStreamEvent> =
-                filterAndParseEvents(onDeviceSession.sendToolResponses(responses))
+                onDeviceSession.sendToolResponses(responses)
 
             override fun close() {
                 onDeviceSession.close()
-            }
-
-            private fun filterAndParseEvents(upstream: Flow<ChatStreamEvent>): Flow<ChatStreamEvent> = flow {
-                val textBuffer = StringBuilder()
-                val emittedToolKeys = mutableSetOf<String>()
-                var failed = false
-                upstream.collect { event ->
-                    when (event) {
-                        is ChatStreamEvent.ToolCallRequested -> {
-                            if (emittedToolKeys.add(event.name + "\n" + event.argsJson)) emit(event)
-                        }
-                        is ChatStreamEvent.TokenDelta -> textBuffer.append(event.text)
-                        is ChatStreamEvent.Error -> {
-                            failed = true
-                            emit(event)
-                        }
-                        is ChatStreamEvent.Done -> Unit
-                        is ChatStreamEvent.ReasoningDelta, is ChatStreamEvent.Usage -> emit(event)
-                    }
-                }
-                if (failed) return@flow
-                val fullText = textBuffer.toString()
-                val prose = ToolCallParser.stripToolCalls(fullText).trim()
-                if (prose.isNotEmpty()) emit(ChatStreamEvent.TokenDelta(prose))
-                for (call in ToolCallParser.parseAll(fullText)) {
-                    if (emittedToolKeys.add(call.name + "\n" + call.argsJson)) {
-                        emit(ChatStreamEvent.ToolCallRequested(name = call.name, argsJson = call.argsJson))
-                    }
-                }
-                emit(ChatStreamEvent.Done)
             }
         }
     }
