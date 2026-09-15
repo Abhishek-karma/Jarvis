@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-09-15
+
+### Fixed & Hardened
+- **Strict JSON Schema & Enum Validation (`ToolArgsValidator`)**:
+  - Enforced strict primitive type matching (`string`, `boolean`, `number`, `integer`, `array`, `object`) against native JSON tokens, preventing accidental string coercions of booleans or numbers.
+  - Added JSON Schema `enum` constraint enforcement for tool properties.
+  - Hardened top-level object verification for tool argument payloads.
+  - Maintained bidirectional casing compatibility (camelCase / snake_case) and standard parameter aliases (e.g., `filename`/`path` for `file_name`, `expr`/`formula` for `expression`).
+- **Canonical Agent Protocol Turn Pairing (`AgentRunner`)**:
+  - Unified tool rejection handling (disabled environment tools and policy gate denials) to record paired tool turns (`assistant` tool call with matching `toolCallId` followed by `tool` observation message), guaranteeing strict message protocol alignment across all LLM providers.
+  - Removed outdated assistant/user message turn interpolations in rejection execution branches.
+- **Tool Registry Clean-up**:
+  - Pruned redundant self-referential aliases while preserving comprehensive on-device canonical mappings.
+
+### Changed
+- Bumped `versionName` to `0.2.5` (`versionCode = 15`).
+
 ## [0.2.4] - 2026-09-13
 
 ### Fixed

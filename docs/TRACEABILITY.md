@@ -10,7 +10,8 @@
 | **Process-Death Recovery** | `TaskEngine` / Room | `TaskEngineTest` (`recovery on restart`) | **VERIFIED** (`EXECUTING`→`UNKNOWN`) |
 | **Background Automations** | `RoutineWorker` / WorkManager | `RoutineSchedulerTest`, `WorkRoutineScheduler` | **VERIFIED** |
 | **Context Budgeting** | `ContextManager` | `ContextManagerTest` | **VERIFIED** (sliding window) |
-| **Strict Tool Parsing** | `ToolArgsValidator` | `ToolArgsValidatorTest` | **VERIFIED** (JSON Schema) |
+| **Strict Tool Parsing & Types** | `ToolArgsValidator` | `ToolArgsValidatorTest` | **VERIFIED** (JSON Schema, Enums, Type Checking) |
+| **Protocol Turn Alignment** | `AgentRunner` | `AgentRunnerTest` (rejection turn pairing) | **VERIFIED** (Paired Tool Message Invariants) |
 | **Audit & Redaction** | `AuditLogger` / Room | `AuditRedactionTest` | **VERIFIED** (secrets redacted) |
 | **Memory Persistence** | `MemoryRepository` / Room | `MemoryRepository` Unit Tests | **VERIFIED** |
 | **Multi-Provider Support** | `ProviderManager` / `LlmProvider` | `ProviderManagerTest`, `ProviderHealthTrackerTest` | **VERIFIED** (Gemini/Anthropic/OpenAI) |

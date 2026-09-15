@@ -205,6 +205,7 @@ Comprehensive architecture, design, and technical requirement specifications are
 - 🚀 [ROADMAP.md](docs/ROADMAP.md) — Development milestones and feature roadmap.
 - 🔍 [TRACEABILITY.md](docs/TRACEABILITY.md) — Requirements traceability and verification matrix.
 - 🔄 [MIGRATION.md](docs/MIGRATION.md) — Architecture consolidation and migration reference.
+- 🧪 [LOCAL_AGENT_TESTING.md](docs/LOCAL_AGENT_TESTING.md) — Local on-device tool-calling verification guide.
 
 ---
 
