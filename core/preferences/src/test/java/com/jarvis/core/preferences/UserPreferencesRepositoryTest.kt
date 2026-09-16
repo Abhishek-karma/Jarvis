@@ -58,7 +58,6 @@ class UserPreferencesRepositoryTest {
             assertEquals(15, repo.agentStepCap.first())
             assertEquals(false, repo.onboardingCompleted.first())
             assertEquals(ChatMode.CLOUD, repo.chatMode.first())
-            assertTrue(repo.localInternetAccess.first())
         }
 
     @Test
@@ -76,15 +75,6 @@ class UserPreferencesRepositoryTest {
             repo.setChatMode(ChatMode.LOCAL)
             store.corrupt("chat_mode", "hybrid")
             assertEquals(ChatMode.CLOUD, repo.chatMode.first())
-        }
-
-    @Test
-    fun `local internet access round-trips`() =
-        runTest {
-            repo.setLocalInternetAccess(false)
-            assertEquals(false, repo.localInternetAccess.first())
-            repo.setLocalInternetAccess(true)
-            assertEquals(true, repo.localInternetAccess.first())
         }
 
     @Test

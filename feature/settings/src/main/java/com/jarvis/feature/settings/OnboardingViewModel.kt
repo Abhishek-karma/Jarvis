@@ -4,8 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jarvis.core.common.DispatcherProvider
 import com.jarvis.core.database.repository.ProviderRepository
-import com.jarvis.core.ml.LocalModelState
-import com.jarvis.core.ml.LocalModelStore
 import com.jarvis.core.preferences.UserPreferencesRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -14,7 +12,6 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -24,7 +21,7 @@ enum class OnboardingStep {
     /** What Jarvis is, one CTA. */
     WELCOME,
 
-    /** Pick a cloud provider or use the on-device model. */
+    /** Pick a cloud provider. */
     SETUP,
 
     /** Permissions for voice, notifications, and device bridge. */
@@ -36,10 +33,6 @@ data class OnboardingUiState(
     /** True when a cloud provider already exists. */
     val hasProvider: Boolean = false,
     val providerCount: Int = 0,
-    /** True when an on-device model is installed or ready. */
-    val hasLocalModel: Boolean = false,
-    val installedLocalCount: Int = 0,
-    val activeLocalModelName: String? = null,
 )
 
 sealed interface OnboardingUiEvent {
@@ -54,7 +47,6 @@ class OnboardingViewModel
     constructor(
         private val userPreferences: UserPreferencesRepository,
         private val providerRepository: ProviderRepository,
-        private val localModelStore: LocalModelStore,
         private val dispatchers: DispatcherProvider,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow(OnboardingUiState())
@@ -74,30 +66,6 @@ class OnboardingViewModel
                         it.copy(
                             hasProvider = providers.isNotEmpty(),
                             providerCount = providers.size,
-                        )
-                    }
-                }
-            }
-
-            viewModelScope.launch(dispatchers.main) {
-                combine(
-                    localModelStore.status,
-                    localModelStore.installedModels,
-                ) { status: LocalModelState, installed: List<com.jarvis.core.ml.InstalledModel> ->
-                    val activeName = when (status) {
-                        is LocalModelState.Ready -> status.model.displayName
-                        is LocalModelState.Downloading -> status.model.displayName
-                        is LocalModelState.Importing -> status.model.displayName
-                        else -> installed.firstOrNull()?.spec?.displayName
-                    }
-                    val isReady = status is LocalModelState.Ready || installed.isNotEmpty()
-                    Triple(isReady, installed.size, activeName)
-                }.collect { (isReady, installedCount, activeName) ->
-                    _uiState.update {
-                        it.copy(
-                            hasLocalModel = isReady,
-                            installedLocalCount = installedCount,
-                            activeLocalModelName = activeName,
                         )
                     }
                 }

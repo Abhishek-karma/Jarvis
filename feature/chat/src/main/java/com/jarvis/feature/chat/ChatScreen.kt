@@ -44,7 +44,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.jarvis.core.common.Message
 import com.jarvis.core.common.MessageRole
-import com.jarvis.core.common.RoutingOverride
 import com.jarvis.core.common.ThinkMode
 import com.jarvis.core.designsystem.JarvisLoader
 import com.jarvis.core.designsystem.JarvisScreenLoader
@@ -70,7 +69,6 @@ fun ChatScreen(
     onTextChange: (String) -> Unit,
     onSend: () -> Unit,
     onCancel: () -> Unit = {},
-    onRoutingChange: (RoutingOverride) -> Unit = {},
     onThinkModeChange: (ThinkMode) -> Unit = {},
     onOpenVoiceMode: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
@@ -189,10 +187,8 @@ fun ChatScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             ChatNavbar(
                 title = uiState.conversationTitle,
-                routingOverride = uiState.routingOverride,
                 messages = uiState.messages,
                 onOpenDrawer = onOpenDrawer,
-                onRoutingChange = onRoutingChange,
                 onOpenSettings = onOpenSettings,
                 onOpenVoiceMode = onOpenVoiceMode,
             )

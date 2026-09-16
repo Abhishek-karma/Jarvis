@@ -25,7 +25,7 @@ class ConversationContextManager @Inject constructor(
      * Loads, filters by privacy, ranks, and budgets memories for injection into prompt context.
      */
     suspend fun buildMemoryContext(
-        activeRoute: RoutingOverride,
+        activeRoute: RoutingOverride = RoutingOverride.CLOUD,
         userQuery: String? = null,
         maxMemories: Int = 10,
     ): String? {
@@ -34,8 +34,7 @@ class ConversationContextManager @Inject constructor(
         val activeMemories = memoryRepository.getActive()
         if (activeMemories.isEmpty()) return null
 
-        val isLocal = activeRoute == RoutingOverride.LOCAL
-        val eligibleMemories = if (isLocal) activeMemories else activeMemories.filterNot { it.isPrivate }
+        val eligibleMemories = activeMemories.filterNot { it.isPrivate }
         if (eligibleMemories.isEmpty()) return null
 
         // Rank memories by relevance to query if provided, then by recency and confidence
@@ -59,7 +58,6 @@ class ConversationContextManager @Inject constructor(
      */
     fun buildAssistantSystemPrompt(
         memoryContext: String?,
-        isLocal: Boolean = false,
         isVoiceMode: Boolean = false,
         planFirst: Boolean = false,
         webToolsAvailable: Boolean = true,
@@ -67,7 +65,6 @@ class ConversationContextManager @Inject constructor(
     ): String {
         return PromptBuilder.buildSystemPrompt(
             PromptConfig(
-                isLocal = isLocal,
                 isVoiceMode = isVoiceMode,
                 planFirst = planFirst,
                 webToolsAvailable = webToolsAvailable,
@@ -81,7 +78,6 @@ class ConversationContextManager @Inject constructor(
     fun buildAssistantSystemPrompt(memoryContext: String?): String {
         return buildAssistantSystemPrompt(
             memoryContext = memoryContext,
-            isLocal = false,
             isVoiceMode = false,
             planFirst = false,
             webToolsAvailable = true,

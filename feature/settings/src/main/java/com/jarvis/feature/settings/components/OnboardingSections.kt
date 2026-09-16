@@ -332,7 +332,7 @@ private fun WelcomeFeatureCard(
 fun SetupStep(
     uiState: OnboardingUiState,
     onOpenProviders: () -> Unit,
-    onOpenLocalModels: () -> Unit,
+    onOpenLocalModels: () -> Unit = {},
     onContinue: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -353,7 +353,7 @@ fun SetupStep(
             )
             Spacer(modifier = Modifier.height(Spacing.xs))
             Text(
-                text = "Choose how Jarvis will generate responses. You can use Cloud APIs, on-device models, or combine both.",
+                text = "Connect your Cloud AI provider to start using Jarvis with full Android tools capability.",
                 style = JarvisText.BodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -365,29 +365,11 @@ fun SetupStep(
                 icon = Icons.Outlined.Cloud,
                 title = "Cloud AI Providers",
                 subtitle = "OpenAI, Claude, Gemini, DeepSeek, Groq, or custom endpoints.",
-                tag = "Fastest • Most Capable",
+                tag = "Fast • Powerful • Tools Enabled",
                 statusText = if (uiState.hasProvider) "Configured (${uiState.providerCount})" else "Not configured",
                 isConfigured = uiState.hasProvider,
                 actionLabel = if (uiState.hasProvider) "Manage Cloud Keys" else "Connect Cloud Provider",
                 onClick = onOpenProviders,
-            )
-
-            Spacer(modifier = Modifier.height(Spacing.md))
-
-            // On-Device Model Option Card
-            IntelligenceChoiceCard(
-                icon = Icons.Outlined.Computer,
-                title = "On-Device Local AI",
-                subtitle = "Gemma, Qwen, Llama & Phi running locally. Works completely offline.",
-                tag = "100% Private • Offline",
-                statusText = if (uiState.hasLocalModel) {
-                    uiState.activeLocalModelName?.let { "Active: $it" } ?: "Model Ready (${uiState.installedLocalCount})"
-                } else {
-                    "No model installed"
-                },
-                isConfigured = uiState.hasLocalModel,
-                actionLabel = if (uiState.hasLocalModel) "Manage Local Models" else "Download On-Device Model",
-                onClick = onOpenLocalModels,
             )
         }
 
@@ -396,7 +378,7 @@ fun SetupStep(
                 .fillMaxWidth()
                 .padding(vertical = Spacing.xl),
         ) {
-            val hasAnyConfig = uiState.hasProvider || uiState.hasLocalModel
+            val hasAnyConfig = uiState.hasProvider
             PrimaryActionButton(
                 text = if (hasAnyConfig) "Continue" else "Continue with Default Setup",
                 icon = Icons.AutoMirrored.Outlined.ArrowForward,
@@ -405,7 +387,7 @@ fun SetupStep(
             if (!hasAnyConfig) {
                 Spacer(modifier = Modifier.height(Spacing.xs))
                 Text(
-                    text = "You can add API keys or download models anytime in Settings",
+                    text = "You can add API keys anytime in Settings",
                     style = JarvisText.Metadata,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.fillMaxWidth(),

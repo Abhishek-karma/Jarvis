@@ -23,10 +23,6 @@ import com.jarvis.core.common.ProviderConfig
 import com.jarvis.core.common.RoutingOverride
 import com.jarvis.core.common.ThinkMode
 import com.jarvis.core.database.repository.ConversationRepository
-import com.jarvis.core.ml.LocalConnectivity
-import com.jarvis.core.ml.LocalLlmRuntime
-import com.jarvis.core.ml.LocalModelState
-import com.jarvis.core.ml.LocalModelStore
 import com.jarvis.core.navigation.Routes
 import com.jarvis.core.preferences.ChatMode
 import com.jarvis.core.preferences.UserPreferencesRepository
@@ -65,9 +61,6 @@ class ChatViewModel
         private val voiceManager: ChatVoiceManager,
         private val toolRegistry: ToolRegistry,
         private val auditLogger: AuditLogger,
-        private val localModelStore: LocalModelStore,
-        private val localLlmRuntime: LocalLlmRuntime,
-        private val connectivity: LocalConnectivity,
         private val userPreferences: UserPreferencesRepository,
         private val conversationContextManager: ConversationContextManager,
         savedStateHandle: SavedStateHandle,
@@ -93,11 +86,7 @@ class ChatViewModel
         /** Cautious mode: when true, every agent tool call requires user confirmation. */
         private var cautiousMode = false
 
-
-        private var defaultRouteForNewChats = RoutingOverride.AUTO
-
-        /** Settings → Local "Allow internet access": gates web tools on on-device runs. */
-        private var localInternetAccess = true
+        private var defaultRouteForNewChats = RoutingOverride.CLOUD
 
         /** Handle to the in-flight streaming request, used by [cancelStreaming]. */
         private var streamJob: Job? = null
@@ -115,14 +104,12 @@ class ChatViewModel
 
         private fun buildAssistantSystemPrompt(
             memoryContext: String?,
-            isLocal: Boolean = false,
             isVoiceMode: Boolean = false,
             planFirst: Boolean = false,
             webToolsAvailable: Boolean = true,
         ): String =
             conversationContextManager.buildAssistantSystemPrompt(
                 memoryContext = memoryContext,
-                isLocal = isLocal,
                 isVoiceMode = isVoiceMode,
                 planFirst = planFirst,
                 webToolsAvailable = webToolsAvailable,
@@ -153,12 +140,6 @@ class ChatViewModel
 
 
             viewModelScope.launch(dispatchers.main) {
-                localModelStore.status.collect { _ -> refreshSendEnabled() }
-            }
-
-
-
-            viewModelScope.launch(dispatchers.main) {
                 userPreferences.agentStepCap.collect { cap -> agentStepCap = cap }
             }
 
@@ -173,20 +154,10 @@ class ChatViewModel
                 userPreferences.cautiousModeEnabled.collect { enabled -> cautiousMode = enabled }
             }
 
-
             viewModelScope.launch(dispatchers.main) {
-                userPreferences.chatMode.collect { mode ->
-                    defaultRouteForNewChats =
-                        if (mode == ChatMode.LOCAL) {
-                            RoutingOverride.LOCAL
-                        } else {
-                            RoutingOverride.AUTO
-                        }
+                userPreferences.chatMode.collect {
+                    defaultRouteForNewChats = RoutingOverride.CLOUD
                 }
-            }
-
-            viewModelScope.launch(dispatchers.main) {
-                userPreferences.localInternetAccess.collect { allowed -> localInternetAccess = allowed }
             }
 
             viewModelScope.launch(dispatchers.main) {
@@ -232,7 +203,7 @@ class ChatViewModel
 
         private fun refreshSendEnabled() {
             _uiState.update {
-                it.copy(isSendingEnabled = activeProvider != null || localModelReady)
+                it.copy(isSendingEnabled = activeProvider != null)
             }
         }
 
@@ -242,9 +213,6 @@ class ChatViewModel
                 conversationId?.let { conversationRepository.getConversation(it) }
 
             if (conversation == null) {
-
-
-
                 val route = preserveRouting ?: defaultRouteForNewChats
                 messagesJob?.cancel()
                 _uiState.update {
@@ -253,12 +221,7 @@ class ChatViewModel
                         conversationTitle = DEFAULT_CONVERSATION_TITLE,
                         messages = emptyList(),
                         routingOverride = route,
-
-
-                        activeRoute =
-                            RoutingClassifier
-                                .classify("", route, localModelReady, isOnline())
-                                .route,
+                        activeRoute = RoutingOverride.CLOUD,
                         routeBadge = null,
                         isLoadingConversation = false,
                     )
@@ -271,18 +234,12 @@ class ChatViewModel
                     conversationId = conversation.id,
                     conversationTitle = conversation.title,
                     routingOverride = conversation.routingOverride,
-                    activeRoute =
-                        RoutingClassifier
-                            .classify("", conversation.routingOverride, localModelReady, isOnline())
-                            .route,
+                    activeRoute = RoutingOverride.CLOUD,
                     routeBadge = null,
                     isLoadingConversation = false,
                 )
             }
             observeMessages(conversation.id)
-
-
-
 
             conversationRepository
                 .getMessages(conversation.id)
@@ -307,7 +264,6 @@ class ChatViewModel
             messagesJob?.join()
         }
 
-
         private suspend fun ensureConversation(): String {
             _uiState.value.conversationId?.let { return it }
             val created = createConversation(_uiState.value.routingOverride)
@@ -316,26 +272,9 @@ class ChatViewModel
             return created.id
         }
 
-        /** Rebuild route badge from persisted reason — model/provider not stored, so label is generic. */
+        /** Rebuild route badge from persisted reason. */
         private fun badgeFromPersistedReason(reasonName: String): RouteBadge? =
-            when (runCatching { RoutingReason.valueOf(reasonName) }.getOrNull()) {
-                RoutingReason.FORCED_LOCAL,
-                RoutingReason.PRIVACY_LOCAL,
-                RoutingReason.LIGHT_LOCAL,
-                RoutingReason.PROFILE_PRIVATE_LOCAL,
-                -> RouteBadge(RoutingOverride.LOCAL, "On-device")
-
-                RoutingReason.FORCED_CLOUD,
-                RoutingReason.REALTIME_CLOUD,
-                RoutingReason.HEAVY_GENERATIVE_CLOUD,
-                RoutingReason.DEFAULT_CLOUD,
-                RoutingReason.FORCED_LOCAL_FALLBACK,
-                RoutingReason.VISION_CLOUD,
-                RoutingReason.CONTEXT_LIMIT_CLOUD,
-                -> RouteBadge(RoutingOverride.CLOUD, "Cloud")
-
-                null -> null
-            }
+            RouteBadge(RoutingOverride.CLOUD, "Cloud")
 
         /** Open a conversation selected from the History drawer. */
         fun openConversationById(conversationId: String) {
@@ -346,7 +285,7 @@ class ChatViewModel
             }
         }
 
-        /** Persist routing override with the conversation (nothing to persist while the chat is still unsaved). */
+        /** Persist routing override with the conversation. */
         fun setRoutingOverride(override: RoutingOverride) {
             val conversationId = _uiState.value.conversationId
             viewModelScope.launch(dispatchers.main) {
@@ -358,22 +297,11 @@ class ChatViewModel
                 _uiState.update {
                     it.copy(
                         routingOverride = override,
-                        activeRoute = RoutingClassifier.classify("", override, localModelReady, isOnline()).route,
+                        activeRoute = RoutingOverride.CLOUD,
                     )
-                }
-                if (override == RoutingOverride.LOCAL && !localModelReady) {
-                    _uiEvents.tryEmit(ChatUiEvent.ShowNotice(LOCAL_UNAVAILABLE_NOTICE))
                 }
             }
         }
-
-        /** True when the network is reachable; a resolver failure counts as offline. */
-        private fun isOnline(): Boolean = runCatching { connectivity.isOnline() }.getOrDefault(false)
-
-        private fun classifyRoute(
-            override: RoutingOverride,
-            message: String,
-        ): RoutingDecision = RoutingClassifier.classify(message, override, localModelReady, isOnline())
 
         /** Persist reasoning-effort mode. */
         fun setThinkMode(mode: ThinkMode) {
@@ -381,10 +309,6 @@ class ChatViewModel
                 userPreferences.setThinkMode(mode)
             }
         }
-
-        /** On-device model installed and ready. */
-        private val localModelReady: Boolean
-            get() = runCatching { localModelStore.status.value is LocalModelState.Ready }.getOrDefault(false)
 
         /** Create a fresh conversation, preserving the current routing override. */
         fun createNewConversation() {
@@ -463,85 +387,13 @@ class ChatViewModel
 
 
                     val conversationId = ensureConversation()
-
-
-                    val decision = classifyRoute(state.routingOverride, text)
-                    val target = decision.route
-                    if (decision.reason == RoutingReason.FORCED_LOCAL_FALLBACK) {
-                        _uiEvents.tryEmit(ChatUiEvent.ShowNotice(LOCAL_UNAVAILABLE_NOTICE))
-                    }
-
-
-                    lastRouteReason = decision.reason.name
-
-                    if (target == RoutingOverride.LOCAL) {
-                        _uiState.update { it.copy(isPreparingSend = true) }
-                        val localProvider =
-                            try {
-                                localLlmRuntime.currentProvider()
-                            } finally {
-                                _uiState.update { it.copy(isPreparingSend = false) }
-                            }
-                        if (localProvider == null) {
-                            _uiEvents.tryEmit(
-                                ChatUiEvent.ShowError(
-                                    localLlmRuntime.lastFailure
-                                        ?: "On-device model failed to load. Remove and re-download " +
-                                        "it in Settings → Providers.",
-                                ),
-                            )
-                            return@launch
-                        }
-                        _uiState.update {
-                            it.copy(
-                                activeRoute = RoutingOverride.LOCAL,
-                                routeBadge = RouteBadge(RoutingOverride.LOCAL, "On-device"),
-                            )
-                        }
-                        val userMessage =
-                            Message(
-                                conversationId = conversationId,
-                                role = MessageRole.USER,
-                                content = text,
-                                routeUsed = lastRouteReason,
-                            )
-                        conversationRepository.upsertMessage(userMessage)
-                        viewModelScope.launch(dispatchers.io) { extractAndSaveLearnedContext(text) }
-                        autoTitleConversation(conversationId, text)
-                        _uiState.update {
-                            if (overrideText == null) {
-                                it.copy(composerText = "", isStreaming = true)
-                            } else {
-                                it.copy(isStreaming = true)
-                            }
-                        }
-
-
-                        val agentRequested = AgentTrigger.shouldUseAgent(text)
-                        if (agentRequested && localProvider.capabilities.supportsTools) {
-                            streamAgentReply(
-                                conversationId,
-                                localProvider,
-                                localProvider.modelId,
-                                reasoningRequested = ThinkModeHeuristic.shouldThink(text, thinkMode),
-                            )
-                        } else {
-                            streamAssistantReply(
-                                conversationId,
-                                localProvider,
-                                localProvider.modelId,
-                                reasoningRequested = ThinkModeHeuristic.shouldThink(text, thinkMode),
-                            )
-                        }
-                        return@launch
-                    }
-
+                    lastRouteReason = "DEFAULT_CLOUD"
 
                     val provider = activeProvider
                     if (provider == null) {
                         _uiEvents.tryEmit(
                             ChatUiEvent.ShowNotice(
-                                "No cloud provider configured. Add one in Settings, or switch routing to Local.",
+                                "No cloud provider configured. Add one in Settings.",
                             ),
                         )
                         return@launch
@@ -549,7 +401,6 @@ class ChatViewModel
                     val providerAdapter = providerManager.adapterFor(provider)
 
                     _uiState.update { it.copy(activeRoute = RoutingOverride.CLOUD) }
-
 
                     _uiState.update { it.copy(isPreparingSend = true) }
                     val model =
@@ -561,8 +412,7 @@ class ChatViewModel
                     if (model == null) {
                         _uiEvents.tryEmit(
                             ChatUiEvent.ShowError(
-                                "No model available for \"${provider.name}\". Set a model in the provider " +
-                                    "settings; local servers usually need one.",
+                                "No model available for \"${provider.name}\". Set a model in the provider settings.",
                             ),
                         )
                         return@launch
@@ -587,7 +437,6 @@ class ChatViewModel
                             it.copy(isStreaming = true)
                         }
                     }
-
 
                     if (AgentTrigger.shouldUseAgent(text) && providerAdapter.capabilities.supportsTools) {
                         streamAgentReply(
@@ -653,60 +502,13 @@ class ChatViewModel
                     val toRemove = state.messages.drop(lastUserIndex + 1)
                     toRemove.forEach { conversationRepository.deleteMessage(it.id) }
 
-                    val decision = classifyRoute(state.routingOverride, lastUser.content)
-                    val target = decision.route
-                    if (decision.reason == RoutingReason.FORCED_LOCAL_FALLBACK) {
-                        _uiEvents.tryEmit(ChatUiEvent.ShowNotice(LOCAL_UNAVAILABLE_NOTICE))
-                    }
-
-                    if (target == RoutingOverride.LOCAL) {
-                        _uiState.update { it.copy(isPreparingSend = true) }
-                        val localProvider =
-                            try {
-                                localLlmRuntime.currentProvider()
-                            } finally {
-                                _uiState.update { it.copy(isPreparingSend = false) }
-                            }
-                        if (localProvider == null) {
-                            _uiEvents.tryEmit(
-                                ChatUiEvent.ShowError(
-                                    localLlmRuntime.lastFailure
-                                        ?: "On-device model failed to load. Remove and re-download " +
-                                        "it in Settings → Providers.",
-                                ),
-                            )
-                            return@launch
-                        }
-                        _uiState.update {
-                            it.copy(
-                                activeRoute = RoutingOverride.LOCAL,
-                                routeBadge = RouteBadge(RoutingOverride.LOCAL, "On-device"),
-                                isStreaming = true,
-                            )
-                        }
-                        if (AgentTrigger.shouldUseAgent(lastUser.content) && localProvider.capabilities.supportsTools) {
-                            streamAgentReply(
-                                conversationId,
-                                localProvider,
-                                localProvider.modelId,
-                                reasoningRequested = ThinkModeHeuristic.shouldThink(lastUser.content, thinkMode),
-                            )
-                        } else {
-                            streamAssistantReply(
-                                conversationId,
-                                localProvider,
-                                localProvider.modelId,
-                                reasoningRequested = ThinkModeHeuristic.shouldThink(lastUser.content, thinkMode),
-                            )
-                        }
-                        return@launch
-                    }
+                    lastRouteReason = "DEFAULT_CLOUD"
 
                     val provider = activeProvider
                     if (provider == null) {
                         _uiEvents.tryEmit(
                             ChatUiEvent.ShowNotice(
-                                "No cloud provider configured. Add one in Settings, or switch routing to Local.",
+                                "No cloud provider configured. Add one in Settings.",
                             ),
                         )
                         return@launch
@@ -725,8 +527,7 @@ class ChatViewModel
                     if (model == null) {
                         _uiEvents.tryEmit(
                             ChatUiEvent.ShowError(
-                                "No model available for \"${provider.name}\". Set a model in the provider " +
-                                    "settings; local servers usually need one.",
+                                "No model available for \"${provider.name}\". Set a model in the provider settings.",
                             ),
                         )
                         return@launch
@@ -818,18 +619,15 @@ class ChatViewModel
             }
             val history = conversationRepository.getMessages(conversationId)
 
-            val webAllowed =
-                _uiState.value.activeRoute != RoutingOverride.LOCAL || localInternetAccess
-            val disabledToolNames = if (webAllowed) emptySet() else WebTools.manifestNames.toSet()
             val runner =
                 AgentRunner(
                     registry = toolRegistry,
                     audit = auditLogger,
                     confirmationGate = ConfirmationGate { name, argsJson -> awaitConfirmation(name, argsJson) },
-                    toolPolicy = DefaultToolPolicy(disabledTools = disabledToolNames),
+                    toolPolicy = DefaultToolPolicy(disabledTools = emptySet()),
                     stepCap = agentStepCap ?: AgentRunner.DEFAULT_STEP_CAP,
                     forceConfirm = cautiousMode,
-                    disabledTools = disabledToolNames,
+                    disabledTools = emptySet(),
                 )
             val memoryContext = buildMemoryContext(history.lastOrNull { it.role == MessageRole.USER }?.content)
 
@@ -842,7 +640,6 @@ class ChatViewModel
                     memoryContext = memoryContext,
                     planFirst = planFirst,
                     isVoiceMode = _uiState.value.isVoiceModeActive,
-                    isLocal = _uiState.value.activeRoute == RoutingOverride.LOCAL,
                 )
 
             val steps = mutableListOf<AgentStep>()
@@ -1099,17 +896,14 @@ class ChatViewModel
             val cleanHistory = allMessages.filterNot { it.role == MessageRole.TOOL }
             val compacted = contextManager.compactHistory(cleanHistory, historyTokenBudget = 3200)
 
-            val isLocal = _uiState.value.activeRoute == RoutingOverride.LOCAL
             val isVoice = _uiState.value.isVoiceModeActive
-            val webAvailable = !isLocal || localInternetAccess
             val lastUserQuery = cleanHistory.lastOrNull { it.role == MessageRole.USER }?.content
             val memoryContext = buildMemoryContext(lastUserQuery)
             val systemPrompt = buildAssistantSystemPrompt(
                 memoryContext = memoryContext,
-                isLocal = isLocal,
                 isVoiceMode = isVoice,
                 planFirst = false,
-                webToolsAvailable = webAvailable,
+                webToolsAvailable = true,
             )
 
             val assistantMessage =
@@ -1190,7 +984,7 @@ class ChatViewModel
             // A tool call outside AgentRunner is never silently ignored: re-route the same turn
             // through the agent path when the provider can run tools, otherwise surface the
             // honest mismatch.
-            if (error?.code == "local_protocol" || (error == null && sawProtocolMismatch.get())) {
+            if (error == null && sawProtocolMismatch.get()) {
                 if (provider.capabilities.supportsTools) {
                     _uiState.update { it.copy(isStreaming = true) }
                     streamAgentReply(conversationId, provider, model, reasoningRequested)
@@ -1378,11 +1172,6 @@ class ChatViewModel
 
             /** Grace period for a live recognizer to deliver its final result after stop. */
             const val LIVE_RESULT_TIMEOUT_MS = 500L
-
-            /** Shown when the user forces Local routing but no on-device model is installed. */
-            const val LOCAL_UNAVAILABLE_NOTICE =
-                "The local model is not downloaded yet, so cloud was used instead. " +
-                    "Install it in Settings → Providers."
 
             /** Canvas detail lines carry an observation preview, never the full raw output. */
             const val OBSERVATION_PREVIEW_CHARS = 140

@@ -460,4 +460,37 @@ class AgentRunnerTest {
         assertTrue(events.any { it is AgentEvent.ToolRejected && it.name == "nonexistent_tool" })
         assertTrue(events.any { it is AgentEvent.FinalAnswer && it.text == "I will answer without the tool." })
     }
+
+    @Test
+    fun `raw text containing pseudo tool call syntax is treated as plain text and does not execute tools`() = runTest {
+        val tool = FakeTool("get_battery", PermissionTier.READ_ONLY)
+        val registry = ToolRegistry().apply { register(tool) }
+        val audit = RecordingAudit()
+        val provider = FakeLlmProvider().apply {
+            script = { _ ->
+                listOf(
+                    ChatStreamEvent.TokenDelta("<|toolcall>{\"name\":\"get_battery\"}<|call_end|>"),
+                    ChatStreamEvent.Done,
+                )
+            }
+        }
+
+        val runner = AgentRunner(
+            registry = registry,
+            audit = audit,
+            confirmationGate = RecordingGate(),
+        )
+
+        val events = runner.run(
+            AgentRunRequest(
+                provider = provider,
+                modelId = "test",
+                messages = listOf(userRequest("Check battery")),
+            )
+        ).toList()
+
+        assertEquals(0, tool.executions, "Text containing pseudo toolcall syntax must not execute tools")
+        val finalAnswer = events.filterIsInstance<AgentEvent.FinalAnswer>().firstOrNull()
+        assertTrue(finalAnswer != null && finalAnswer.text.contains("<|toolcall>"))
+    }
 }

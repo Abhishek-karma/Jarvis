@@ -25,8 +25,8 @@ android {
         applicationId = "com.aistudio.jarvis.abpk"
         minSdk = 29
         targetSdk = 35
-        versionCode = 17
-        versionName = "0.2.7"
+        versionCode = 18
+        versionName = "0.2.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -96,7 +96,6 @@ dependencies {
     implementation(project(":core:navigation"))
     implementation(project(":core:database"))
     implementation(project(":core:network"))
-    implementation(project(":core:ml"))
     implementation(project(":core:preferences"))
     implementation(project(":feature:chat"))
     implementation(project(":feature:settings"))

@@ -30,3 +30,8 @@
 ### 8. Strict Local Tool Parsing
 - Replaced ambiguous regex matching with balanced JSON envelope parsing and JSON Schema validation via `ToolArgsValidator`.
 
+### 9. Core Module Decoupling & Test Harmonization (v0.2.8)
+- Decoupled `:core:ml` dependency from `:app` module build configurations, optimizing build execution and focusing on the canonical multi-provider cloud runtime.
+- Harmonized unit test suites across `ChatViewModelTest`, `SettingsViewModelTest`, and `OnboardingViewModelTest` to cleanly decouple obsolete local model test dependencies.
+- Reinforced privacy memory filtering in `ConversationContextManager`.
+

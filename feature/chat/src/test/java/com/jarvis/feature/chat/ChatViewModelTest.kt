@@ -14,13 +14,6 @@ import com.jarvis.core.common.MessageStatus
 import com.jarvis.core.common.ProviderConfig
 import com.jarvis.core.common.RoutingOverride
 import com.jarvis.core.database.repository.ConversationRepository
-import com.jarvis.core.ml.LocalConnectivity
-import com.jarvis.core.ml.LocalLlmProvider
-import com.jarvis.core.ml.LocalLlmRuntime
-import com.jarvis.core.ml.LocalModelSpec
-import com.jarvis.core.ml.LocalModelState
-import com.jarvis.core.ml.LocalModelStore
-import com.jarvis.core.ml.OnDeviceEngine
 import com.jarvis.core.network.ChatStreamEvent
 import com.jarvis.core.network.ProviderCapabilities
 import com.jarvis.core.network.ProviderManager
@@ -70,12 +63,8 @@ class ChatViewModelTest {
     private lateinit var audioPlayer: AudioPlayer
     private lateinit var sttProvider: SttProvider
     private lateinit var ttsProvider: TtsProvider
-    private lateinit var localModelStore: LocalModelStore
-    private lateinit var localLlmRuntime: LocalLlmRuntime
-    private lateinit var connectivity: LocalConnectivity
     private lateinit var userPreferences: com.jarvis.core.preferences.UserPreferencesRepository
     private lateinit var thinkModeFlow: MutableStateFlow<com.jarvis.core.common.ThinkMode>
-    private lateinit var localModelStateFlow: MutableStateFlow<LocalModelState>
 
     @BeforeEach
     fun setUp() {
@@ -92,18 +81,11 @@ class ChatViewModelTest {
         audioPlayer = mockk(relaxed = true)
         sttProvider = mockk(relaxed = true)
         ttsProvider = mockk(relaxed = true)
-        localModelStore = mockk(relaxed = true)
-        localLlmRuntime = mockk(relaxed = true)
-        connectivity = mockk(relaxed = true)
-        localModelStateFlow = MutableStateFlow(LocalModelState.NotDownloaded)
-        every { localModelStore.status } returns localModelStateFlow
-        every { connectivity.isOnline() } returns true
         userPreferences = mockk(relaxed = true)
         every { userPreferences.agentStepCap } returns MutableStateFlow(15)
         thinkModeFlow = MutableStateFlow(com.jarvis.core.common.ThinkMode.AUTO)
         every { userPreferences.thinkMode } returns thinkModeFlow
         every { userPreferences.chatMode } returns MutableStateFlow(com.jarvis.core.preferences.ChatMode.CLOUD)
-        every { userPreferences.localInternetAccess } returns MutableStateFlow(true)
         every { userPreferences.memoryEnabled } returns MutableStateFlow(true)
         every { userPreferences.planFirstMode } returns MutableStateFlow(false)
 
@@ -121,9 +103,6 @@ class ChatViewModelTest {
                 voiceManager = voiceManager,
                 toolRegistry = ToolRegistry(),
                 auditLogger = AuditLogger { },
-                localModelStore = localModelStore,
-                localLlmRuntime = localLlmRuntime,
-                connectivity = connectivity,
                 userPreferences = userPreferences,
                 conversationContextManager = contextManager,
                 savedStateHandle = savedStateHandle,
@@ -415,25 +394,6 @@ class ChatViewModelTest {
             advanceUntilIdle()
 
             assertEquals(RoutingOverride.CLOUD, viewModel.uiState.value.activeRoute)
-        }
-
-    @Test
-    fun `setRoutingOverride to LOCAL emits ShowNotice`() =
-        runTest {
-            val conversation = Conversation(id = "conv-r3", title = "Chat")
-            coEvery { conversationRepository.getConversation("conv-r3") } returns conversation
-            coEvery { conversationRepository.observeMessages("conv-r3") } returns emptyFlow()
-            coEvery { conversationRepository.upsertConversation(any()) } just Runs
-
-            viewModel.openConversationById("conv-r3")
-            advanceUntilIdle()
-
-            viewModel.uiEvents.test {
-                viewModel.setRoutingOverride(RoutingOverride.LOCAL)
-                val event = awaitItem()
-                assertTrue(event is ChatUiEvent.ShowNotice)
-                assertTrue((event as ChatUiEvent.ShowNotice).message.contains("local", ignoreCase = true))
-            }
         }
 
     @Test
@@ -880,113 +840,6 @@ class ChatViewModelTest {
             assertEquals(null, viewModel.uiState.value.pendingConfirmation)
         }
 
-    @Test
-    fun `AUTO offline with an installed model routes to the on-device engine`() =
-        runTest {
-            every { connectivity.isOnline() } returns false
-            installLocalModel(partials = listOf("Local answer"))
-            openAgentConversation()
-
-            coEvery {
-                conversationRepository.getMessages("conv-agent")
-            } returns
-                listOf(Message(id = "u1", conversationId = "conv-agent", role = MessageRole.USER, content = "hello"))
-
-            viewModel.onTextChange("hello")
-            viewModel.sendMessage()
-            advanceUntilIdle()
-
-            val state = viewModel.uiState.value
-            assertEquals(RoutingOverride.LOCAL, state.activeRoute)
-            assertEquals(RouteBadge(RoutingOverride.LOCAL, "On-device"), state.routeBadge)
-            assertFalse(state.isStreaming)
-            coVerify {
-                conversationRepository.upsertMessage(
-                    match {
-                        it.role == MessageRole.ASSISTANT &&
-                            it.status == MessageStatus.COMPLETE &&
-                            it.content == "Local answer"
-                    },
-                )
-            }
-        }
-
-    @Test
-    fun `AUTO online with a realtime question uses the cloud provider even with a model installed`() =
-        runTest {
-            val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
-            every { provider.capabilities } returns ProviderCapabilities(supportsTools = false)
-            coEvery { provider.streamChat(any()) } returns flowOf(ChatStreamEvent.Done)
-            coEvery { providerManager.adapterFor(any()) } returns provider
-            every { connectivity.isOnline() } returns true
-            installLocalModel()
-            openAgentConversation()
-
-            viewModel.onTextChange("what's the weather today")
-            viewModel.sendMessage()
-            advanceUntilIdle()
-
-            assertEquals(RoutingOverride.CLOUD, viewModel.uiState.value.activeRoute)
-            assertEquals(
-                RouteBadge(RoutingOverride.CLOUD, "gpt-4o-mini • OpenAI"),
-                viewModel.uiState.value.routeBadge,
-            )
-            coVerify(exactly = 0) { localLlmRuntime.currentProvider() }
-        }
-
-    @Test
-    fun `AUTO online with a light message and an installed model routes on-device`() =
-        runTest {
-            installLocalModel(partials = listOf("Local answer"))
-            every { connectivity.isOnline() } returns true
-            openAgentConversation()
-            coEvery {
-                conversationRepository.getMessages("conv-agent")
-            } returns
-                listOf(Message(id = "u1", conversationId = "conv-agent", role = MessageRole.USER, content = "hello"))
-
-            viewModel.onTextChange("hello")
-            viewModel.sendMessage()
-            advanceUntilIdle()
-
-
-            assertEquals(RoutingOverride.LOCAL, viewModel.uiState.value.activeRoute)
-            assertEquals(RouteBadge(RoutingOverride.LOCAL, "On-device"), viewModel.uiState.value.routeBadge)
-            coVerify(exactly = 1) { localLlmRuntime.currentProvider() }
-
-            coVerify {
-                conversationRepository.upsertMessage(
-                    match {
-                        it.role == MessageRole.USER && it.routeUsed == RoutingReason.LIGHT_LOCAL.name
-                    },
-                )
-            }
-        }
-
-    @Test
-    fun `forcing LOCAL without a model falls back to cloud with a notice`() =
-        runTest {
-            val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
-            every { provider.capabilities } returns ProviderCapabilities(supportsTools = false)
-            coEvery { provider.streamChat(any()) } returns flowOf(ChatStreamEvent.Done)
-            coEvery { providerManager.adapterFor(any()) } returns provider
-
-            every { connectivity.isOnline() } returns true
-            openAgentConversation()
-
-            viewModel.uiEvents.test {
-                viewModel.setRoutingOverride(RoutingOverride.LOCAL)
-                viewModel.onTextChange("hello")
-                viewModel.sendMessage()
-                val event = awaitItem()
-                assertTrue(event is ChatUiEvent.ShowNotice)
-                assertTrue((event as ChatUiEvent.ShowNotice).message.contains("local", ignoreCase = true))
-            }
-            advanceUntilIdle()
-            assertEquals(RoutingOverride.CLOUD, viewModel.uiState.value.activeRoute)
-            coVerify(exactly = 0) { localLlmRuntime.currentProvider() }
-        }
-
     /** A ChatViewModel whose ToolRegistry carries the given tools. */
     private fun viewModelWith(vararg tools: Tool) {
         val registry = ToolRegistry()
@@ -1003,9 +856,6 @@ class ChatViewModelTest {
                 voiceManager = voiceManager,
                 toolRegistry = registry,
                 auditLogger = AuditLogger { },
-                localModelStore = localModelStore,
-                localLlmRuntime = localLlmRuntime,
-                connectivity = connectivity,
                 userPreferences = userPreferences,
                 conversationContextManager = contextManager,
                 savedStateHandle = androidx.lifecycle.SavedStateHandle(),
@@ -1043,51 +893,6 @@ class ChatViewModelTest {
         viewModel.openConversationById("conv-agent")
         advanceUntilIdle()
     }
-
-    /** Make the local store report an installed model and the runtime return a fake-backed provider. */
-    private fun installLocalModel(partials: List<String> = listOf("Local answer")) {
-        val spec =
-            LocalModelSpec(
-                id = "gemma-2-2b-it",
-                displayName = "Gemma 2 2B",
-                fileName = "gemma.task",
-            )
-        localModelStateFlow.value = LocalModelState.Ready(spec, File("model.task"))
-        coEvery { localLlmRuntime.currentProvider() } returns
-            LocalLlmProvider(id = "local-gemma", spec = spec, engine = FakeLocalEngine(partials))
-    }
-
-    /** Test engine replaying partials, mirroring the module-level fake. */
-    private class FakeLocalEngine(
-        private val partials: List<String>,
-    ) : OnDeviceEngine {
-        override fun streamChat(
-            conversationHistory: List<Message>,
-            systemPrompt: String?,
-            tools: List<com.jarvis.core.network.ToolDefinition>?,
-            temperature: Double?,
-        ): kotlinx.coroutines.flow.Flow<com.jarvis.core.network.ChatStreamEvent> = kotlinx.coroutines.flow.flow {
-            partials.forEach { emit(com.jarvis.core.network.ChatStreamEvent.TokenDelta(it)) }
-            emit(com.jarvis.core.network.ChatStreamEvent.Done)
-        }
-
-        override suspend fun generate(
-            prompt: String,
-            temperature: Double?,
-            onPartial: (String) -> Unit,
-            onDone: () -> Unit,
-            onError: (Throwable) -> Unit,
-        ) {
-            partials.forEach(onPartial)
-            onDone()
-        }
-
-        override fun close() = Unit
-    }
-
-
-
-    /** Opens a provider-backed conversation and returns its controllable in-memory message feed. */
     private fun TestScope.loadConversationForRegenerate(): MutableStateFlow<List<Message>> {
         coEvery { conversationRepository.upsertConversation(any()) } just Runs
         coEvery { conversationRepository.upsertMessage(any()) } just Runs

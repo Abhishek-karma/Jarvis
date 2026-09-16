@@ -128,7 +128,6 @@ fun ChatRoute(
                 onTextChange = viewModel::onTextChange,
                 onSend = viewModel::sendMessage,
                 onCancel = viewModel::cancelStreaming,
-                onRoutingChange = viewModel::setRoutingOverride,
                 onThinkModeChange = viewModel::setThinkMode,
                 onOpenVoiceMode = { requireAudioPermission { onOpenVoiceMode() } },
                 onOpenDrawer = { scope.launch { drawerState.open() } },

@@ -24,7 +24,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jarvis.core.common.Message
 import com.jarvis.core.common.MessageRole
-import com.jarvis.core.common.RoutingOverride
 import com.jarvis.core.designsystem.JarvisDropdownItem
 import com.jarvis.core.designsystem.JarvisDropdownMenu
 import com.jarvis.core.designsystem.JarvisHeaderIconButton
@@ -34,10 +33,8 @@ import com.jarvis.core.designsystem.Spacing
 @Composable
 fun ChatNavbar(
     title: String,
-    routingOverride: RoutingOverride,
     messages: List<Message>,
     onOpenDrawer: () -> Unit,
-    onRoutingChange: (RoutingOverride) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenVoiceMode: () -> Unit = {},
 ) {
@@ -67,11 +64,6 @@ fun ChatNavbar(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
-            )
-
-            RouteChip(
-                selected = routingOverride,
-                onSelect = onRoutingChange,
             )
 
             Box {

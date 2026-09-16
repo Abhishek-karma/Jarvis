@@ -31,8 +31,6 @@ data class AgentRunRequest(
     val planFirst: Boolean = false,
     /** Whether voice mode is active (agent formulates concise, speakable answers). */
     val isVoiceMode: Boolean = false,
-    /** Whether running an on-device local model. */
-    val isLocal: Boolean = false,
     /** Explicit system prompt override if provided by caller. */
     val systemPromptOverride: String? = null,
 )
@@ -150,7 +148,6 @@ class AgentRunner(
         val webAvailable = definitions.any { it.name == "search_web" || it.name == "fetch_url" }
         val effectiveSystemPrompt = request.systemPromptOverride ?: PromptBuilder.buildSystemPrompt(
             PromptConfig(
-                isLocal = request.isLocal || !supportsTools,
                 isVoiceMode = request.isVoiceMode,
                 planFirst = request.planFirst,
                 webToolsAvailable = webAvailable,
@@ -188,7 +185,7 @@ class AgentRunner(
                         session.sendToolResponses(responses).toList()
                     }
                 } else {
-                    val historyBudget = if (request.isLocal) 1500 else 3200
+                    val historyBudget = 3200
                     val effectiveHistory = contextManager.compactHistory(
                         baseHistory + turnLog,
                         historyTokenBudget = historyBudget,
@@ -378,7 +375,6 @@ class AgentRunner(
                         tool = tool,
                         argsJson = call.argsJson,
                         agentRunId = request.agentRunId,
-                        isLocal = request.isLocal,
                         userConfirmed = tool.tier == PermissionTier.SENSITIVE || forceConfirm,
                     )
 
@@ -404,7 +400,6 @@ class AgentRunner(
         tool: Tool,
         argsJson: String,
         agentRunId: String?,
-        isLocal: Boolean,
         userConfirmed: Boolean,
     ): ToolResult {
         val result = try {
@@ -432,7 +427,7 @@ class AgentRunner(
 
         val clampedObs = contextManager.clampObservation(
             result.observationText,
-            maxTokens = if (isLocal) 400 else 1000,
+            maxTokens = 1000,
         )
 
         withContext(NonCancellable) {

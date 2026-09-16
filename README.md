@@ -96,7 +96,6 @@ Jarvis/
 │   ├── common/           # Shared utilities, dispatchers, extensions, Result wrappers
 │   ├── database/         # Room database, idempotency ledger, migrations, entities
 │   ├── designsystem/     # Material 3 theme, design tokens, typography, custom components
-│   ├── ml/               # On-device inference, LiteRT / MediaPipe GenAI adapters
 │   ├── navigation/       # Type-safe Jetpack Navigation destinations and graphs
 │   ├── network/          # SSE clients, Retrofit/OkHttp, multi-provider LLM adapters
 │   ├── preferences/      # Encrypted SharedPreferences, DataStore, user settings

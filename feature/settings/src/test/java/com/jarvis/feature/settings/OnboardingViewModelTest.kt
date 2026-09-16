@@ -2,9 +2,6 @@ package com.jarvis.feature.settings
 
 import com.jarvis.core.common.DispatcherProvider
 import com.jarvis.core.database.repository.ProviderRepository
-import com.jarvis.core.ml.InstalledModel
-import com.jarvis.core.ml.LocalModelState
-import com.jarvis.core.ml.LocalModelStore
 import com.jarvis.core.preferences.UserPreferencesRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -34,10 +31,7 @@ class OnboardingViewModelTest {
     private lateinit var viewModel: OnboardingViewModel
     private lateinit var userPreferences: UserPreferencesRepository
     private lateinit var providerRepository: ProviderRepository
-    private lateinit var localModelStore: LocalModelStore
     private val providersFlow = MutableStateFlow<List<com.jarvis.core.common.ProviderConfig>>(emptyList())
-    private val localStatusFlow = MutableStateFlow<LocalModelState>(LocalModelState.None)
-    private val localInstalledFlow = MutableStateFlow<List<InstalledModel>>(emptyList())
 
     private val testDispatchers =
         mockk<DispatcherProvider>().apply {
@@ -52,17 +46,13 @@ class OnboardingViewModelTest {
 
         userPreferences = mockk(relaxed = true)
         providerRepository = mockk(relaxed = true)
-        localModelStore = mockk(relaxed = true)
 
         coEvery { providerRepository.observeProviders() } returns providersFlow
-        every { localModelStore.status } returns localStatusFlow
-        every { localModelStore.installedModels } returns localInstalledFlow
 
         viewModel =
             OnboardingViewModel(
                 userPreferences = userPreferences,
                 providerRepository = providerRepository,
-                localModelStore = localModelStore,
                 dispatchers = testDispatchers,
             )
     }
@@ -97,24 +87,15 @@ class OnboardingViewModelTest {
         }
 
     @Test
-    fun `observing providers and local models updates uiState correctly`() =
+    fun `observing providers updates uiState correctly`() =
         runTest {
             advanceUntilIdle()
             assertFalse(viewModel.uiState.value.hasProvider)
-            assertFalse(viewModel.uiState.value.hasLocalModel)
 
             providersFlow.value = listOf(mockk(relaxed = true))
             advanceUntilIdle()
             assertTrue(viewModel.uiState.value.hasProvider)
             assertEquals(1, viewModel.uiState.value.providerCount)
-
-            localStatusFlow.value = LocalModelState.Ready(
-                model = mockk(relaxed = true) { every { displayName } returns "Qwen 2.5 1.5B" },
-                file = mockk(relaxed = true),
-            )
-            advanceUntilIdle()
-            assertTrue(viewModel.uiState.value.hasLocalModel)
-            assertEquals("Qwen 2.5 1.5B", viewModel.uiState.value.activeLocalModelName)
         }
 
     @Test

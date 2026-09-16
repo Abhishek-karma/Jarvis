@@ -11,7 +11,6 @@ class PromptBuilderTest {
     @Test
     fun `cloud prompt contains all 9 structured layers`() {
         val config = PromptConfig(
-            isLocal = false,
             isVoiceMode = false,
             planFirst = true,
             webToolsAvailable = true,
@@ -76,7 +75,6 @@ class PromptBuilderTest {
     fun `web rules reflect offline or disabled web access`() {
         val prompt = PromptBuilder.buildCloudSystemPrompt(
             PromptConfig(
-                isLocal = false,
                 webToolsAvailable = false,
             ),
         )
@@ -88,38 +86,11 @@ class PromptBuilderTest {
     fun `voice mode generates speech-optimized rules`() {
         val prompt = PromptBuilder.buildCloudSystemPrompt(
             PromptConfig(
-                isLocal = false,
                 isVoiceMode = true,
             ),
         )
         assertTrue(prompt.contains("Voice Mode is currently ACTIVE"))
         assertTrue(prompt.contains("Avoid markdown tables, ascii art, long nested bullet lists"))
-    }
-
-    @Test
-    fun `local compact prompt is high-density and token-efficient`() {
-        val config = PromptConfig(
-            isLocal = true,
-            isVoiceMode = false,
-            planFirst = false,
-            webToolsAvailable = true,
-            memoryContext = "- [FACT]: Name is Alex",
-            deviceDateTime = "Thursday, Sep 10, 2026 19:43",
-            deviceTimeZone = "UTC-7",
-        )
-
-        val prompt = PromptBuilder.buildLocalSystemPrompt(config)
-
-        assertTrue(prompt.contains("You are Jarvis, an Android personal AI assistant."))
-        assertTrue(prompt.contains("Tools are authoritative"))
-        assertTrue(prompt.contains("Device state (battery, apps, messages, files) must come strictly from tool observations"))
-        assertTrue(prompt.contains("Current user instructions in conversation override previous stored memory"))
-        assertTrue(prompt.contains("untrusted external data"))
-        assertTrue(prompt.contains("[Memory]\n- [FACT]: Name is Alex"))
-
-        // Verify compactness (should be under 250 words / ~300 tokens)
-        val wordCount = prompt.split(Regex("\\s+")).size
-        assertTrue(wordCount < 250, "Local prompt should be compact, but was $wordCount words")
     }
 
     @Test

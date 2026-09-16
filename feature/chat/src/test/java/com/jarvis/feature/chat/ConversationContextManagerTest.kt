@@ -23,7 +23,7 @@ class ConversationContextManagerTest {
     private val userPrefs = mockk<UserPreferencesRepository>()
 
     @Test
-    fun `buildMemoryContext filters private memories when routing to cloud`() = runTest {
+    fun `buildMemoryContext filters private memories`() = runTest {
         every { userPrefs.memoryEnabled } returns flowOf(true)
         coEvery { memoryRepo.getActive() } returns listOf(
             Memory(
@@ -46,17 +46,11 @@ class ConversationContextManagerTest {
 
         val manager = ConversationContextManager(memoryRepo, userPrefs)
 
-        // Cloud route: should exclude private memories
-        val cloudContext = manager.buildMemoryContext(RoutingOverride.CLOUD)
-        assertNotNull(cloudContext)
-        assertTrue(cloudContext!!.contains("Likes coffee"))
-        assertFalse(cloudContext.contains("Bank PIN"))
-
-        // Local route: should include private memories
-        val localContext = manager.buildMemoryContext(RoutingOverride.LOCAL)
-        assertNotNull(localContext)
-        assertTrue(localContext!!.contains("Likes coffee"))
-        assertTrue(localContext.contains("Bank PIN"))
+        // Private memories should be excluded
+        val context = manager.buildMemoryContext(RoutingOverride.CLOUD)
+        assertNotNull(context)
+        assertTrue(context!!.contains("Likes coffee"))
+        assertFalse(context.contains("Bank PIN"))
     }
 
     @Test
@@ -112,7 +106,6 @@ class ConversationContextManagerTest {
         val manager = ConversationContextManager(memoryRepo, userPrefs)
         val prompt = manager.buildAssistantSystemPrompt(
             memoryContext = "- [FACT]: Name is Alex",
-            isLocal = false,
             isVoiceMode = true,
             planFirst = true,
             webToolsAvailable = true,

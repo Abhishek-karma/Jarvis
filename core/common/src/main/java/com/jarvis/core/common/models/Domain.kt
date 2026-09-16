@@ -189,17 +189,3 @@ data class Operation(
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
 )
-
-/** On-device model performance benchmark metrics. */
-data class LocalBenchmarkResult(
-    val modelId: String,
-    val modelName: String,
-    val promptTokens: Int,
-    val completionTokens: Int,
-    val timeToFirstTokenMs: Long,
-    val generationSpeedTps: Float,
-    val totalTimeMs: Long,
-    val peakMemoryMb: Long,
-    val threadCount: Int = 4,
-    val timestamp: Long = System.currentTimeMillis(),
-)

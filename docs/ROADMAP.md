@@ -31,7 +31,12 @@
 - Built-in tool suite: Files, Calendar, Contacts, Alarms, System Info, Device Controls, Communications, Web Search.
 - Safe audit logging with secret redaction.
 
-## Phase 6 — Structured Memory & Preferences (ACTIVE / VERIFIED)
+## Phase 6 — Structured Memory & Preferences (COMPLETED)
 - Room-backed structured memory storage with relevance retrieval.
 - Centralized user preferences in DataStore.
+
+## Phase 7 — Core Module Decoupling & Test Suite Hardening (COMPLETED)
+- Decoupled `:core:ml` from the app module to optimize build performance and eliminate unused dependency surface.
+- Harmonized all unit test suites (`:feature:chat`, `:feature:settings`, `:app`) with green test executions.
+- Updated release versioning to v0.2.8.
 

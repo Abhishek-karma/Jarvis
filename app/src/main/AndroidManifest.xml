@@ -53,9 +53,6 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
-        <!-- GPU acceleration for on-device LLM inference (LiteRT-LM) -->
-        <uses-native-library android:name="libvndksupport.so" android:required="false"/>
-        <uses-native-library android:name="libOpenCL.so" android:required="false"/>
         <!-- WorkManager: Hilt's worker factory needs our Configuration.Provider,
              so disable the default androidx.startup initializer. -->
         <provider

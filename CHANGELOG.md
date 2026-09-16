@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] - 2026-09-16
+
+### Changed & Cleaned
+- **Module Decoupling & Build Alignment**:
+  - Removed obsolete `:core:ml` dependency from `:app` module to align with active modular architecture in `settings.gradle.kts`.
+  - Cleaned up obsolete local model references, unused imports, and mock fixtures across `ChatViewModelTest`, `SettingsViewModelTest`, and `OnboardingViewModelTest`.
+  - Reinforced memory privacy filtering in `ConversationContextManager` to reliably exclude private memories from prompt context.
+- Bumped `versionName` to `0.2.8` (`versionCode = 18`).
+
 ## [0.2.7] - 2026-09-15
 
 ### Changed & Simplified
