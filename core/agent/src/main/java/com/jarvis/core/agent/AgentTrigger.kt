@@ -1,6 +1,5 @@
 package com.jarvis.core.agent
 
-
 object AgentTrigger {
     /** Matched anywhere at word boundaries — distinctive enough to be safe. */
     private val anywhereVerbs =
@@ -13,13 +12,29 @@ object AgentTrigger {
             "setup",
             "check the battery",
             "battery",
+            "battery level",
+            "battery status",
+            "battery percentage",
+            "power level",
             "storage",
+            "free storage",
+            "disk space",
+            "free space",
+            "ram",
+            "memory status",
+            "device info",
+            "system info",
             "network state",
             "what time",
+            "what is the time",
+            "what's the time",
+            "tell me the time",
             "current time",
             "what date",
             "what is the date",
             "what's the date",
+            "what date is it",
+            "tell me the date",
             "today's date",
             "todays date",
             "current date",
@@ -32,11 +47,19 @@ object AgentTrigger {
             "write file",
             "create file",
             "save file",
+            "delete file",
+            "list files",
+            "text file",
+            "txt file",
             "search web",
+            "search online",
+            "web search",
+            "look up",
             "google",
             "clipboard",
             "copy to clipboard",
             "read clipboard",
+            "paste clipboard",
             "timer",
             "set timer",
             "alarm",
@@ -52,6 +75,11 @@ object AgentTrigger {
             "volume",
             "launch app",
             "open app",
+            "open camera",
+            "launch camera",
+            "opencamera",
+            "open settings",
+            "open gallery",
             "notification",
             "notify me",
             "save memory",
@@ -81,6 +109,11 @@ object AgentTrigger {
             "create task",
             "list tasks",
             "fetch webpage",
+            "fetch url",
+            "calculate",
+            "evaluate",
+            "compute",
+            "math",
         )
 
     /** Only matched in imperative position (message starts with the verb). */
@@ -113,9 +146,16 @@ object AgentTrigger {
             "remember",
             "forget",
             "recall",
+            "calc",
             "calculate",
+            "eval",
+            "evaluate",
             "compute",
             "solve",
+            "sum",
+            "add",
+            "multiply",
+            "divide",
             "undo",
             "revert",
             "update",
@@ -123,7 +163,10 @@ object AgentTrigger {
             "toggle",
             "write",
             "browse",
+            "get",
         )
+
+    private val mathRegex = Regex("""(?i)\b\d+\s*[\+\-\*\/\^]\s*\d+\b""")
 
     private val anywherePatterns: List<Regex> =
         anywhereVerbs.map { phrase ->
@@ -140,7 +183,9 @@ object AgentTrigger {
             return true
         }
         val lower = trimmed.lowercase().removePrefix("please ")
+        if (mathRegex.containsMatchIn(lower)) return true
         if (anywherePatterns.any { it.containsMatchIn(lower) }) return true
         return imperativeVerbs.any { lower.startsWith(it + " ") || lower == it }
     }
 }
+

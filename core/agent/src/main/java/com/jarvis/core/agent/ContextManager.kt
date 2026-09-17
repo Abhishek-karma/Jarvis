@@ -40,11 +40,11 @@ data class ContextBudget(
         fun forLocal(maxTotalTokens: Int = 2048): ContextBudget {
             val total = maxOf(maxTotalTokens, 1024)
             val output = 256
-            val system = 250
-            val tools = 300
-            val memory = 150
-            val attachments = 200
-            val maxObs = 400
+            val system = 200
+            val tools = 250
+            val memory = 100
+            val attachments = 150
+            val maxObs = 150
             val history = total - system - tools - memory - attachments - output
             return ContextBudget(
                 maxTotalTokens = total,

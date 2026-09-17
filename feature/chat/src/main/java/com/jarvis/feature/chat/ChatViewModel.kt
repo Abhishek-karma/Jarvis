@@ -892,6 +892,15 @@ class ChatViewModel
             model: String,
             reasoningRequested: Boolean = false,
         ) {
+            _uiState.update {
+                it.copy(
+                    isAgentRunning = false,
+                    agentStatus = AgentStatus.IDLE,
+                    agentSteps = emptyList(),
+                    pendingConfirmation = null,
+                    agentFailureReason = null,
+                )
+            }
             val allMessages = conversationRepository.getMessages(conversationId)
             val cleanHistory = allMessages.filterNot { it.role == MessageRole.TOOL }
             val compacted = contextManager.compactHistory(cleanHistory, historyTokenBudget = 3200)

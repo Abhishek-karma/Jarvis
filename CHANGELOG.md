@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.8] - 2026-09-16
 
+### Fixed
+- **Local Native Tool Calling — Root Cause**: On-device tool calls were being emitted as raw
+  textual markup (`<|toolcall>call:tooldevicecontrol{...}`) instead of native `Message.toolCalls`.
+  Root cause was below the agent pipeline: (1) the catalog shipped the **web-optimized, text-only**
+  `gemma-4-E2B-it-web.litertlm` variant as the tool-capable model, and (2)
+  `ExperimentalFlags.enableConversationConstrainedDecoding` was left at its default `false`, so the
+  native layer could not reliably structure the model's tool-call output — hallucinated
+  training-data tool names (`tooldevicecontrol`, `toolfilemanagement`) leaked into the chat as text.
+  - Enabled constrained decoding before any conversation is created (matches Google AI Edge
+    Gallery's tool-calling configuration).
+  - Switched the default catalog entry to the Android `gemma-4-E2B-it-gpu.litertlm` variant;
+    the web variant is now marked text-only (`supportsTools: false`).
+  - Added logcat-only diagnostics (never shown in the chat UI): `TOOLS REGISTERED`,
+    `RENDERED PREFACE` (tool declarations actually rendered into the model prompt),
+    `LOCAL MODEL RESPONSE` (nativeToolCalls.count — the Case A/B discriminator) and
+    `AGENT RESPONSE` in `AgentRunner`.
+  - Added a debug-only device harness (`LocalToolProofActivity`, debug builds only) that proves
+    native tool calls for `get_current_datetime`, `create_file`, and `launch_app` end-to-end.
+  - No textual tool-call parser, aliases, or UI sanitization were reintroduced; the structured
+    `AgentRunner → ToolRegistry → native ToolResponse → same Conversation` path is unchanged.
+
 ### Changed & Cleaned
 - **Module Decoupling & Build Alignment**:
   - Removed obsolete `:core:ml` dependency from `:app` module to align with active modular architecture in `settings.gradle.kts`.

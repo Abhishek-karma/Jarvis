@@ -9,6 +9,7 @@ import com.jarvis.core.network.ChatRequest
 import com.jarvis.core.network.ChatStreamEvent
 import com.jarvis.core.network.LlmProvider
 import com.jarvis.core.network.ToolResponsePayload
+import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
@@ -214,6 +215,11 @@ class AgentRunner(
                         is ChatStreamEvent.ReasoningDelta, is ChatStreamEvent.Usage, ChatStreamEvent.Done -> Unit
                     }
                 }
+                // Diagnostic (logcat only, never UI): what the agent layer received after the
+                // provider converted the model response into structured events. Compared against
+                // LiteRtLmEngine's "LOCAL MODEL RESPONSE" log this pinpoints which layer drops
+                // native tool calls (Case A) or shows both empty (Case B — model never produced them).
+                logAgentResponse(steps, assistantText, requestedTools)
 
                 if (streamError != null) {
                     emit(AgentEvent.Failed(streamError.code, streamError.message))
@@ -396,6 +402,23 @@ class AgentRunner(
         }
     }
 
+    /**
+     * Logs the AGENT RESPONSE diagnostic. Reflection-free runtime check keeps JVM unit tests
+     * working (android.util.Log is not mocked there) while staying active on-device.
+     */
+    private fun logAgentResponse(
+        steps: Int,
+        assistantText: String,
+        requestedTools: List<ChatStreamEvent.ToolCallRequested>,
+    ) {
+        if (!isAndroidRuntime) return
+        Log.i(
+            TAG,
+            "AGENT RESPONSE: step=$steps text=${assistantText.take(MAX_DIAGNOSTIC_TEXT).replace("\n", " ")} " +
+                "toolCalls=${requestedTools.joinToString(prefix = "[", postfix = "]") { "${it.name}(${it.argsJson})" }}",
+        )
+    }
+
     private suspend fun executeAndAuditTool(
         tool: Tool,
         argsJson: String,
@@ -496,6 +519,16 @@ class AgentRunner(
     )
 
     companion object {
+        private const val TAG = "AgentRunner"
+
+        /** Caps the diagnostic text dump so logcat lines stay readable. */
+        private const val MAX_DIAGNOSTIC_TEXT = 600
+
+        /** True only on an Android runtime — android.util.Log is unmockable in JVM unit tests. */
+        private val isAndroidRuntime = "android.os.Log".let { className ->
+            runCatching { Class.forName(className) }.isSuccess
+        }
+
         const val DEFAULT_STEP_CAP = 15
         const val MAX_STEP_CAP = 40
         val SYSTEM_PROMPT = PromptBuilder.buildCloudSystemPrompt(
