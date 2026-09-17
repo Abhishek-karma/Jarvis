@@ -249,7 +249,7 @@ fun ChatScreen(
                                 )
                             }
 
-                            if (uiState.isAgentRunning || uiState.pendingConfirmation != null || uiState.agentStatus.isActive || uiState.agentStatus == AgentStatus.FAILED || uiState.agentStatus == AgentStatus.CANCELLED) {
+                            if (uiState.isAgentRunning || uiState.pendingConfirmation != null || uiState.agentStatus.isActive || uiState.agentStatus == AgentStatus.FAILED || uiState.agentStatus == AgentStatus.CANCELLED || (uiState.agentStatus == AgentStatus.COMPLETED && uiState.agentSteps.isNotEmpty())) {
                                 item(key = "agent-live") {
                                     AgentLiveBlock(
                                         steps = uiState.agentSteps,
