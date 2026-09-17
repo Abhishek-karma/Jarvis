@@ -138,7 +138,13 @@ class OpenAiCompatibleProvider(
                 toolCallsFlushed = true
                 toolCalls.values.forEach { buffer ->
                     if (buffer.name.isNotBlank()) {
-                        trySend(ChatStreamEvent.ToolCallRequested(buffer.name.toString(), buffer.args.toString()))
+                        val json = buffer.args.toString()
+                        trySend(
+                            ChatStreamEvent.ToolCallRequested(
+                                name = buffer.name.toString(),
+                                argsJson = if (json.isBlank()) "{}" else json,
+                            ),
+                        )
                     }
                 }
             }

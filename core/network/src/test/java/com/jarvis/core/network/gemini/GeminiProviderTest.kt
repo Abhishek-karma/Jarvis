@@ -18,6 +18,7 @@ import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -260,4 +261,24 @@ class GeminiProviderTest {
         assertTrue(provider.capabilities.vision)
         assertEquals(1_000_000, provider.capabilities.maxContext)
     }
+
+    @Test
+    fun `zero argument function call is emitted as ToolCallRequested with empty json object`() =
+        runTest {
+            val json = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"check_battery\",\"args\":{}}}]}," +
+                "\"finishReason\":\"STOP\"}]}\n\n"
+            mockServer.enqueue(sseResponse(json))
+
+            val events = provider.streamChat(
+                ChatRequest(
+                    conversationHistory = listOf(Message(conversationId = "c1", role = MessageRole.USER, content = "battery")),
+                    model = "gemini-2.0-flash",
+                ),
+            ).toList()
+
+            val toolCall = events.filterIsInstance<ChatStreamEvent.ToolCallRequested>().firstOrNull()
+            assertNotNull(toolCall)
+            assertEquals("check_battery", toolCall?.name)
+            assertEquals("{}", toolCall?.argsJson)
+        }
 }

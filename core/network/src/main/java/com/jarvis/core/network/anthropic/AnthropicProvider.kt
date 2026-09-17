@@ -201,10 +201,11 @@ class AnthropicProvider(
                             "content_block_stop" -> {
                                 toolBlocks.remove(event.index ?: 0)?.let { block ->
                                     if (block.name.isNotBlank()) {
+                                        val json = block.args.toString()
                                         trySend(
                                             ChatStreamEvent.ToolCallRequested(
                                                 name = block.name.toString(),
-                                                argsJson = block.args.toString(),
+                                                argsJson = if (json.isBlank()) "{}" else json,
                                             ),
                                         )
                                     }

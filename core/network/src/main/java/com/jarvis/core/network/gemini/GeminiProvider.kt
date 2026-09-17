@@ -155,14 +155,13 @@ class GeminiProvider(
                 if (functionCallsFlushed) return
                 functionCallsFlushed = true
                 functionCalls.forEach { (name, args) ->
-                    if (args.isNotEmpty()) {
-                        trySend(
-                            ChatStreamEvent.ToolCallRequested(
-                                name = name,
-                                argsJson = compactJson(args),
-                            ),
-                        )
-                    }
+                    val json = compactJson(args)
+                    trySend(
+                        ChatStreamEvent.ToolCallRequested(
+                            name = name,
+                            argsJson = if (json.isBlank()) "{}" else json,
+                        ),
+                    )
                 }
             }
 
@@ -192,12 +191,12 @@ class GeminiProvider(
                                 }
                                 part.functionCall?.let { call ->
                                     val merged = functionCalls.getOrPut(call.name) { java.util.LinkedHashMap() }
-                                    call.args.forEach { (key, value) -> merged[key] = value }
+                                    call.args?.forEach { (key, value) -> merged[key] = value }
                                 }
                             }
 
 
-                            candidate.finishReason?.takeIf { it == "STOP" }?.let { flushFunctionCalls() }
+                            candidate.finishReason?.let { flushFunctionCalls() }
                         }
 
 
@@ -365,7 +364,7 @@ data class InlineData(
 @JsonClass(generateAdapter = true)
 data class FunctionCall(
     val name: String,
-    val args: Map<String, Any>,
+    val args: Map<String, Any>? = null,
 )
 
 @JsonClass(generateAdapter = true)
@@ -425,7 +424,7 @@ data class GenerateContentResponse(
 
 @JsonClass(generateAdapter = true)
 data class Candidate(
-    val index: Int,
+    val index: Int = 0,
     val content: Content? = null,
     val finishReason: String? = null,
     val finishMessage: String? = null,
