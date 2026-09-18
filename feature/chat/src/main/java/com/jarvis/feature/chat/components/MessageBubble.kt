@@ -46,6 +46,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -171,35 +173,60 @@ fun MessageBubble(
     }
 
     if (message.role == MessageRole.TOOL) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-            modifier = Modifier.fillMaxWidth(),
+        Surface(
+            shape = JarvisShapes.pill,
+            color = if (message.status == MessageStatus.ERROR) {
+                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLow
+            },
+            border = BorderStroke(
+                1.dp,
+                if (message.status == MessageStatus.ERROR) {
+                    MaterialTheme.colorScheme.error.copy(alpha = 0.4f)
+                } else {
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                }
+            ),
+            modifier = Modifier
+                .padding(vertical = 2.dp)
+                .semantics {
+                    contentDescription = "Action milestone: ${message.content}"
+                },
         ) {
-            Icon(
-                imageVector =
-                    if (message.status == MessageStatus.ERROR) {
-                        Icons.Default.PriorityHigh
-                    } else {
-                        Icons.Default.Check
-                    },
-                contentDescription = null,
-                tint =
-                    if (message.status == MessageStatus.ERROR) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                modifier = Modifier.padding(horizontal = Spacing.md, vertical = 6.dp),
+            ) {
+                Icon(
+                    imageVector =
+                        if (message.status == MessageStatus.ERROR) {
+                            Icons.Default.PriorityHigh
+                        } else {
+                            Icons.Default.Check
+                        },
+                    contentDescription = null,
+                    tint =
+                        if (message.status == MessageStatus.ERROR) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
+                    modifier = Modifier.size(14.dp),
+                )
+                Text(
+                    text = message.content,
+                    style = JarvisText.Metadata.copy(fontWeight = FontWeight.Medium),
+                    color = if (message.status == MessageStatus.ERROR) {
                         MaterialTheme.colorScheme.error
                     } else {
-                        JarvisColors.Accent.primary
+                        MaterialTheme.colorScheme.onSurfaceVariant
                     },
-                modifier = Modifier.size(Spacing.lg),
-            )
-            Text(
-                text = message.content,
-                style = JarvisText.Metadata,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         return
     }

@@ -100,28 +100,28 @@ fun EmptyChatState(
 private fun quickActions(): List<QuickAction> =
     listOf(
         QuickAction(
-            icon = Icons.Default.Code,
-            label = "Explain code",
-            description = "Paste a snippet, get a plain-language walkthrough.",
-            prompt = "Explain this code",
-        ),
-        QuickAction(
             icon = Icons.Default.AutoAwesome,
-            label = "Plan morning",
-            description = "One priority, two small wins, then inbox.",
-            prompt = "Plan my morning",
+            label = "My day",
+            description = "Check calendar, reminders, and daily agenda.",
+            prompt = "What's on my calendar and schedule today?",
         ),
         QuickAction(
             icon = Icons.Default.EditNote,
-            label = "Draft reply",
-            description = "Sharp, warm, ready to send.",
-            prompt = "Draft a reply",
+            label = "Send message",
+            description = "Draft or send a quick SMS to a contact.",
+            prompt = "Send a text message",
         ),
         QuickAction(
             icon = Icons.Default.Troubleshoot,
-            label = "Debug",
-            description = "Find what's going wrong and why.",
-            prompt = "Debug this error",
+            label = "Device status",
+            description = "Inspect battery, storage, and system settings.",
+            prompt = "Check my battery level and device status",
+        ),
+        QuickAction(
+            icon = Icons.Default.Code,
+            label = "Web research",
+            description = "Live web lookup, summaries, and facts.",
+            prompt = "Search the web for today's top tech news",
         ),
     )
 

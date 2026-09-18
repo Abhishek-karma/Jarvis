@@ -134,7 +134,7 @@ fun Composer(
                             when {
                                 isRecording -> "Listening…"
                                 isTranscribing -> "Transcribing…"
-                                else -> "Ask anything…"
+                                else -> "Ask Jarvis anything…"
                             }
                         Box(modifier = Modifier.fillMaxWidth()) {
                             innerField()

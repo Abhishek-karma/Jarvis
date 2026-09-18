@@ -610,7 +610,7 @@ fun ApprovalCard(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    text = "Approval required",
+                    text = "Permission request",
                     style = JarvisText.Body.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -619,7 +619,7 @@ fun ApprovalCard(
                     color = JarvisColors.Semantic.warning.copy(alpha = 0.18f),
                 ) {
                     Text(
-                        text = "Sensitive Tier",
+                        text = "Action Confirmation",
                         style = JarvisText.CodeLabel,
                         color = JarvisColors.Semantic.warning,
                         modifier = Modifier.padding(horizontal = Spacing.sm, vertical = 2.dp),
@@ -628,9 +628,9 @@ fun ApprovalCard(
             }
 
             Text(
-                text = formatToolTitle(confirmation.toolName),
-                style = JarvisText.ConvTitle,
-                color = MaterialTheme.colorScheme.primary,
+                text = "Jarvis wants to execute: ${formatToolTitle(confirmation.toolName)}",
+                style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
             )
 
             // Formatted parameters preview with sensitive values masked
@@ -883,35 +883,27 @@ private fun resolveSubtitleColor(status: AgentStatus, pending: AgentConfirmation
 }
 
 private fun formatToolTitle(toolName: String): String =
-    when (toolName) {
-        "web_search", "search_web" -> "Search Web"
-        "fetch_url" -> "Read Web Page"
-        "send_sms", "send_message" -> "Send SMS"
-        "calculator" -> "Calculator"
-        "get_current_datetime" -> "Device Clock & Date"
-        "launch_app" -> "App Launcher"
-        "create_file" -> "Create File"
-        "read_file" -> "Read File"
-        "search_files" -> "Search Files"
-        else -> toolName.replace('_', ' ').replaceFirstChar { it.uppercase() }
-    }
+    AssistantActionFormatter.toHumanReadableTitle(toolName)
 
 private fun formatStepDescription(text: String): String =
     when {
-        text.startsWith("Calling web_search") || text.startsWith("Calling search_web") -> "Search web"
-        text.startsWith("Calling fetch_url") -> "Read web page"
-        text.startsWith("Calling send_sms") -> "Send SMS"
-        text.startsWith("Calling calculator") -> "Calculate"
-        text.startsWith("Calling get_current_datetime") -> "Check system date & time"
-        text.startsWith("Calling launch_app") -> "Launch application"
-        text.startsWith("Calling create_file") -> "Save file"
-        text.startsWith("Calling read_file") -> "Read file"
-        text.startsWith("Calling search_files") -> "Search files"
-        text.startsWith("Calling ") -> "Call ${text.removePrefix("Calling ").replace('_', ' ')}"
-        text.endsWith(" done") -> "${text.removeSuffix(" done").replace('_', ' ').replaceFirstChar { it.uppercase() }} done"
-        text.endsWith(" completed") -> "${text.removeSuffix(" completed").replace('_', ' ').replaceFirstChar { it.uppercase() }} done"
-        text.endsWith(" failed") -> "${text.removeSuffix(" failed").replace('_', ' ').replaceFirstChar { it.uppercase() }} failed"
-        text.startsWith("Needs your approval: ") -> "Approval required: ${text.removePrefix("Needs your approval: ").replace('_', ' ')}"
-        text.startsWith("Denied ") -> "Denied: ${text.removePrefix("Denied ").replace('_', ' ')}"
+        text.startsWith("Approval required: ") -> text
+        text.startsWith("Denied ") -> text
+        text.startsWith("Calling ") -> {
+            val rawTool = text.removePrefix("Calling ")
+            AssistantActionFormatter.toProgressDescription(rawTool)
+        }
+        text.endsWith(" done") -> {
+            val rawTool = text.removeSuffix(" done")
+            AssistantActionFormatter.toCompletedDescription(rawTool)
+        }
+        text.endsWith(" completed") -> {
+            val rawTool = text.removeSuffix(" completed")
+            AssistantActionFormatter.toCompletedDescription(rawTool)
+        }
+        text.endsWith(" failed") -> {
+            val rawTool = text.removeSuffix(" failed")
+            "${AssistantActionFormatter.toCompletedDescription(rawTool)} (failed)"
+        }
         else -> text
     }
