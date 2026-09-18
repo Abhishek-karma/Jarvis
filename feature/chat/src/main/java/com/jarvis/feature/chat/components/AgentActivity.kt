@@ -134,7 +134,7 @@ fun AgentLiveBlock(
 
                     Column {
                         Text(
-                            text = "Jarvis Agent",
+                            text = "Jarvis Assistant",
                             style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onSurface,
                         )

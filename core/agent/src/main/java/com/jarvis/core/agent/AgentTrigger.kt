@@ -168,6 +168,24 @@ object AgentTrigger {
 
     private val mathRegex = Regex("""(?i)\b\d+\s*[\+\-\*\/\^]\s*\d+\b""")
 
+    private val ambiguousVerbs = setOf("call", "make", "find")
+
+    private val conversationalActionPrefixes = listOf(
+        "i need you to ",
+        "i want you to ",
+        "help me ",
+        "assist me with ",
+        "hey jarvis ",
+        "ok jarvis ",
+    )
+
+    private val modalQuestionPrefixes = listOf(
+        "can you ",
+        "could you ",
+        "would you ",
+        "will you ",
+    )
+
     private val anywherePatterns: List<Regex> =
         anywhereVerbs.map { phrase ->
             Regex("(?i)\\b${Regex.escape(phrase)}\\b")
@@ -178,14 +196,40 @@ object AgentTrigger {
         if (trimmed.isEmpty()) return false
         val afterPrefix = trimmed.getOrNull("jarvis".length)
         if (trimmed.startsWith("jarvis", ignoreCase = true) &&
-            (afterPrefix == null || afterPrefix == ',' || afterPrefix.isWhitespace())
+            (afterPrefix == null || afterPrefix == ',' || afterPrefix == ':' || afterPrefix.isWhitespace())
         ) {
             return true
         }
-        val lower = trimmed.lowercase().removePrefix("please ")
+        var lower = trimmed.lowercase().removePrefix("please ")
+
+        var strippedModalQuestion = false
+        for (prefix in modalQuestionPrefixes) {
+            if (lower.startsWith(prefix)) {
+                lower = lower.removePrefix(prefix).trimStart().removePrefix("please ")
+                strippedModalQuestion = true
+                break
+            }
+        }
+        if (!strippedModalQuestion) {
+            for (prefix in conversationalActionPrefixes) {
+                if (lower.startsWith(prefix)) {
+                    lower = lower.removePrefix(prefix).trimStart().removePrefix("please ")
+                    break
+                }
+            }
+        }
+
         if (mathRegex.containsMatchIn(lower)) return true
         if (anywherePatterns.any { it.containsMatchIn(lower) }) return true
-        return imperativeVerbs.any { lower.startsWith(it + " ") || lower == it }
+
+        return imperativeVerbs.any { verb ->
+            if (strippedModalQuestion && verb in ambiguousVerbs) {
+                // If it was a question like "can you make sense of this?", only match if it contains a clear tool phrase
+                false
+            } else {
+                lower.startsWith(verb + " ") || lower == verb
+            }
+        }
     }
 }
 

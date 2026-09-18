@@ -327,6 +327,29 @@ object AgentModule {
 
     @Provides
     @Singleton
+    fun provideAssistantGoalEngine(
+        toolRegistry: ToolRegistry,
+        auditLogger: AuditLogger,
+        taskEngine: TaskEngine,
+        taskRepository: TaskRepository,
+        notificationManager: AssistantNotificationManager,
+    ): com.jarvis.core.agent.AssistantGoalEngine {
+        val runner = AgentRunner(
+            registry = toolRegistry,
+            audit = auditLogger,
+            confirmationGate = { _, _ -> false },
+            stepCap = AgentRunner.DEFAULT_STEP_CAP,
+        )
+        return com.jarvis.core.agent.AssistantGoalEngine(
+            agentRunner = runner,
+            taskEngine = taskEngine,
+            taskRepository = taskRepository,
+            notificationManager = notificationManager,
+        )
+    }
+
+    @Provides
+    @Singleton
     fun provideReversibleActionExecutor(
         actionRepository: ReversibleActionRepository,
         memoryRepository: MemoryRepository,

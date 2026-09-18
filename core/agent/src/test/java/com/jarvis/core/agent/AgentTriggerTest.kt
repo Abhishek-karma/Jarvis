@@ -47,4 +47,13 @@ class AgentTriggerTest {
         assertTrue(AgentTrigger.shouldUseAgent("what is today's date"))
         assertTrue(AgentTrigger.shouldUseAgent("what is the current time"))
     }
+
+    @Test
+    fun `conversational goal requests trigger agent mode`() {
+        assertTrue(AgentTrigger.shouldUseAgent("Can you check the battery level for me?"))
+        assertTrue(AgentTrigger.shouldUseAgent("Could you please send a message to Alice"))
+        assertTrue(AgentTrigger.shouldUseAgent("I need you to schedule a meeting tomorrow"))
+        assertTrue(AgentTrigger.shouldUseAgent("Hey Jarvis: what is the current date"))
+        assertTrue(AgentTrigger.shouldUseAgent("Help me find files about project alpha"))
+    }
 }
