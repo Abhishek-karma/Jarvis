@@ -649,6 +649,43 @@ class ChatViewModel
             }
         }
 
+        private suspend fun awaitConfirmation(
+            toolName: String,
+            argsJson: String,
+        ): Boolean {
+            if (sessionApprovedTools.contains(toolName)) {
+                return true
+            }
+            val gate = CompletableDeferred<Boolean>()
+            pendingGate = gate
+            _uiState.update {
+                it.copy(
+                    agentStatus = AgentStatus.WAITING_FOR_APPROVAL,
+                    pendingConfirmation = AgentConfirmation(toolName, argsJson),
+                )
+            }
+            return gate.await()
+        }
+
+        private fun formatAgentDuration(elapsedMs: Long): String =
+            String.format(Locale.US, "%.1fs", elapsedMs.coerceAtLeast(0) / 1000.0)
+
+        /** Persist a finished milestone as a display-only TOOL row. */
+        private suspend fun persistMilestone(
+            conversationId: String,
+            text: String,
+            failed: Boolean = false,
+        ) {
+            conversationRepository.upsertMessage(
+                Message(
+                    conversationId = conversationId,
+                    role = MessageRole.TOOL,
+                    content = text,
+                    status = if (failed) MessageStatus.ERROR else MessageStatus.COMPLETE,
+                ),
+            )
+        }
+
         private suspend fun streamGoalExecution(
             conversationId: String,
             text: String,
