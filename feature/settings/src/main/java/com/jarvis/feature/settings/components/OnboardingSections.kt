@@ -1,15 +1,12 @@
 package com.jarvis.feature.settings.components
 
 import android.Manifest
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -576,19 +573,6 @@ fun PermissionsStep(
         }
     }
 
-    var pendingRequest by remember { mutableStateOf<String?>(null) }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { wasGranted ->
-        val requested = pendingRequest
-        pendingRequest = null
-
-        if (!wasGranted && requested != null &&
-            context is Activity &&
-            !context.shouldShowRequestPermissionRationale(requested)
-        ) {
-            openAppSettings(context)
-        }
-    }
-
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -665,14 +649,7 @@ fun PermissionsStep(
 
                             Switch(
                                 checked = isGranted,
-                                onCheckedChange = { want ->
-                                    if (want) {
-                                        pendingRequest = item.permission
-                                        launcher.launch(item.permission)
-                                    } else {
-                                        openAppSettings(context)
-                                    }
-                                },
+                                onCheckedChange = { openAppSettings(context) },
                                 colors = SwitchDefaults.colors(
                                     checkedThumbColor = JarvisColors.Accent.onPrimary,
                                     checkedTrackColor = JarvisColors.Accent.primary,

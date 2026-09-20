@@ -152,20 +152,6 @@ fun AgentLiveBlock(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
                 ) {
-                    if (steps.isNotEmpty()) {
-                        Surface(
-                            shape = JarvisShapes.pill,
-                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        ) {
-                            Text(
-                                text = "${steps.size} ${if (steps.size == 1) "step" else "steps"}",
-                                style = JarvisText.Caption,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = Spacing.sm, vertical = 2.dp),
-                            )
-                        }
-                    }
-
                     if (status.isActive) {
                         OutlinedButton(
                             onClick = onStop,
@@ -248,21 +234,6 @@ fun AgentLiveBlock(
             if (steps.isNotEmpty()) {
                 TimelineBlock(steps = steps, isActive = status.isActive)
             }
-
-            // Footer indicator when actively working and not waiting for approval
-            if (status.isActive && pending == null) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                    modifier = Modifier.padding(top = Spacing.xs),
-                ) {
-                    Text(
-                        text = "Working…",
-                        style = JarvisText.Caption.copy(fontWeight = FontWeight.Medium),
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
         }
     }
 }
@@ -282,8 +253,8 @@ private fun TimelineBlock(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
-            modifier = Modifier.padding(Spacing.mdPlus),
-            verticalArrangement = Arrangement.spacedBy(Spacing.md),
+            modifier = Modifier.padding(Spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             steps.forEachIndexed { index, step ->
                 TimelineStepRow(
@@ -304,7 +275,7 @@ fun TimelineStepRow(
     isLast: Boolean = false,
 ) {
     Row(
-        verticalAlignment = Alignment.Top,
+        verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Spacing.md),
         modifier = Modifier
             .fillMaxWidth()
@@ -314,69 +285,11 @@ fun TimelineStepRow(
     ) {
         TimelineStepIcon(state = step.state)
 
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    text = formatStepDescription(step.text),
-                    style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-
-                step.durationLabel?.let { duration ->
-                    Text(
-                        text = duration,
-                        style = JarvisText.CodeLabel,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = Spacing.sm),
-                    )
-                }
-            }
-
-            step.detail?.let { detail ->
-                val redactedDetail = remember(detail) { AuditRedaction.redact(detail) }
-                Text(
-                    text = redactedDetail,
-                    style = JarvisText.Metadata,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-
-            if (step.state == AgentStepState.RUNNING) {
-                val progress = step.progress
-                if (progress != null) {
-                    LinearProgressIndicator(
-                        progress = { progress },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(3.dp)
-                            .clip(JarvisShapes.pill)
-                            .padding(top = 4.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    )
-                } else {
-                    LinearProgressIndicator(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(3.dp)
-                            .clip(JarvisShapes.pill)
-                            .padding(top = 4.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    )
-                }
-            }
-        }
+        Text(
+            text = formatStepDescription(step.text),
+            style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 
@@ -587,8 +500,6 @@ fun ApprovalCard(
     onAllowAlways: () -> Unit,
     onDeny: () -> Unit,
 ) {
-    var showRawJson by remember { mutableStateOf(false) }
-
     val formattedParams = remember(confirmation.argsJson) {
         parseAndFormatApprovalParams(confirmation.argsJson)
     }
@@ -636,62 +547,18 @@ fun ApprovalCard(
             // Formatted parameters preview with sensitive values masked
             if (formattedParams.isNotEmpty()) {
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(Spacing.xs),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(JarvisShapes.codeBlock)
-                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                        .padding(Spacing.md),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     formattedParams.forEach { (label, value) ->
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            Text(
-                                text = "$label:",
-                                style = JarvisText.Metadata.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text(
-                                text = value,
-                                style = JarvisText.BodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
+                        Text(
+                            text = "$label: $value",
+                            style = JarvisText.Metadata,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
-
-            TextButton(
-                onClick = { showRawJson = !showRawJson },
-                modifier = Modifier.heightIn(min = 40.dp),
-            ) {
-                Text(
-                    text = if (showRawJson) "Hide raw JSON" else "View raw JSON",
-                    style = JarvisText.Metadata,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Icon(
-                    imageVector = if (showRawJson) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-
-            if (showRawJson) {
-                Text(
-                    text = confirmation.argsJson,
-                    style = JarvisText.Code,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(JarvisShapes.codeBlock)
-                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                        .heightIn(max = 110.dp)
-                        .verticalScroll(rememberScrollState())
-                        .padding(Spacing.md),
-                )
-            }
-
-            Spacer(modifier = Modifier.height(Spacing.xs))
 
             // Action Buttons with 48dp min touch targets
             Row(
@@ -732,20 +599,6 @@ fun ApprovalCard(
                     Text("Allow once", fontWeight = FontWeight.SemiBold)
                 }
             }
-
-            TextButton(
-                onClick = onAllowAlways,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 44.dp)
-                    .semantics { contentDescription = "Always allow tool in this chat" },
-            ) {
-                Text(
-                    text = "Always allow for this chat",
-                    style = JarvisText.Metadata,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
         }
     }
 }
@@ -764,32 +617,12 @@ private fun FailureCard(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f)),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
-            modifier = Modifier.padding(Spacing.mdPlus),
-            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(18.dp),
-                )
-                Text(
-                    text = "Couldn't complete the task",
-                    style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            Text(
-                text = reason,
-                style = JarvisText.Metadata,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Text(
+            text = reason,
+            style = JarvisText.BodyMedium,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(Spacing.md),
+        )
     }
 }
 

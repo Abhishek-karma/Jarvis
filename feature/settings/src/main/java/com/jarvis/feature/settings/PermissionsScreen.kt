@@ -1,15 +1,12 @@
 package com.jarvis.feature.settings
 
 import android.Manifest
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -243,27 +240,12 @@ private fun PermissionToggle(
     name: String,
 ) {
     val context = LocalContext.current
-    val launcher =
-        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
-            val anyGranted = results.values.any { it }
-            if (!anyGranted &&
-                context is Activity &&
-                permissions.any { !context.shouldShowRequestPermissionRationale(it) }
-            ) {
-                openAppSettings(context)
-            }
-        }
-
+    // No runtime permission ask: granting happens in the system app-settings page.
+    // Tapping the switch routes there so the user can enable it once.
     Switch(
         checked = granted,
-        onCheckedChange = { want ->
-            if (want) {
-                launcher.launch(permissions.toTypedArray())
-            } else {
-                openAppSettings(context)
-            }
-        },
-        modifier = Modifier.semantics { contentDescription = "$name toggle" },
+        onCheckedChange = { openAppSettings(context) },
+        modifier = Modifier.semantics { contentDescription = "$name toggle (opens system settings)" },
     )
 }
 

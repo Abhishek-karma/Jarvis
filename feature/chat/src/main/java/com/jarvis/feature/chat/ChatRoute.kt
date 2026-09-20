@@ -1,9 +1,10 @@
 package com.jarvis.feature.chat
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -15,10 +16,8 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -69,23 +68,6 @@ fun ChatRoute(
     val scope = rememberCoroutineScope()
 
     val context = LocalContext.current
-    var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-    val permissionLauncher =
-        rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestPermission(),
-        ) { granted ->
-            val action = pendingAction
-            pendingAction = null
-            if (granted) {
-                action?.invoke()
-            } else {
-                scope.launch {
-                    snackbarHostState.showSnackbar(
-                        "Microphone access is off — enable it in system settings to use voice.",
-                    )
-                }
-            }
-        }
 
     fun requireAudioPermission(action: () -> Unit) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
@@ -93,8 +75,18 @@ fun ChatRoute(
         ) {
             action()
         } else {
-            pendingAction = action
-            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            scope.launch {
+                snackbarHostState.showSnackbar(
+                    "Microphone access is off — enable it in system settings to use voice.",
+                )
+            }
+            // No runtime ask: route the user to the system app-settings page to grant it.
+            context.startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", context.packageName, null),
+                ),
+            )
         }
     }
 
