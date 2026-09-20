@@ -109,10 +109,6 @@
             </intent-filter>
         </service>
 
-        <service
-            android:name=".entry.BackgroundGoalService"
-            android:exported="false" />
-
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"
