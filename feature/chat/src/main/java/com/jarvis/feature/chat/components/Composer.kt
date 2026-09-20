@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
@@ -108,16 +107,9 @@ fun Composer(
                         .padding(start = Spacing.xs, top = Spacing.xs, end = Spacing.xs, bottom = Spacing.xs),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ComposerCircleButton(
-                    icon = Icons.Default.AttachFile,
-                    contentDescription = "Attachments",
-                    onClick = {},
-                    enabled = false,
-                )
-
                 var fieldModifier = Modifier
                     .weight(1f)
-                    .padding(vertical = 8.dp, horizontal = 2.dp)
+                    .padding(vertical = 8.dp, horizontal = Spacing.sm)
                 if (focusRequester != null) {
                     fieldModifier = fieldModifier.focusRequester(focusRequester)
                 }

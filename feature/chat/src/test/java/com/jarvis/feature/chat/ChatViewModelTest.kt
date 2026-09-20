@@ -1,11 +1,22 @@
 package com.jarvis.feature.chat
 
 import app.cash.turbine.test
+import com.jarvis.core.agent.AgentEvent
+import com.jarvis.core.agent.AgentRunRequest
+import com.jarvis.core.agent.AgentRunner
+import com.jarvis.core.agent.AgentTrigger
+import com.jarvis.core.agent.AssistantGoal
 import com.jarvis.core.agent.AuditLogger
+import com.jarvis.core.agent.ConfirmationGate
+import com.jarvis.core.agent.DefaultToolPolicy
+import com.jarvis.core.agent.GoalEngine
+import com.jarvis.core.agent.GoalEvent
 import com.jarvis.core.agent.PermissionTier
 import com.jarvis.core.agent.Tool
 import com.jarvis.core.agent.ToolRegistry
 import com.jarvis.core.agent.ToolResult
+import com.jarvis.core.agent.execution.ExecutionStrategy
+import kotlinx.coroutines.flow.flow
 import com.jarvis.core.common.Conversation
 import com.jarvis.core.common.DEFAULT_CONVERSATION_TITLE
 import com.jarvis.core.common.Message
@@ -92,6 +103,7 @@ class ChatViewModelTest {
         val savedStateHandle = androidx.lifecycle.SavedStateHandle()
         val voiceManager = ChatVoiceManager(audioRecorder, audioPlayer, sttProvider, ttsProvider, com.jarvis.core.voice.VoiceStateMachine())
         val contextManager = ConversationContextManager(io.mockk.mockk(relaxed = true), userPreferences)
+        val toolRegistry = ToolRegistry()
 
         viewModel =
             ChatViewModel(
@@ -101,12 +113,54 @@ class ChatViewModelTest {
                     com.jarvis.core.common
                         .DispatcherProvider(),
                 voiceManager = voiceManager,
-                toolRegistry = ToolRegistry(),
+                toolRegistry = toolRegistry,
                 auditLogger = AuditLogger { },
                 userPreferences = userPreferences,
                 conversationContextManager = contextManager,
+                goalEngine = createTestGoalEngine(toolRegistry, contextManager),
                 savedStateHandle = savedStateHandle,
             )
+    }
+
+    private fun createTestGoalEngine(toolRegistry: ToolRegistry, contextManager: ConversationContextManager): GoalEngine {
+        val goalEngine = mockk<GoalEngine>(relaxed = true)
+        coEvery { goalEngine.executeGoal(any()) } answers {
+            val goal = firstArg<AssistantGoal>()
+            flow {
+                if (AgentTrigger.shouldUseAgent(goal.goalDescription)) {
+                    val agentRequest = AgentRunRequest(
+                        provider = goal.provider,
+                        modelId = goal.modelId,
+                        messages = goal.messages,
+                        agentRunId = goal.id,
+                        reasoningRequested = goal.reasoningRequested,
+                        memoryContext = goal.memoryContext,
+                        planFirst = goal.planFirst,
+                        isVoiceMode = goal.isVoiceMode,
+                    )
+                    val runner = AgentRunner(
+                        registry = toolRegistry,
+                        audit = AuditLogger {},
+                        confirmationGate = viewModel.createConfirmationGate(),
+                    )
+                    var completed = false
+                    runner.run(agentRequest).collect { agentEvent ->
+                        emit(GoalEvent.AgentEvent(agentEvent))
+                        if (agentEvent is AgentEvent.FinalAnswer) {
+                            completed = true
+                            emit(GoalEvent.Completed(goal.id, agentEvent.text))
+                        } else if (agentEvent is AgentEvent.Failed) {
+                            completed = true
+                            emit(GoalEvent.Failed(goal.id, "AGENT_ERROR", agentEvent.message))
+                        }
+                    }
+                    if (!completed) {
+                        emit(GoalEvent.Cancelled("Tool denied"))
+                    }
+                }
+            }
+        }
+        return goalEngine
     }
 
     @AfterEach
@@ -858,6 +912,7 @@ class ChatViewModelTest {
                 auditLogger = AuditLogger { },
                 userPreferences = userPreferences,
                 conversationContextManager = contextManager,
+                goalEngine = createTestGoalEngine(registry, contextManager),
                 savedStateHandle = androidx.lifecycle.SavedStateHandle(),
             )
     }

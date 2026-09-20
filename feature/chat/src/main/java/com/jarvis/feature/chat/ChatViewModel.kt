@@ -7,11 +7,16 @@ import com.jarvis.core.agent.AgentEvent
 import com.jarvis.core.agent.AgentRunRequest
 import com.jarvis.core.agent.AgentRunner
 import com.jarvis.core.agent.AgentTrigger
+import com.jarvis.core.agent.AssistantGoal
 import com.jarvis.core.agent.AuditLogger
 import com.jarvis.core.agent.ConfirmationGate
 import com.jarvis.core.agent.ContextManager
 import com.jarvis.core.agent.DefaultToolPolicy
+import com.jarvis.core.agent.GoalEngine
+import com.jarvis.core.agent.GoalEvent
 import com.jarvis.core.agent.ToolRegistry
+import com.jarvis.core.agent.execution.ExecutionStrategy
+import com.jarvis.core.capability.CapabilityResult
 import com.jarvis.core.agent.tools.WebTools
 import com.jarvis.core.common.Conversation
 import com.jarvis.core.common.DEFAULT_CONVERSATION_TITLE
@@ -63,6 +68,7 @@ class ChatViewModel
         private val auditLogger: AuditLogger,
         private val userPreferences: UserPreferencesRepository,
         private val conversationContextManager: ConversationContextManager,
+        private val goalEngine: GoalEngine,
         savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow(ChatUiState())
@@ -96,6 +102,12 @@ class ChatViewModel
 
         /** Bridges the engine's [ConfirmationGate] to the UI: completed by [respondToConfirmation]. */
         private var pendingGate: CompletableDeferred<Boolean>? = null
+
+        fun createConfirmationGate(): ConfirmationGate = ConfirmationGate { toolName, argsJson ->
+            val gate = CompletableDeferred<Boolean>()
+            pendingGate = gate
+            gate.await()
+        }
 
         private val contextManager = ContextManager()
 
@@ -438,9 +450,10 @@ class ChatViewModel
                         }
                     }
 
-                    if (AgentTrigger.shouldUseAgent(text) && providerAdapter.capabilities.supportsTools) {
-                        streamAgentReply(
+                    if (AgentTrigger.shouldUseAgent(text) || providerAdapter.capabilities.supportsTools) {
+                        streamGoalExecution(
                             conversationId,
+                            text,
                             providerAdapter,
                             model,
                             reasoningRequested = ThinkModeHeuristic.shouldThink(text, thinkMode),
@@ -536,9 +549,10 @@ class ChatViewModel
                     _uiState.update { it.copy(routeBadge = RouteBadge(RoutingOverride.CLOUD, "$model • ${provider.name}")) }
 
                     _uiState.update { it.copy(isStreaming = true) }
-                    if (AgentTrigger.shouldUseAgent(lastUser.content) && providerAdapter.capabilities.supportsTools) {
-                        streamAgentReply(
+                    if (AgentTrigger.shouldUseAgent(lastUser.content) || providerAdapter.capabilities.supportsTools) {
+                        streamGoalExecution(
                             conversationId,
+                            lastUser.content,
                             providerAdapter,
                             model,
                             reasoningRequested = ThinkModeHeuristic.shouldThink(lastUser.content, thinkMode),
@@ -599,6 +613,225 @@ class ChatViewModel
             val state = _uiState.value
             if (state.isStreaming || state.isPreparingSend) return
             sendMessage("Please continue your response exactly where you left off.")
+        }
+
+        private suspend fun streamGoalExecution(
+            conversationId: String,
+            text: String,
+            provider: com.jarvis.core.network.LlmProvider,
+            model: String,
+            reasoningRequested: Boolean = false,
+        ) {
+            val planFirst = userPreferences.planFirstMode.firstOrNull() ?: false
+            _uiState.update {
+                it.copy(
+                    isAgentRunning = true,
+                    agentStatus = if (planFirst) AgentStatus.PLANNING else AgentStatus.THINKING,
+                    agentFailureReason = null,
+                    agentSteps = emptyList(),
+                )
+            }
+            val history = conversationRepository.getMessages(conversationId)
+            val memoryContext = buildMemoryContext(history.lastOrNull { it.role == MessageRole.USER }?.content)
+
+            val goal = AssistantGoal(
+                id = java.util.UUID.randomUUID().toString(),
+                goalDescription = text,
+                source = "chat",
+                conversationId = conversationId,
+                messages = history,
+                provider = provider,
+                modelId = model,
+                reasoningRequested = reasoningRequested,
+                memoryContext = memoryContext,
+                planFirst = planFirst,
+                isVoiceMode = _uiState.value.isVoiceModeActive,
+            )
+
+            val steps = mutableListOf<AgentStep>()
+            var runningSinceMs = System.currentTimeMillis()
+
+            fun publish() = _uiState.update { it.copy(agentSteps = steps.toList()) }
+
+            fun updateRunning(text: String) {
+                val index = steps.indexOfLast { it.state == AgentStepState.RUNNING }
+                if (index >= 0) {
+                    steps[index] = steps[index].copy(text = text)
+                    publish()
+                }
+            }
+
+            suspend fun completeRunning(state: AgentStepState, text: String? = null, detail: String? = null) {
+                val index = steps.indexOfLast { it.state == AgentStepState.RUNNING }
+                if (index >= 0) {
+                    val finished = steps[index]
+                    steps[index] = finished.copy(
+                        text = text ?: finished.text,
+                        state = state,
+                        detail = detail ?: finished.detail,
+                        durationLabel = formatAgentDuration(System.currentTimeMillis() - runningSinceMs),
+                    )
+                    val summary = buildString {
+                        append(steps[index].text)
+                        if (detail != null) append(" — ${detail.take(OBSERVATION_PREVIEW_CHARS)}")
+                    }
+                    persistMilestone(conversationId, summary, failed = state == AgentStepState.FAILED)
+                    publish()
+                }
+            }
+
+            fun push(text: String, toolName: String? = null) {
+                runningSinceMs = System.currentTimeMillis()
+                steps += AgentStep(text = text, toolName = toolName)
+                publish()
+            }
+
+            var assistantText = ""
+
+            try {
+                goalEngine.executeGoal(goal).collect { event ->
+                    when (event) {
+                        is GoalEvent.StatusChanged -> {
+                            _uiState.update { state ->
+                                state.copy(agentStatus = if (state.isAgentRunning) AgentStatus.RUNNING_TOOL else state.agentStatus)
+                            }
+                        }
+                        is GoalEvent.AgentEvent -> {
+                            when (val agentEvent = event.event) {
+                                is AgentEvent.RunStarted -> {
+                                    _uiState.update { it.copy(agentStatus = if (planFirst) AgentStatus.PLANNING else AgentStatus.THINKING) }
+                                }
+                                is AgentEvent.IterationStarted -> {
+                                    if (agentEvent.step > 1) {
+                                        _uiState.update { it.copy(agentStatus = AgentStatus.THINKING_AGAIN) }
+                                        voiceManager.onAgentPlanning()
+                                    }
+                                }
+                                is AgentEvent.ToolRequested -> {
+                                    _uiState.update { it.copy(agentStatus = AgentStatus.SELECTING_TOOL) }
+                                    completeRunning(AgentStepState.DONE)
+                                    push("Calling ${agentEvent.name}", toolName = agentEvent.name)
+                                    voiceManager.onAgentExecuting(agentEvent.name, "")
+                                }
+                                is AgentEvent.ConfirmationRequired -> {
+                                    _uiState.update {
+                                        it.copy(
+                                            agentStatus = AgentStatus.WAITING_FOR_APPROVAL,
+                                            pendingConfirmation = AgentConfirmation(agentEvent.name, agentEvent.argsJson),
+                                        )
+                                    }
+                                    updateRunning("Needs your approval: ${agentEvent.name}")
+                                    voiceManager.onAgentWaitingForApproval(agentEvent.name, agentEvent.argsJson)
+                                }
+                                is AgentEvent.ToolExecuting -> {
+                                    _uiState.update { it.copy(agentStatus = AgentStatus.RUNNING_TOOL) }
+                                    updateRunning("Running ${agentEvent.name}…")
+                                    voiceManager.onAgentExecuting(agentEvent.name, "")
+                                }
+                                is AgentEvent.ToolExecuted -> {
+                                    _uiState.update { it.copy(agentStatus = AgentStatus.READING_RESULT) }
+                                    completeRunning(
+                                        state = if (agentEvent.success) AgentStepState.DONE else AgentStepState.FAILED,
+                                        text = if (agentEvent.success) "${agentEvent.name} done" else "${agentEvent.name} failed",
+                                        detail = agentEvent.observationText.take(OBSERVATION_PREVIEW_CHARS).ifBlank { null },
+                                    )
+                                }
+                                is AgentEvent.ToolRejected -> {
+                                    _uiState.update { it.copy(agentStatus = AgentStatus.READING_RESULT) }
+                                    completeRunning(
+                                        state = AgentStepState.FAILED,
+                                        text = "Rejected ${agentEvent.name}",
+                                        detail = agentEvent.reason.take(OBSERVATION_PREVIEW_CHARS).ifBlank { null },
+                                    )
+                                }
+                                is AgentEvent.ToolCancelled -> {
+                                    completeRunning(AgentStepState.DONE, "Denied ${agentEvent.name}")
+                                }
+                                is AgentEvent.FinalAnswer -> {
+                                    assistantText = agentEvent.text
+                                }
+                                is AgentEvent.Failed -> {
+                                    _uiState.update {
+                                        it.copy(
+                                            agentStatus = AgentStatus.FAILED,
+                                            agentFailureReason = agentEvent.message,
+                                        )
+                                    }
+                                }
+                                is AgentEvent.StepCapReached -> {
+                                    _uiState.update { it.copy(agentStatus = AgentStatus.COMPLETED) }
+                                }
+                            }
+                        }
+                        is GoalEvent.ConfirmationRequired -> {
+                            _uiState.update {
+                                it.copy(
+                                    agentStatus = AgentStatus.WAITING_FOR_APPROVAL,
+                                    pendingConfirmation = AgentConfirmation(event.toolName, event.argsJson),
+                                )
+                            }
+                        }
+                        is GoalEvent.Completed -> {
+                            completeRunning(AgentStepState.DONE)
+                            val summaryText = if (assistantText.isNotBlank()) assistantText else event.summary
+                            val assistantMsg = Message(
+                                conversationId = conversationId,
+                                role = MessageRole.ASSISTANT,
+                                content = summaryText,
+                                status = MessageStatus.COMPLETE,
+                            )
+                            conversationRepository.upsertMessage(assistantMsg)
+                            _uiState.update {
+                                it.copy(
+                                    isStreaming = false,
+                                    isAgentRunning = false,
+                                    agentStatus = AgentStatus.COMPLETED,
+                                )
+                            }
+                            if (voiceManager.isVoiceModeActive.value) {
+                                voiceManager.speakAssistantResponse(summaryText, viewModelScope, dispatchers.main, {}, {})
+                            }
+                        }
+                        is GoalEvent.Failed -> {
+                            completeRunning(AgentStepState.FAILED)
+                            _uiState.update {
+                                it.copy(
+                                    isStreaming = false,
+                                    isAgentRunning = false,
+                                    agentStatus = AgentStatus.FAILED,
+                                    agentFailureReason = event.reason,
+                                )
+                            }
+                            _uiEvents.tryEmit(ChatUiEvent.ShowError(event.reason))
+                            voiceManager.onAgentError(event.reason)
+                        }
+                        is GoalEvent.Cancelled -> {
+                            completeRunning(AgentStepState.CANCELLED)
+                            _uiState.update {
+                                it.copy(
+                                    isStreaming = false,
+                                    isAgentRunning = false,
+                                    agentStatus = AgentStatus.CANCELLED,
+                                )
+                            }
+                        }
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val errorMsg = e.message ?: "Failed executing goal"
+                _uiState.update {
+                    it.copy(
+                        isStreaming = false,
+                        isAgentRunning = false,
+                        agentStatus = AgentStatus.FAILED,
+                        agentFailureReason = errorMsg,
+                    )
+                }
+                _uiEvents.tryEmit(ChatUiEvent.ShowError(errorMsg))
+                voiceManager.onAgentError(errorMsg)
+            }
         }
 
         private suspend fun streamAgentReply(

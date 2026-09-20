@@ -1258,6 +1258,12 @@ object AgentModule {
                 ?: run {
                     val fallbackPackage = when (clean) {
                         "youtube" -> "com.google.android.youtube"
+                        "whatsapp", "open whatsapp", "wa" -> "com.whatsapp"
+                        "instagram", "insta" -> "com.instagram.android"
+                        "telegram" -> "org.telegram.messenger"
+                        "spotify" -> "com.spotify.music"
+                        "facebook", "fb" -> "com.facebook.katana"
+                        "twitter", "x" -> "com.twitter.android"
                         "chrome", "google chrome", "browser" -> "com.android.chrome"
                         "maps", "google maps" -> "com.google.android.apps.maps"
                         "gmail", "email" -> "com.google.android.gm"
