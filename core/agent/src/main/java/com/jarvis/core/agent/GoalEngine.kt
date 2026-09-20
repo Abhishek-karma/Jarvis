@@ -62,15 +62,14 @@ class GoalEngine @Inject constructor(
     fun executeGoal(goal: AssistantGoal): Flow<GoalEvent> = flow {
         emit(GoalEvent.StatusChanged("Processing goal..."))
 
-        // The injected runner auto-approves every tool (no UI to bridge to). When the caller
-        // supplies a confirmation gate (e.g. from the chat UI), build a per-run runner that
-        // prompts the user instead of silently executing sensitive tools.
+        // Never silently approve a sensitive action. Interactive callers must provide a
+        // confirmation gate; non-interactive goals deny sensitive actions by default.
         val runner =
-            if (goal.confirmationGate != null) {
+            if (goal.confirmationGate != null || goal.forceConfirm) {
                 AgentRunner(
                     registry = registry,
                     audit = audit,
-                    confirmationGate = goal.confirmationGate,
+                    confirmationGate = goal.confirmationGate ?: ConfirmationGate { _, _ -> false },
                     forceConfirm = goal.forceConfirm,
                 )
             } else {
@@ -126,6 +125,7 @@ class GoalEngine @Inject constructor(
             }
         } catch (e: CancellationException) {
             updateTaskState(goal.id, TaskState.CANCELLED, "Cancelled by user or system")
+            emit(GoalEvent.Cancelled("Cancelled by user or system"))
             throw e
         } catch (e: Exception) {
             val errorMsg = e.message ?: "Unexpected error during goal execution"
