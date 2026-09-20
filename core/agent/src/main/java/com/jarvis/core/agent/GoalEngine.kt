@@ -54,6 +54,7 @@ class GoalEngine @Inject constructor(
     private val registry: ToolRegistry,
     private val audit: AuditLogger,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val capabilityResolver: CapabilityResolver = CapabilityResolver(),
 ) {
 
     /**
@@ -62,6 +63,46 @@ class GoalEngine @Inject constructor(
     fun executeGoal(goal: AssistantGoal): Flow<GoalEvent> = flow {
         emit(GoalEvent.StatusChanged("Processing goal..."))
 
+        val direct = capabilityResolver.resolve(goal.goalDescription)
+        if (direct != null) {
+            emit(GoalEvent.StatusChanged(direct.userFacingAction))
+            val tool = registry.get(direct.toolName)
+            if (tool != null) {
+                val decision = DefaultToolPolicy().evaluate(tool, direct.argsJson, goal.forceConfirm)
+                if (decision is PolicyDecision.Allow) {
+                    emit(GoalEvent.StatusChanged("Executing ${tool.name}…"))
+                    val result = tool.execute(direct.argsJson)
+                    if (result.success) {
+                        updateTaskState(goal.id, TaskState.COMPLETED)
+                        emit(GoalEvent.Completed(goal.id, result.observationText))
+                    } else {
+                        val reason = result.error ?: result.observationText
+                        updateTaskState(goal.id, TaskState.FAILED, reason)
+                        emit(GoalEvent.Failed(goal.id, "CAPABILITY_FAILED", reason))
+                    }
+                    return@flow
+                }
+                if (decision is PolicyDecision.RequireConfirmation) {
+                    emit(GoalEvent.ConfirmationRequired(goal.id, "tool", tool.name, direct.argsJson))
+                    val allowed = goal.confirmationGate?.confirm(tool.name, direct.argsJson) == true
+                    if (!allowed) {
+                        updateTaskState(goal.id, TaskState.CANCELLED, "Action not confirmed")
+                        emit(GoalEvent.Cancelled("Action not confirmed"))
+                        return@flow
+                    }
+                    val result = tool.execute(direct.argsJson)
+                    if (result.success) {
+                        updateTaskState(goal.id, TaskState.COMPLETED)
+                        emit(GoalEvent.Completed(goal.id, result.observationText))
+                    } else {
+                        val reason = result.error ?: result.observationText
+                        updateTaskState(goal.id, TaskState.FAILED, reason)
+                        emit(GoalEvent.Failed(goal.id, "CAPABILITY_FAILED", reason))
+                    }
+                    return@flow
+                }
+            }
+        }
         // Never silently approve a sensitive action. Interactive callers must provide a
         // confirmation gate; non-interactive goals deny sensitive actions by default.
         val runner =
