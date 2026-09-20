@@ -33,16 +33,17 @@ fun ChatRoute(
     onOpenVoiceMode: () -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel(),
     historyViewModel: HistoryViewModel = hiltViewModel(),
-    pendingShareText: String? = null,
+    pendingGoalText: String? = null,
+    pendingGoalSource: String? = null,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
     // Surface a share/process-text payload into the composer on first composition.
-    LaunchedEffect(pendingShareText) {
-        val text = pendingShareText?.takeIf { it.isNotBlank() }
+    LaunchedEffect(pendingGoalText, pendingGoalSource) {
+        val text = pendingGoalText?.takeIf { it.isNotBlank() }
         if (text != null) {
-            viewModel.onTextChange(text)
+            viewModel.sendMessage(text)
         }
     }
 
