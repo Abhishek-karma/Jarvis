@@ -75,20 +75,6 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Share sheet target: send text, document or images to Jarvis -->
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/*" />
-                <data android:mimeType="image/*" />
-                <data android:mimeType="application/pdf" />
-            </intent-filter>
-            <!-- System text selection context menu: 'Ask Jarvis' -->
-            <intent-filter android:label="@string/ask_jarvis_action">
-                <action android:name="android.intent.action.PROCESS_TEXT" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
-            </intent-filter>
         </activity>
 
         <activity
@@ -118,9 +104,6 @@
             android:name=".entry.JarvisVoiceInteractionService"
             android:exported="true"
             android:permission="android.permission.BIND_VOICE_INTERACTION">
-            <meta-data
-                android:name="android.voice_interaction"
-                android:resource="@xml/data_extraction_rules" />
             <intent-filter>
                 <action android:name="android.service.voice.VoiceInteractionService" />
             </intent-filter>
