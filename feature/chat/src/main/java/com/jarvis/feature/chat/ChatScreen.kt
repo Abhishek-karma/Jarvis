@@ -226,14 +226,16 @@ fun ChatScreen(
                                     )
                                 }
                             }
-                            items(uiState.messages, key = { it.id }) { message ->
+                            val visibleMessages = uiState.messages.filter { it.role != MessageRole.TOOL }
+                            items(visibleMessages, key = { it.id }) { message ->
+                                val isLastAssistant = message.id == lastAssistantMessageId
                                 MessageBubble(
                                     message = message,
                                     isPlayingAudio = uiState.playingAudioMessageId == message.id,
-                                    isLastAssistant = message.id == lastAssistantMessageId,
+                                    isLastAssistant = isLastAssistant,
                                     canRegenerate = !uiState.isStreaming && !uiState.isPreparingSend,
                                     routeBadge =
-                                        if (message.id == lastAssistantMessageId) {
+                                        if (isLastAssistant) {
                                             uiState.routeBadge
                                         } else {
                                             null

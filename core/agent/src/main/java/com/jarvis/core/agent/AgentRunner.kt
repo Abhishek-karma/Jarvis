@@ -82,6 +82,11 @@ sealed class AgentEvent {
         val name: String,
     ) : AgentEvent()
 
+    /** A chunk of the final answer text, streamed as the model generates it. */
+    data class TextDelta(
+        val text: String,
+    ) : AgentEvent()
+
     data class FinalAnswer(
         val text: String,
     ) : AgentEvent()
@@ -177,13 +182,34 @@ class AgentRunner(
                 steps++
                 emit(AgentEvent.IterationStarted(steps))
 
-                val streamEvents = if (session != null) {
+                var assistantText = ""
+                val requestedTools = mutableListOf<ChatStreamEvent.ToolCallRequested>()
+                var streamError: ChatStreamEvent.Error? = null
+                var toolSeen = false
+
+                suspend fun handleStreamEvent(event: ChatStreamEvent) {
+                    when (event) {
+                        is ChatStreamEvent.TokenDelta -> {
+                            assistantText += event.text
+                            // Stream text to the UI live, unless a tool call shares this turn.
+                            if (!toolSeen) emit(AgentEvent.TextDelta(event.text))
+                        }
+                        is ChatStreamEvent.ToolCallRequested -> {
+                            requestedTools.add(event)
+                            toolSeen = true
+                        }
+                        is ChatStreamEvent.Error -> streamError = event
+                        is ChatStreamEvent.ReasoningDelta, is ChatStreamEvent.Usage, ChatStreamEvent.Done -> Unit
+                    }
+                }
+
+                if (session != null) {
                     if (steps == 1) {
-                        session.sendInitial().toList()
+                        session.sendInitial().collect { handleStreamEvent(it) }
                     } else {
                         val responses = pendingToolResponses.orEmpty()
                         pendingToolResponses = null
-                        session.sendToolResponses(responses).toList()
+                        session.sendToolResponses(responses).collect { handleStreamEvent(it) }
                     }
                 } else {
                     val historyBudget = 3200
@@ -201,19 +227,7 @@ class AgentRunner(
                                 reasoningRequested = request.reasoningRequested,
                                 toolsAvailable = if (supportsTools) definitions else null,
                             ),
-                        ).toList()
-                }
-
-                var assistantText = ""
-                val requestedTools = mutableListOf<ChatStreamEvent.ToolCallRequested>()
-                var streamError: ChatStreamEvent.Error? = null
-                for (event in streamEvents) {
-                    when (event) {
-                        is ChatStreamEvent.TokenDelta -> assistantText += event.text
-                        is ChatStreamEvent.ToolCallRequested -> requestedTools.add(event)
-                        is ChatStreamEvent.Error -> streamError = event
-                        is ChatStreamEvent.ReasoningDelta, is ChatStreamEvent.Usage, ChatStreamEvent.Done -> Unit
-                    }
+                        ).collect { handleStreamEvent(it) }
                 }
                 // Diagnostic (logcat only, never UI): what the agent layer received after the
                 // provider converted the model response into structured events. Compared against

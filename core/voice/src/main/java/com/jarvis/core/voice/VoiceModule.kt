@@ -22,12 +22,12 @@ object VoiceModule {
         @ApplicationContext context: Context,
     ): SttProvider = AndroidSttProvider(context)
 
-    /** On-device TTS — no API key, uses the system TTS engine (Google TTS, Samsung TTS, etc.). */
+    /** Primary TTS provider using natural neural voice with fallback to system TTS. */
     @Provides
     @Singleton
     fun provideTtsProvider(
-        @ApplicationContext context: Context,
-    ): TtsProvider = AndroidTtsProvider(context)
+        hybridTtsProvider: HybridTtsProvider,
+    ): TtsProvider = hybridTtsProvider
 
 
     @Provides

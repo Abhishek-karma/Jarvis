@@ -163,13 +163,13 @@ fun VoiceModeScreen(
     val statusText =
         when {
             voiceState is VoiceSessionState.Listening -> "Listening…"
-            uiState.agentStatus == AgentStatus.WAITING_FOR_APPROVAL || voiceState is VoiceSessionState.WaitingForApproval -> "Approval required"
-            uiState.agentStatus == AgentStatus.RUNNING_TOOL || uiState.agentStatus == AgentStatus.WAITING_FOR_RESULT || uiState.agentStatus == AgentStatus.SELECTING_TOOL || voiceState is VoiceSessionState.Executing -> "Using tools…"
+            uiState.agentStatus == AgentStatus.WAITING_FOR_APPROVAL || voiceState is VoiceSessionState.WaitingForApproval -> "Permission required"
+            uiState.agentStatus == AgentStatus.RUNNING_TOOL || uiState.agentStatus == AgentStatus.WAITING_FOR_RESULT || uiState.agentStatus == AgentStatus.SELECTING_TOOL || voiceState is VoiceSessionState.Executing -> "Working…"
             uiState.agentStatus == AgentStatus.PLANNING || voiceState is VoiceSessionState.Planning -> "Planning…"
             uiState.agentStatus == AgentStatus.THINKING || uiState.agentStatus == AgentStatus.THINKING_AGAIN || voiceState is VoiceSessionState.Thinking -> "Thinking…"
             uiState.agentStatus == AgentStatus.SPEAKING || voiceState is VoiceSessionState.Speaking || uiState.playingAudioMessageId != null -> "Speaking…"
-            uiState.agentStatus == AgentStatus.FAILED || voiceState is VoiceSessionState.Error -> "Couldn't complete the task"
-            uiState.agentStatus == AgentStatus.CANCELLED || voiceState is VoiceSessionState.Cancelled -> "Cancelled"
+            uiState.agentStatus == AgentStatus.FAILED || voiceState is VoiceSessionState.Error -> "Failed"
+            uiState.agentStatus == AgentStatus.CANCELLED || voiceState is VoiceSessionState.Cancelled -> "Stopped"
             voiceState is VoiceSessionState.Interrupted -> "Interrupted"
             voiceState is VoiceSessionState.Idle -> if (uiState.isVoiceModeActive) "Ready" else "Tap mic to start"
             else -> "Ready"

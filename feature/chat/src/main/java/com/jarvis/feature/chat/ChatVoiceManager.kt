@@ -5,6 +5,7 @@ import com.jarvis.core.voice.AudioPlayer
 import com.jarvis.core.voice.AudioRecorder
 import com.jarvis.core.voice.LiveSttSession
 import com.jarvis.core.voice.SttProvider
+import com.jarvis.core.voice.TtsFormat
 import com.jarvis.core.voice.TtsProvider
 import com.jarvis.core.voice.TtsVoice
 import com.jarvis.core.voice.VoiceSessionState
@@ -13,6 +14,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,7 +26,7 @@ import javax.inject.Singleton
 
 /**
  * Handles continuous Voice Mode loop, STT live listening, state machine coordination,
- * and TTS playback for the chat and voice features.
+ * streaming chunked TTS playback, and audio control.
  */
 @Singleton
 class ChatVoiceManager @Inject constructor(
@@ -45,6 +47,9 @@ class ChatVoiceManager @Inject constructor(
     private var liveSttSession: LiveSttSession? = null
     private var ttsJob: Job? = null
     private var listeningJob: Job? = null
+
+    private var sentenceChannel: Channel<String>? = null
+    private val textBuffer = StringBuilder()
 
     private var activeSpeechCallback: ((String) -> Unit)? = null
     private var activeErrorCallback: ((String) -> Unit)? = null
@@ -107,7 +112,7 @@ class ChatVoiceManager @Inject constructor(
     }
 
     /**
-     * Starts live STT listening loop for continuous Voice Mode.
+     * Starts live STT listening loop for continuous hands-free Voice Mode.
      */
     fun startLiveListening(
         scope: CoroutineScope,
@@ -160,12 +165,15 @@ class ChatVoiceManager @Inject constructor(
                     stopLiveSession(scope, mainDispatcher)
                     val isTransient = message.contains("No speech", ignoreCase = true) ||
                         message.contains("timed out", ignoreCase = true) ||
-                        message.contains("busy", ignoreCase = true)
+                        message.contains("busy", ignoreCase = true) ||
+                        message.contains("no match", ignoreCase = true) ||
+                        message.contains("7") || message.contains("6") || message.contains("8") || message.contains("9")
 
-                    if (isTransient && _isVoiceModeActive.value) {
+                    if (_isVoiceModeActive.value) {
+                        val restartDelay = if (isTransient) 150L else 800L
                         scope.launch(mainDispatcher) {
-                            delay(150L)
-                            if (_isVoiceModeActive.value && (voiceStateMachine.state.value is VoiceSessionState.Listening || voiceStateMachine.state.value is VoiceSessionState.Idle)) {
+                            delay(restartDelay)
+                            if (_isVoiceModeActive.value) {
                                 startLiveListening(scope, mainDispatcher, onUserSpeechFinal, onError)
                             }
                         }
@@ -179,7 +187,120 @@ class ChatVoiceManager @Inject constructor(
     }
 
     /**
-     * Speaks the assistant's final response and seamlessly resumes listening when finished.
+     * Prepares chunked streaming TTS playback as LLM tokens stream in.
+     * Speech begins on the very first completed sentence without waiting for the full response.
+     */
+    fun prepareStreamingResponse(
+        scope: CoroutineScope,
+        mainDispatcher: CoroutineDispatcher,
+    ) {
+        if (!_isVoiceModeActive.value) return
+
+        stopLiveSession(scope, mainDispatcher)
+        stopSpeakingInternal()
+
+        val channel = Channel<String>(Channel.UNLIMITED)
+        sentenceChannel = channel
+        textBuffer.clear()
+
+        ttsJob = scope.launch(mainDispatcher) {
+            voiceStateMachine.onStartSpeaking("")
+            try {
+                for (sentence in channel) {
+                    if (!_isVoiceModeActive.value || _isSpeakerMuted.value) break
+                    if (sentence.isBlank()) continue
+
+                    val result = ttsProvider.synthesize(sentence, TtsVoice.NOVA, TtsFormat.MP3)
+                    result.fold(
+                        onSuccess = { ttsResult ->
+                            if (_isVoiceModeActive.value && !_isSpeakerMuted.value) {
+                                audioPlayer.play(ttsResult.audioData, ttsResult.format.extension)
+                            }
+                        },
+                        onFailure = { error ->
+                            activeErrorCallback?.invoke("TTS error: ${error.message}")
+                        },
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                activeErrorCallback?.invoke("TTS playback error: ${t.message}")
+            } finally {
+                if (_isVoiceModeActive.value) {
+                    voiceStateMachine.onPlaybackFinished(continueListening = true)
+                    activeSpeechCallback?.let { speechCb ->
+                        activeErrorCallback?.let { errCb ->
+                            startLiveListening(scope, mainDispatcher, speechCb, errCb)
+                        }
+                    }
+                } else {
+                    voiceStateMachine.onPlaybackFinished(continueListening = false)
+                }
+            }
+        }
+    }
+
+    /**
+     * Called as LLM tokens arrive to chunk and stream speech sentence-by-sentence.
+     */
+    fun onStreamingToken(token: String) {
+        if (!_isVoiceModeActive.value || _isSpeakerMuted.value) return
+        textBuffer.append(token)
+        processSentenceBuffer(force = false)
+    }
+
+    /**
+     * Called when LLM streaming completes to flush any remaining text to TTS.
+     */
+    fun onStreamingComplete() {
+        if (!_isVoiceModeActive.value) return
+        processSentenceBuffer(force = true)
+        sentenceChannel?.close()
+    }
+
+    private fun processSentenceBuffer(force: Boolean) {
+        val text = textBuffer.toString()
+        if (text.isBlank()) return
+
+        var splitIndex = findSentenceSplitIndex(text, force)
+        while (splitIndex > 0) {
+            val sentence = textBuffer.substring(0, splitIndex).trim()
+            textBuffer.delete(0, splitIndex)
+            if (sentence.isNotBlank()) {
+                sentenceChannel?.trySend(sentence)
+            }
+            val remaining = textBuffer.toString()
+            splitIndex = findSentenceSplitIndex(remaining, force)
+        }
+    }
+
+    private fun findSentenceSplitIndex(text: String, force: Boolean): Int {
+        if (force) return text.length
+
+        for (i in text.indices) {
+            val c = text[i]
+            if (c == '.' || c == '?' || c == '!' || c == '\n') {
+                if (i + 1 < text.length && text[i + 1].isWhitespace()) {
+                    return i + 1
+                } else if (i + 1 == text.length && text.length >= 15) {
+                    return i + 1
+                }
+            }
+        }
+
+        // If no punctuation found but buffer is long (>90 chars), split at last space
+        if (text.length > 90) {
+            val lastSpace = text.lastIndexOf(' ')
+            if (lastSpace > 20) {
+                return lastSpace + 1
+            }
+        }
+        return -1
+    }
+
+    /**
+     * Speaks the assistant's final response sentence-by-sentence and seamlessly resumes listening when finished.
      */
     fun speakAssistantResponse(
         text: String,
@@ -189,6 +310,8 @@ class ChatVoiceManager @Inject constructor(
         onError: (String) -> Unit,
     ) {
         if (!_isVoiceModeActive.value) return
+        activeSpeechCallback = onUserSpeechFinal
+        activeErrorCallback = onError
 
         if (_isSpeakerMuted.value || text.isBlank()) {
             voiceStateMachine.onPlaybackFinished(continueListening = true)
@@ -196,36 +319,9 @@ class ChatVoiceManager @Inject constructor(
             return
         }
 
-        stopLiveSession(scope, mainDispatcher)
-        stopSpeakingInternal()
-
-        ttsJob = scope.launch(mainDispatcher) {
-            voiceStateMachine.onStartSpeaking(text)
-            try {
-                val result = ttsProvider.synthesize(text, TtsVoice.NOVA)
-                result.fold(
-                    onSuccess = { ttsResult ->
-                        if (_isVoiceModeActive.value) {
-                            audioPlayer.play(ttsResult.audioData, ttsResult.format.extension)
-                        }
-                    },
-                    onFailure = { error ->
-                        onError("TTS failed: ${error.message}")
-                    },
-                )
-            } catch (e: CancellationException) {
-                throw e
-            } catch (t: Throwable) {
-                onError("TTS playback error: ${t.message}")
-            } finally {
-                if (_isVoiceModeActive.value) {
-                    voiceStateMachine.onPlaybackFinished(continueListening = true)
-                    startLiveListening(scope, mainDispatcher, onUserSpeechFinal, onError)
-                } else {
-                    voiceStateMachine.onPlaybackFinished(continueListening = false)
-                }
-            }
-        }
+        prepareStreamingResponse(scope, mainDispatcher)
+        onStreamingToken(text)
+        onStreamingComplete()
     }
 
     /**
@@ -466,6 +562,9 @@ class ChatVoiceManager @Inject constructor(
     }
 
     private fun stopSpeakingInternal() {
+        sentenceChannel?.close()
+        sentenceChannel = null
+        textBuffer.clear()
         audioPlayer.stop()
         ttsJob?.cancel()
         ttsJob = null
@@ -483,4 +582,3 @@ class ChatVoiceManager @Inject constructor(
         const val LIVE_RESULT_TIMEOUT_MS = 500L
     }
 }
-

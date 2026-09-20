@@ -685,6 +685,8 @@ class ChatViewModel
             }
 
             var assistantText = ""
+            var streamingAssistant: Message? = null
+            var lastStreamPersistNanos = System.nanoTime()
 
             try {
                 goalEngine.executeGoal(goal).collect { event ->
@@ -696,6 +698,30 @@ class ChatViewModel
                         }
                         is GoalEvent.AgentEvent -> {
                             when (val agentEvent = event.event) {
+                                is AgentEvent.TextDelta -> {
+                                    streamingAssistant =
+                                        (streamingAssistant ?: Message(
+                                            conversationId = conversationId,
+                                            role = MessageRole.ASSISTANT,
+                                            content = "",
+                                            status = MessageStatus.STREAMING,
+                                            routeUsed = lastRouteReason,
+                                        ).also { conversationRepository.upsertMessage(it) })
+                                            .copy(content = (streamingAssistant?.content ?: "") + agentEvent.text)
+                                    _uiState.update { state ->
+                                        val current = streamingAssistant ?: return@update state
+                                        val exists = state.messages.any { it.id == current.id }
+                                        state.copy(
+                                            messages = if (exists) state.messages.map { if (it.id == current.id) current else it }
+                                            else state.messages + current,
+                                            isStreaming = true,
+                                        )
+                                    }
+                                    if (System.nanoTime() - lastStreamPersistNanos >= PERSIST_DEBOUNCE_NS) {
+                                        lastStreamPersistNanos = System.nanoTime()
+                                        streamingAssistant?.let { conversationRepository.upsertMessage(it) }
+                                    }
+                                }
                                 is AgentEvent.RunStarted -> {
                                     _uiState.update { it.copy(agentStatus = if (planFirst) AgentStatus.PLANNING else AgentStatus.THINKING) }
                                 }
@@ -747,6 +773,15 @@ class ChatViewModel
                                 }
                                 is AgentEvent.FinalAnswer -> {
                                     assistantText = agentEvent.text
+                                    if (agentEvent.text.isNotEmpty() && streamingAssistant?.content != agentEvent.text) {
+                                        streamingAssistant = streamingAssistant?.copy(content = agentEvent.text)
+                                        _uiState.update { state ->
+                                            val current = streamingAssistant ?: return@update state
+                                            state.copy(
+                                                messages = state.messages.map { if (it.id == current.id) current else it },
+                                            )
+                                        }
+                                    }
                                 }
                                 is AgentEvent.Failed -> {
                                     _uiState.update {
@@ -772,19 +807,33 @@ class ChatViewModel
                         is GoalEvent.Completed -> {
                             completeRunning(AgentStepState.DONE)
                             val summaryText = if (assistantText.isNotBlank()) assistantText else event.summary
-                            val assistantMsg = Message(
-                                conversationId = conversationId,
-                                role = MessageRole.ASSISTANT,
-                                content = summaryText,
-                                status = MessageStatus.COMPLETE,
-                            )
-                            conversationRepository.upsertMessage(assistantMsg)
-                            _uiState.update {
-                                it.copy(
-                                    isStreaming = false,
-                                    isAgentRunning = false,
-                                    agentStatus = AgentStatus.COMPLETED,
+                            val streaming = streamingAssistant
+                            if (streaming != null && streaming.content.isNotBlank()) {
+                                val final = streaming.copy(status = MessageStatus.COMPLETE)
+                                conversationRepository.upsertMessage(final)
+                                _uiState.update {
+                                    it.copy(
+                                        messages = it.messages.map { msg -> if (msg.id == final.id) final else msg },
+                                        isStreaming = false,
+                                        isAgentRunning = false,
+                                        agentStatus = AgentStatus.COMPLETED,
+                                    )
+                                }
+                            } else {
+                                val assistantMsg = Message(
+                                    conversationId = conversationId,
+                                    role = MessageRole.ASSISTANT,
+                                    content = summaryText,
+                                    status = MessageStatus.COMPLETE,
                                 )
+                                conversationRepository.upsertMessage(assistantMsg)
+                                _uiState.update {
+                                    it.copy(
+                                        isStreaming = false,
+                                        isAgentRunning = false,
+                                        agentStatus = AgentStatus.COMPLETED,
+                                    )
+                                }
                             }
                             if (voiceManager.isVoiceModeActive.value) {
                                 voiceManager.speakAssistantResponse(summaryText, viewModelScope, dispatchers.main, {}, {})
@@ -919,6 +968,8 @@ class ChatViewModel
             }
 
             var answerText = ""
+            var streamingAssistant: Message? = null
+            var lastStreamPersistNanos = System.nanoTime()
             val executedToolNames = mutableSetOf<String>()
             try {
                 runner.run(request).collect { event ->
@@ -990,11 +1041,44 @@ class ChatViewModel
                         }
                         is AgentEvent.FinalAnswer -> {
                             answerText = event.text
+                            if (event.text.isNotEmpty() && streamingAssistant?.content != event.text) {
+                                streamingAssistant = streamingAssistant?.copy(content = event.text)
+                                _uiState.update { state ->
+                                    val current = streamingAssistant ?: return@update state
+                                    state.copy(
+                                        messages = state.messages.map { if (it.id == current.id) current else it },
+                                    )
+                                }
+                            }
                             completeRunning(AgentStepState.DONE)
                             if (_uiState.value.isVoiceModeActive) {
                                 _uiState.update { it.copy(agentStatus = AgentStatus.SPEAKING) }
                             } else {
                                 _uiState.update { it.copy(agentStatus = AgentStatus.COMPLETED) }
+                            }
+                        }
+                        is AgentEvent.TextDelta -> {
+                            streamingAssistant =
+                                (streamingAssistant ?: Message(
+                                    conversationId = conversationId,
+                                    role = MessageRole.ASSISTANT,
+                                    content = "",
+                                    status = MessageStatus.STREAMING,
+                                    routeUsed = lastRouteReason,
+                                ).also { conversationRepository.upsertMessage(it) })
+                                    .copy(content = (streamingAssistant?.content ?: "") + event.text)
+                            _uiState.update { state ->
+                                val current = streamingAssistant ?: return@update state
+                                val exists = state.messages.any { it.id == current.id }
+                                state.copy(
+                                    messages = if (exists) state.messages.map { if (it.id == current.id) current else it }
+                                    else state.messages + current,
+                                    isStreaming = true,
+                                )
+                            }
+                            if (System.nanoTime() - lastStreamPersistNanos >= PERSIST_DEBOUNCE_NS) {
+                                lastStreamPersistNanos = System.nanoTime()
+                                streamingAssistant?.let { conversationRepository.upsertMessage(it) }
                             }
                         }
                         is AgentEvent.Failed -> {
@@ -1047,15 +1131,26 @@ class ChatViewModel
             }
 
             if (answerText.isNotBlank()) {
-                conversationRepository.upsertMessage(
-                    Message(
-                        conversationId = conversationId,
-                        role = MessageRole.ASSISTANT,
-                        content = answerText,
-                        status = MessageStatus.COMPLETE,
-                        routeUsed = lastRouteReason,
-                    ),
-                )
+                val streaming = streamingAssistant
+                if (streaming != null && streaming.content.isNotBlank()) {
+                    val final = streaming.copy(status = MessageStatus.COMPLETE)
+                    conversationRepository.upsertMessage(final)
+                    _uiState.update {
+                        it.copy(
+                            messages = it.messages.map { msg -> if (msg.id == final.id) final else msg },
+                        )
+                    }
+                } else {
+                    conversationRepository.upsertMessage(
+                        Message(
+                            conversationId = conversationId,
+                            role = MessageRole.ASSISTANT,
+                            content = answerText,
+                            status = MessageStatus.COMPLETE,
+                            routeUsed = lastRouteReason,
+                        ),
+                    )
+                }
                 if (_uiState.value.isVoiceModeActive) {
                     voiceManager.speakAssistantResponse(
                         text = answerText,
@@ -1187,10 +1282,18 @@ class ChatViewModel
             }
 
             val sawProtocolMismatch = java.util.concurrent.atomic.AtomicBoolean(false)
+            if (isVoice) {
+                voiceManager.prepareStreamingResponse(viewModelScope, dispatchers.main)
+            }
             try {
                 provider.streamChat(request).collect { event ->
                     when (event) {
-                        is ChatStreamEvent.TokenDelta -> text.append(event.text)
+                        is ChatStreamEvent.TokenDelta -> {
+                            text.append(event.text)
+                            if (isVoice) {
+                                voiceManager.onStreamingToken(event.text)
+                            }
+                        }
                         is ChatStreamEvent.ReasoningDelta -> reasoning.append(event.text)
                         is ChatStreamEvent.Usage -> {
                             promptTokens = event.promptTokens
@@ -1206,6 +1309,20 @@ class ChatViewModel
                     if (text.isNotBlank() && System.nanoTime() - lastPersistNanos >= PERSIST_DEBOUNCE_NS) {
                         lastPersistNanos = System.nanoTime()
                         persist(MessageStatus.STREAMING)
+                        // Update the in-memory message directly so streaming renders reliably,
+                        // independent of Room's observer emission timing.
+                        _uiState.update { state ->
+                            val streamingMsg = assistantMessage.copy(
+                                content = text.toString(),
+                                reasoningContent = reasoning.toString().ifBlank { null },
+                                status = MessageStatus.STREAMING,
+                            )
+                            val exists = state.messages.any { it.id == streamingMsg.id }
+                            state.copy(
+                                messages = if (exists) state.messages.map { if (it.id == streamingMsg.id) streamingMsg else it }
+                                else state.messages + streamingMsg,
+                            )
+                        }
                     }
                 }
             } catch (e: CancellationException) {
@@ -1250,18 +1367,7 @@ class ChatViewModel
                 persist(MessageStatus.COMPLETE)
                 _uiState.update { it.copy(isStreaming = false) }
                 if (_uiState.value.isVoiceModeActive && text.isNotBlank()) {
-                    voiceManager.speakAssistantResponse(
-                        text = text.toString(),
-                        scope = viewModelScope,
-                        mainDispatcher = dispatchers.main,
-                        onUserSpeechFinal = { recognized ->
-                            _uiState.update { it.copy(composerText = recognized) }
-                            sendMessage()
-                        },
-                        onError = { msg ->
-                            _uiEvents.tryEmit(ChatUiEvent.ShowError(msg))
-                        },
-                    )
+                    voiceManager.onStreamingComplete()
                 }
             }
         }
@@ -1289,17 +1395,23 @@ class ChatViewModel
         private var cachedModels: Pair<String, List<String>>? = null
 
         fun startVoiceMode() {
-            voiceManager.startVoiceMode(
-                scope = viewModelScope,
-                mainDispatcher = dispatchers.main,
-                onUserSpeechFinal = { text ->
-                    _uiState.update { it.copy(composerText = text) }
-                    sendMessage()
-                },
-                onError = { message ->
-                    _uiEvents.tryEmit(ChatUiEvent.ShowError(message))
-                },
-            )
+            viewModelScope.launch(dispatchers.main) {
+                if (_uiState.value.isStreaming) {
+                    cancelStreaming()
+                }
+                openConversation(null, preserveRouting = _uiState.value.routingOverride)
+                voiceManager.startVoiceMode(
+                    scope = viewModelScope,
+                    mainDispatcher = dispatchers.main,
+                    onUserSpeechFinal = { text ->
+                        _uiState.update { it.copy(composerText = text) }
+                        sendMessage()
+                    },
+                    onError = { message ->
+                        _uiEvents.tryEmit(ChatUiEvent.ShowError(message))
+                    },
+                )
+            }
         }
 
         fun stopVoiceMode() {

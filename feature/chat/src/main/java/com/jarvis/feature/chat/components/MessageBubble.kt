@@ -323,37 +323,35 @@ fun MessageBubble(
                     shape = JarvisShapes.card,
                     color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
-                    modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.xs),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = Spacing.xs),
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    Column(
                         modifier = Modifier.padding(Spacing.md),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.PriorityHigh,
-                            contentDescription = "Error",
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(Spacing.xl),
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PriorityHigh,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(16.dp),
+                            )
                             Text(
-                                text = "Unable to complete response",
-                                style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                text = "Something went wrong",
+                                style = JarvisText.SenderLabel,
                                 color = MaterialTheme.colorScheme.error,
                             )
-                            Text(
-                                text = message.errorHint ?: "An unexpected error occurred while generating.",
-                                style = JarvisText.Metadata,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
                         }
-                        val isPermissionError = message.errorHint?.contains("permission", ignoreCase = true) == true
-                        if (isPermissionError) {
-                            TextButton(onClick = onOpenPermissions) {
-                                Text("Permissions")
-                            }
-                        }
+                        Text(
+                            text = "Try again or rephrase your request",
+                            style = JarvisText.Metadata,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                         if (canRegenerate) {
                             TextButton(onClick = { onRetry(message.id) }) {
                                 Icon(
@@ -362,16 +360,8 @@ fun MessageBubble(
                                     modifier = Modifier.size(Spacing.md),
                                 )
                                 Spacer(modifier = Modifier.width(Spacing.xs))
-                                Text("Retry")
+                                Text("Try again", style = JarvisText.Caption)
                             }
-                        }
-                        IconButton(onClick = { onDelete(message.id) }) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Delete error",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(Spacing.lg),
-                            )
                         }
                     }
                 }

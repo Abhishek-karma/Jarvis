@@ -35,6 +35,7 @@ class AgentRunnerTest {
             listOf(
                 AgentEvent.RunStarted,
                 AgentEvent.IterationStarted(1),
+                AgentEvent.TextDelta("Hello, user!"),
                 AgentEvent.FinalAnswer("Hello, user!"),
             ),
             events,

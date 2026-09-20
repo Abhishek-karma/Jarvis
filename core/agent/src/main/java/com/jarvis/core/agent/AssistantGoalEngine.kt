@@ -263,6 +263,7 @@ class AssistantGoalEngine(
                             is AgentEvent.StepCapReached -> {
                                 emit(AssistantGoalEvent.StatusChanged("Step limit reached"))
                             }
+                            is AgentEvent.TextDelta -> Unit
                         }
                     }
 

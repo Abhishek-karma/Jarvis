@@ -176,6 +176,16 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `startVoiceMode opens a new conversation and activates voice mode`() = runTest {
+        viewModel.startVoiceMode()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.isVoiceModeActive)
+        assertEquals(null, viewModel.uiState.value.conversationId)
+        assertTrue(viewModel.uiState.value.messages.isEmpty())
+    }
+
+    @Test
     fun `setThinkMode persists and echoes into UI state`() =
         runTest {
             viewModel.setThinkMode(com.jarvis.core.common.ThinkMode.ON)

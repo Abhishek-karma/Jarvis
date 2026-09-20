@@ -199,4 +199,29 @@ class ChatVoiceManagerTest {
         assertFalse(voiceManager.isVoiceModeActive.value)
         assertEquals(VoiceSessionState.Idle, voiceStateMachine.state.value)
     }
+
+    @Test
+    fun `prepareStreamingResponse and onStreamingToken speaks sentence chunks as they stream`() = testScope.runTest {
+        coEvery { ttsProvider.synthesize("Hello world.", TtsVoice.NOVA, TtsFormat.MP3) } returns Result.success(
+            TtsResult(audioData = byteArrayOf(1, 2, 3), format = TtsFormat.MP3)
+        )
+
+        voiceManager.startVoiceMode(
+            scope = this,
+            mainDispatcher = testDispatcher,
+            onUserSpeechFinal = {},
+            onError = {},
+        )
+        testScheduler.advanceUntilIdle()
+
+        voiceManager.prepareStreamingResponse(scope = this, mainDispatcher = testDispatcher)
+        voiceManager.onStreamingToken("Hello ")
+        voiceManager.onStreamingToken("world. ")
+        voiceManager.onStreamingComplete()
+        testScheduler.advanceUntilIdle()
+
+        coVerify { ttsProvider.synthesize("Hello world.", TtsVoice.NOVA, TtsFormat.MP3) }
+        coVerify { audioPlayer.play(byteArrayOf(1, 2, 3), "mp3") }
+        assertTrue(voiceStateMachine.state.value is VoiceSessionState.Listening)
+    }
 }

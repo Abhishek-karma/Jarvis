@@ -83,8 +83,8 @@ import com.jarvis.feature.chat.AgentStepState
 import org.json.JSONObject
 
 /**
- * Compact, modern Jarvis Assistant timeline component.
- * Displays real state-machine progress, tool milestones, approval cards, and failure handling.
+ * Compact inline status for agent activity - ChatGPT-style.
+ * Shows simple status text without detailed tool logs.
  */
 @Composable
 fun AgentLiveBlock(
@@ -98,403 +98,112 @@ fun AgentLiveBlock(
     onRetry: () -> Unit = {},
 ) {
     val statusText = resolveStatusSubtitle(status, pending, steps, failureReason)
-    val stateDescriptionText = "Agent status: $statusText"
+    val isActive = status.isActive || pending != null
 
-    Surface(
-        shape = JarvisShapes.card,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-        shadowElevation = 2.dp,
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .animateContentSize()
-            .semantics {
-                this.contentDescription = "Jarvis Agent Activity"
-                this.stateDescription = stateDescriptionText
-            },
+            .padding(vertical = Spacing.sm),
+        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(Spacing.lg),
-            verticalArrangement = Arrangement.spacedBy(Spacing.md),
+        // Compact status row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
-            // Header: Agent Identity, State Indicator, Subtitle & Action (Stop / Retry)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                    modifier = Modifier.weight(1f),
-                ) {
-                    AgentHeaderStateIcon(status = status, pending = pending)
-
-                    Column {
-                        Text(
-                            text = "Jarvis Assistant",
-                            style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = statusText,
-                            style = JarvisText.Metadata,
-                            color = resolveSubtitleColor(status, pending),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                ) {
-                    if (status.isActive) {
-                        OutlinedButton(
-                            onClick = onStop,
-                            shape = JarvisShapes.pill,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.35f)),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = MaterialTheme.colorScheme.error,
-                            ),
-                            modifier = Modifier
-                                .heightIn(min = 48.dp)
-                                .semantics { contentDescription = "Stop Agent Execution" },
-                            contentPadding = PaddingValues(
-                                horizontal = Spacing.smPlus,
-                                vertical = Spacing.xs,
-                            ),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Stop,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(modifier = Modifier.size(4.dp))
-                            Text(
-                                text = "Stop",
-                                style = JarvisText.Caption.copy(fontWeight = FontWeight.SemiBold),
-                            )
-                        }
-                    } else if (status == AgentStatus.FAILED) {
-                        Button(
-                            onClick = onRetry,
-                            shape = JarvisShapes.pill,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.errorContainer,
-                                contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                            ),
-                            modifier = Modifier
-                                .heightIn(min = 48.dp)
-                                .semantics { contentDescription = "Retry Agent Run" },
-                            contentPadding = PaddingValues(
-                                horizontal = Spacing.smPlus,
-                                vertical = Spacing.xs,
-                            ),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(modifier = Modifier.size(4.dp))
-                            Text(
-                                text = "Retry",
-                                style = JarvisText.Caption.copy(fontWeight = FontWeight.SemiBold),
-                            )
-                        }
-                    }
-                }
+            // Simple pulsing dot for active states
+            if (isActive) {
+                PulsingDot()
+            } else if (status == AgentStatus.COMPLETED) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(14.dp),
+                )
+            } else if (status == AgentStatus.FAILED) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(14.dp),
+                )
             }
 
-            // Body 1: Pending Confirmation Approval Card (when approval is required)
-            if (pending != null || status == AgentStatus.WAITING_FOR_APPROVAL) {
-                pending?.let { conf ->
-                    ApprovalCard(
-                        confirmation = conf,
-                        onAllowOnce = { onAllow(false) },
-                        onAllowAlways = { onAllow(true) },
-                        onDeny = onDeny,
+            Text(
+                text = statusText,
+                style = JarvisText.Metadata,
+                color = resolveSubtitleColor(status, pending),
+                modifier = Modifier.weight(1f),
+            )
+
+            // Compact retry button only on failure
+            if (status == AgentStatus.FAILED) {
+                TextButton(
+                    onClick = onRetry,
+                    contentPadding = PaddingValues(horizontal = Spacing.sm, vertical = 2.dp),
+                ) {
+                    Text(
+                        text = "Retry",
+                        style = JarvisText.Caption,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
-
-            // Body 2: Failure explanation card (when status == FAILED)
-            if (status == AgentStatus.FAILED) {
-                FailureCard(
-                    reason = failureReason ?: "An unexpected error interrupted execution.",
-                    onRetry = onRetry,
-                )
-            }
-
-            // Body 3: Modern Assistant Timeline Steps
-            if (steps.isNotEmpty()) {
-                TimelineBlock(steps = steps, isActive = status.isActive)
-            }
         }
-    }
-}
 
-/**
- * Modern timeline block rendering sequential assistant steps.
- */
-@Composable
-private fun TimelineBlock(
-    steps: List<AgentStep>,
-    isActive: Boolean,
-) {
-    Surface(
-        shape = JarvisShapes.codeBlock,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(
-            modifier = Modifier.padding(Spacing.sm),
-            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-        ) {
-            steps.forEachIndexed { index, step ->
-                TimelineStepRow(
-                    step = step,
-                    isLast = index == steps.lastIndex,
+        // Compact approval card (when needed)
+        if (pending != null || status == AgentStatus.WAITING_FOR_APPROVAL) {
+            pending?.let { conf ->
+                CompactApprovalCard(
+                    confirmation = conf,
+                    onAllowOnce = { onAllow(false) },
+                    onAllowAlways = { onAllow(true) },
+                    onDeny = onDeny,
                 )
             }
         }
-    }
-}
 
-/**
- * One row in the timeline with state marker, title, duration label, redacted details, and progress.
- */
-@Composable
-fun TimelineStepRow(
-    step: AgentStep,
-    isLast: Boolean = false,
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
-        modifier = Modifier
-            .fillMaxWidth()
-            .semantics {
-                contentDescription = "${step.text} - ${step.state.name}"
-            },
-    ) {
-        TimelineStepIcon(state = step.state)
-
-        Text(
-            text = formatStepDescription(step.text),
-            style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-    }
-}
-
-/**
- * Step state marker: ● for running, ✓ for done, ✕ for failed, ⏹ for cancelled.
- */
-@Composable
-fun TimelineStepIcon(state: AgentStepState) {
-    when (state) {
-        AgentStepState.RUNNING -> {
-            val transition = rememberInfiniteTransition(label = "step-running-pulse")
-            val alpha by transition.animateFloat(
-                initialValue = 0.4f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(800, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-                label = "stepAlpha",
+        // Simple failure message (no card)
+        if (status == AgentStatus.FAILED && !failureReason.isNullOrEmpty()) {
+            Text(
+                text = "Some actions couldn't complete.",
+                style = JarvisText.Metadata,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(20.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = alpha * 0.25f)),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
-                )
-            }
-        }
-        AgentStepState.DONE -> {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(20.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = "Completed",
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(13.dp),
-                )
-            }
-        }
-        AgentStepState.FAILED -> {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(20.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.errorContainer),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Failed",
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(13.dp),
-                )
-            }
-        }
-        AgentStepState.CANCELLED -> {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(20.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Block,
-                    contentDescription = "Cancelled",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(13.dp),
-                )
-            }
         }
     }
 }
 
-/**
- * Animated or static state icon in the agent header.
- * Strictly adheres to rule: NO animation on static states (Completed, Failed, Cancelled).
- */
 @Composable
-private fun AgentHeaderStateIcon(
-    status: AgentStatus,
-    pending: AgentConfirmation?,
-) {
-    val isPending = pending != null || status == AgentStatus.WAITING_FOR_APPROVAL
-    val isFailed = status == AgentStatus.FAILED
-    val isCancelled = status == AgentStatus.CANCELLED
-    val isCompleted = status == AgentStatus.COMPLETED
-    val isActive = status.isActive && !isPending
-
+private fun PulsingDot() {
+    val transition = rememberInfiniteTransition(label = "pulse")
+    val alpha by transition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "dotAlpha",
+    )
     Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier.size(Spacing.xxl),
-    ) {
-        when {
-            isPending -> {
-                Box(
-                    modifier = Modifier
-                        .size(Spacing.xxl)
-                        .clip(CircleShape)
-                        .background(JarvisColors.Semantic.warning.copy(alpha = 0.2f)),
-                )
-                Icon(
-                    imageVector = Icons.Default.PriorityHigh,
-                    contentDescription = "Approval required",
-                    tint = JarvisColors.Semantic.warning,
-                    modifier = Modifier.size(Spacing.mdPlus),
-                )
-            }
-            isFailed -> {
-                Box(
-                    modifier = Modifier
-                        .size(Spacing.xxl)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.errorContainer),
-                )
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Failed",
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(Spacing.mdPlus),
-                )
-            }
-            isCancelled -> {
-                Box(
-                    modifier = Modifier
-                        .size(Spacing.xxl)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                )
-                Icon(
-                    imageVector = Icons.Default.Stop,
-                    contentDescription = "Cancelled",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(Spacing.mdPlus),
-                )
-            }
-            isCompleted -> {
-                Box(
-                    modifier = Modifier
-                        .size(Spacing.xxl)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
-                )
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = "Task complete",
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(Spacing.mdPlus),
-                )
-            }
-            isActive -> {
-                // Subtle activity animation ONLY while active
-                val infiniteTransition = rememberInfiniteTransition(label = "agent-pulse")
-                val pulseAlpha by infiniteTransition.animateFloat(
-                    initialValue = 0.3f,
-                    targetValue = 0.9f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(1200, easing = FastOutSlowInEasing),
-                        repeatMode = RepeatMode.Reverse,
-                    ),
-                    label = "pulseAlpha",
-                )
-
-                Box(
-                    modifier = Modifier
-                        .size(Spacing.xxl)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha * 0.28f)),
-                )
-                Box(
-                    modifier = Modifier
-                        .size(Spacing.mdPlus)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
-                )
-            }
-            else -> {
-                Box(
-                    modifier = Modifier
-                        .size(Spacing.xxl)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                )
-            }
-        }
-    }
+        modifier = Modifier
+            .size(8.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = alpha)),
+    )
 }
 
+// Timeline, FailureCard and AgentHeaderStateIcon removed for simplicity.
+// Use AgentStatusLine for compact status display instead.
+
 /**
- * Clear Approval Card avoiding dangerous raw JSON by default.
+ * Compact approval card for permission requests.
  */
 @Composable
-fun ApprovalCard(
+fun CompactApprovalCard(
     confirmation: AgentConfirmation,
     onAllowOnce: () -> Unit,
     onAllowAlways: () -> Unit,
@@ -506,61 +215,49 @@ fun ApprovalCard(
 
     Surface(
         shape = JarvisShapes.card,
-        color = MaterialTheme.colorScheme.background,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(1.dp, JarvisColors.Semantic.warning.copy(alpha = 0.5f)),
-        shadowElevation = 2.dp,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
-            modifier = Modifier.padding(Spacing.lg),
+            modifier = Modifier.padding(Spacing.md),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
+                Icon(
+                    imageVector = Icons.Default.PriorityHigh,
+                    contentDescription = null,
+                    tint = JarvisColors.Semantic.warning,
+                    modifier = Modifier.size(18.dp),
+                )
                 Text(
-                    text = "Permission request",
-                    style = JarvisText.Body.copy(fontWeight = FontWeight.Bold),
+                    text = "Permission required",
+                    style = JarvisText.SenderLabel,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Surface(
-                    shape = JarvisShapes.pill,
-                    color = JarvisColors.Semantic.warning.copy(alpha = 0.18f),
-                ) {
-                    Text(
-                        text = "Action Confirmation",
-                        style = JarvisText.CodeLabel,
-                        color = JarvisColors.Semantic.warning,
-                        modifier = Modifier.padding(horizontal = Spacing.sm, vertical = 2.dp),
-                    )
-                }
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = formatToolTitle(confirmation.toolName),
+                    style = JarvisText.Metadata,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
-            Text(
-                text = "Jarvis wants to execute: ${formatToolTitle(confirmation.toolName)}",
-                style = JarvisText.BodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-
-            // Formatted parameters preview with sensitive values masked
+            // Compact params preview
             if (formattedParams.isNotEmpty()) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    formattedParams.forEach { (label, value) ->
-                        Text(
-                            text = "$label: $value",
-                            style = JarvisText.Metadata,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+                Text(
+                    text = formattedParams.joinToString(" · ") { "${it.first}: ${it.second}" },
+                    style = JarvisText.Metadata,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
 
-            // Action Buttons with 48dp min touch targets
+            // Compact action buttons
             Row(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                 modifier = Modifier.fillMaxWidth(),
@@ -568,63 +265,30 @@ fun ApprovalCard(
                 OutlinedButton(
                     onClick = onDeny,
                     shape = JarvisShapes.pill,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                     modifier = Modifier
                         .weight(1f)
-                        .heightIn(min = 48.dp)
-                        .semantics {
-                            contentDescription = "Deny tool execution"
-                            Role.Button
-                        },
+                        .heightIn(min = 40.dp),
+                    contentPadding = PaddingValues(horizontal = Spacing.sm, vertical = Spacing.xs),
                 ) {
-                    Text("Deny", fontWeight = FontWeight.SemiBold)
+                    Text("Deny", style = JarvisText.Caption)
                 }
 
                 Button(
                     onClick = onAllowOnce,
                     shape = JarvisShapes.pill,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                    ),
                     modifier = Modifier
                         .weight(1f)
-                        .heightIn(min = 48.dp)
-                        .semantics {
-                            contentDescription = "Allow tool once"
-                            Role.Button
-                        },
+                        .heightIn(min = 40.dp),
+                    contentPadding = PaddingValues(horizontal = Spacing.sm, vertical = Spacing.xs),
                 ) {
-                    Text("Allow once", fontWeight = FontWeight.SemiBold)
+                    Text("Allow", style = JarvisText.Caption)
                 }
             }
         }
     }
 }
 
-/**
- * Failure card displaying concise reason and safe retry action.
- */
-@Composable
-private fun FailureCard(
-    reason: String,
-    onRetry: () -> Unit,
-) {
-    Surface(
-        shape = JarvisShapes.card,
-        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f)),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text(
-            text = reason,
-            style = JarvisText.BodyMedium,
-            color = MaterialTheme.colorScheme.error,
-            modifier = Modifier.padding(Spacing.md),
-        )
-    }
-}
+// FailureCard removed - failures are now shown as inline text in AgentLiveBlock
 
 /**
  * Parses tool arguments and presents masked, user-friendly labels.
@@ -677,28 +341,28 @@ private fun resolveStatusSubtitle(
     failureReason: String?,
 ): String {
     if (pending != null || status == AgentStatus.WAITING_FOR_APPROVAL) {
-        return "Approval required"
+        return "Permission required"
     }
     return when (status) {
-        AgentStatus.THINKING -> "Understanding request…"
-        AgentStatus.PLANNING -> "Formulating plan…"
-        AgentStatus.SELECTING_TOOL -> "Selecting tool…"
-        AgentStatus.WAITING_FOR_APPROVAL -> "Approval required"
-        AgentStatus.RUNNING_TOOL -> "Executing action…"
-        AgentStatus.WAITING_FOR_RESULT -> "Waiting for result…"
-        AgentStatus.READING_RESULT -> "Reading result…"
-        AgentStatus.THINKING_AGAIN -> "Thinking about result…"
-        AgentStatus.SPEAKING -> "Speaking response…"
-        AgentStatus.COMPLETED -> "Task complete"
-        AgentStatus.FAILED -> "Couldn't complete the task"
-        AgentStatus.CANCELLED -> "Execution stopped"
+        AgentStatus.THINKING -> "Thinking…"
+        AgentStatus.PLANNING -> "Planning…"
+        AgentStatus.SELECTING_TOOL -> "Using tools…"
+        AgentStatus.WAITING_FOR_APPROVAL -> "Permission required"
+        AgentStatus.RUNNING_TOOL -> "Working…"
+        AgentStatus.WAITING_FOR_RESULT -> "Waiting…"
+        AgentStatus.READING_RESULT -> "Reading…"
+        AgentStatus.THINKING_AGAIN -> "Reasoning…"
+        AgentStatus.SPEAKING -> "Speaking…"
+        AgentStatus.COMPLETED -> "Done"
+        AgentStatus.FAILED -> "Failed"
+        AgentStatus.CANCELLED -> "Stopped"
         AgentStatus.IDLE -> {
             when {
-                steps.isEmpty() -> "Understanding request…"
-                steps.any { it.state == AgentStepState.RUNNING } -> "Action in progress…"
-                steps.any { it.state == AgentStepState.FAILED } -> "Couldn't complete the task"
-                steps.any { it.state == AgentStepState.CANCELLED } -> "Execution stopped"
-                else -> "Task complete"
+                steps.isEmpty() -> "Thinking…"
+                steps.any { it.state == AgentStepState.RUNNING } -> "Working…"
+                steps.any { it.state == AgentStepState.FAILED } -> "Failed"
+                steps.any { it.state == AgentStepState.CANCELLED } -> "Stopped"
+                else -> "Done"
             }
         }
     }
