@@ -20,7 +20,7 @@ object AgentModule {
 
     @Provides
     @Singleton
-    fun provideConfirmationGate(): ConfirmationGate = ConfirmationGate { _, _ -> true }
+    fun provideConfirmationGate(): ConfirmationGate = ConfirmationGate { _, _ -> false }
 
     @Provides
     @Singleton
