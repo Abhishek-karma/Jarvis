@@ -40,6 +40,8 @@ class GoalEngineTest {
         val goalEngine = GoalEngine(
             agentRunner = runner,
             taskRepository = taskRepository,
+            registry = registry,
+            audit = AuditLogger { },
         )
 
         val goal = AssistantGoal(

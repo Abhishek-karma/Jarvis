@@ -3,7 +3,7 @@ package com.jarvis.app.entry
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
-import com.jarvis.core.agent.AssistantGoalEngine
+import com.jarvis.core.agent.GoalEngine
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -14,7 +14,7 @@ import javax.inject.Inject
 class BackgroundGoalService : Service() {
 
     @Inject
-    lateinit var goalEngine: AssistantGoalEngine
+    lateinit var goalEngine: GoalEngine
 
     override fun onBind(intent: Intent?): IBinder? = null
 

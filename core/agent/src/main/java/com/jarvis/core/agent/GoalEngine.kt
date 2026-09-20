@@ -1,15 +1,46 @@
 package com.jarvis.core.agent
 
+import com.jarvis.core.common.Message
 import com.jarvis.core.common.TaskState
 import com.jarvis.core.database.repository.TaskRepository
+import com.jarvis.core.network.LlmProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * High-level goal submission to the Goal Engine.
+ */
+data class AssistantGoal(
+    val id: String = UUID.randomUUID().toString(),
+    val goalDescription: String,
+    val source: String = "chat",
+    val conversationId: String? = null,
+    val messages: List<Message> = emptyList(),
+    val provider: LlmProvider,
+    val modelId: String,
+    val reasoningRequested: Boolean = false,
+    val memoryContext: String? = null,
+    val planFirst: Boolean = false,
+    val isVoiceMode: Boolean = false,
+    val confirmationGate: ConfirmationGate? = null,
+    val forceConfirm: Boolean = false,
+)
+
+/**
+ * Plan formulated for achieving the user's goal.
+ */
+data class AssistantPlan(
+    val goalId: String,
+    val explanation: String,
+    val targetToolCategories: List<String> = emptyList(),
+)
 
 /**
  * Unified Assistant Goal Engine.
@@ -20,6 +51,8 @@ import javax.inject.Singleton
 class GoalEngine @Inject constructor(
     private val agentRunner: AgentRunner,
     private val taskRepository: TaskRepository,
+    private val registry: ToolRegistry,
+    private val audit: AuditLogger,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
 
@@ -28,6 +61,21 @@ class GoalEngine @Inject constructor(
      */
     fun executeGoal(goal: AssistantGoal): Flow<GoalEvent> = flow {
         emit(GoalEvent.StatusChanged("Processing goal..."))
+
+        // The injected runner auto-approves every tool (no UI to bridge to). When the caller
+        // supplies a confirmation gate (e.g. from the chat UI), build a per-run runner that
+        // prompts the user instead of silently executing sensitive tools.
+        val runner =
+            if (goal.confirmationGate != null) {
+                AgentRunner(
+                    registry = registry,
+                    audit = audit,
+                    confirmationGate = goal.confirmationGate,
+                    forceConfirm = goal.forceConfirm,
+                )
+            } else {
+                agentRunner
+            }
 
         val agentRequest = AgentRunRequest(
             provider = goal.provider,
@@ -44,7 +92,7 @@ class GoalEngine @Inject constructor(
         var lastError: String? = null
 
         try {
-            agentRunner.run(agentRequest).collect { agentEvent ->
+            runner.run(agentRequest).collect { agentEvent ->
                 when (agentEvent) {
                     is AgentEvent.ToolExecuting -> {
                         emit(GoalEvent.StatusChanged("Executing ${agentEvent.name}..."))

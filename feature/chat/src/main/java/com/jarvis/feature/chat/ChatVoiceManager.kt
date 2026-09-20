@@ -193,8 +193,13 @@ class ChatVoiceManager @Inject constructor(
     fun prepareStreamingResponse(
         scope: CoroutineScope,
         mainDispatcher: CoroutineDispatcher,
+        onUserSpeechFinal: ((String) -> Unit)? = null,
+        onError: ((String) -> Unit)? = null,
     ) {
         if (!_isVoiceModeActive.value) return
+
+        onUserSpeechFinal?.let { activeSpeechCallback = it }
+        onError?.let { activeErrorCallback = it }
 
         stopLiveSession(scope, mainDispatcher)
         stopSpeakingInternal()

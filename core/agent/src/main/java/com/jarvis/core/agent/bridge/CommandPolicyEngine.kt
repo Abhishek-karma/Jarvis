@@ -50,15 +50,18 @@ class CommandPolicyEngine(
     )
 
     private val safeReadRules: List<Regex> = listOf(
-        Regex("""dumpsys(\s+.*)?""", RegexOption.IGNORE_CASE),
-        Regex("""getprop(\s+.*)?""", RegexOption.IGNORE_CASE),
-        Regex("""pm\s+list\s+.*""", RegexOption.IGNORE_CASE),
-        Regex("""settings\s+get\s+.*""", RegexOption.IGNORE_CASE),
+        Regex("""dumpsys(\s+[\w\.\-]+)*""", RegexOption.IGNORE_CASE),
+        Regex("""getprop(\s+[\w\.\-]+)?""", RegexOption.IGNORE_CASE),
+        Regex("""pm\s+list\s+[\w\.\-]+""", RegexOption.IGNORE_CASE),
+        Regex("""settings\s+get\s+[\w\.\-]+(\s+[\w\.\-]+)?""", RegexOption.IGNORE_CASE),
         Regex("""uptime""", RegexOption.IGNORE_CASE),
-        Regex("""df(\s+.*)?""", RegexOption.IGNORE_CASE),
-        Regex("""ls(\s+.*)?""", RegexOption.IGNORE_CASE),
-        Regex("""cat\s+/proc/.*""", RegexOption.IGNORE_CASE),
+        Regex("""df(\s+[\w\.\-/]+)?""", RegexOption.IGNORE_CASE),
+        Regex("""ls(\s+[\w\.\-/]+)*""", RegexOption.IGNORE_CASE),
+        Regex("""cat\s+/proc/[\w\.\-/]+""", RegexOption.IGNORE_CASE),
     )
+
+    /** Command chaining / redirection / expansion metacharacters: never legitimate for a single safe command. */
+    private val chainMetaRegex = Regex("""[;|&`]|\$\(|>|<|\n""")
 
     /**
      * Evaluates the safety level of a shell command.
@@ -70,6 +73,15 @@ class CommandPolicyEngine(
             return PolicyEvaluation(
                 classification = PolicyClassification.BLOCKED,
                 reason = "Command string cannot be empty.",
+            )
+        }
+
+        // 0. Reject chaining/redirection outright so a "safe" allowlist rule can never be
+        //    smuggled past (e.g. `cat /proc/x; rm -rf /data`).
+        if (chainMetaRegex.containsMatchIn(trimmed)) {
+            return PolicyEvaluation(
+                classification = PolicyClassification.BLOCKED,
+                reason = "Command contains disallowed metacharacters (chaining/redirection).",
             )
         }
 
@@ -106,9 +118,9 @@ class CommandPolicyEngine(
             }
         }
 
-        // 4. Check safe read-only rules
+        // 4. Check safe read-only rules — the allowlist must match the FULL command.
         for (regex in safeReadRules) {
-            if (regex.matches(trimmed) || regex.containsMatchIn(trimmed)) {
+            if (regex.matches(trimmed)) {
                 return PolicyEvaluation(
                     classification = PolicyClassification.ALLOWED,
                     reason = "Safe read-only inspection command.",

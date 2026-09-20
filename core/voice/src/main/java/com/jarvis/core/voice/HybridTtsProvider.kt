@@ -22,14 +22,13 @@ class HybridTtsProvider
     @Inject
     constructor(
         @ApplicationContext private val context: Context,
+        private val androidTtsProvider: AndroidTtsProvider,
         private val apiKeyStore: ApiKeyStore,
         private val providerRepository: ProviderRepository,
         @Named("llm") private val okHttpClient: OkHttpClient,
         private val moshi: Moshi,
         private val dispatchers: DispatcherProvider,
     ) : TtsProvider {
-
-        private val androidTtsProvider = AndroidTtsProvider(context)
 
         private suspend fun getOpenAiApiKey(): String? {
             // Check direct "openai" key

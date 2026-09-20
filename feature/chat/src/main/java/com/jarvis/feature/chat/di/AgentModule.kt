@@ -327,29 +327,6 @@ object AgentModule {
 
     @Provides
     @Singleton
-    fun provideAssistantGoalEngine(
-        toolRegistry: ToolRegistry,
-        auditLogger: AuditLogger,
-        taskEngine: TaskEngine,
-        taskRepository: TaskRepository,
-        notificationManager: AssistantNotificationManager,
-    ): com.jarvis.core.agent.AssistantGoalEngine {
-        val runner = AgentRunner(
-            registry = toolRegistry,
-            audit = auditLogger,
-            confirmationGate = { _, _ -> false },
-            stepCap = AgentRunner.DEFAULT_STEP_CAP,
-        )
-        return com.jarvis.core.agent.AssistantGoalEngine(
-            agentRunner = runner,
-            taskEngine = taskEngine,
-            taskRepository = taskRepository,
-            notificationManager = notificationManager,
-        )
-    }
-
-    @Provides
-    @Singleton
     fun provideReversibleActionExecutor(
         actionRepository: ReversibleActionRepository,
         memoryRepository: MemoryRepository,
@@ -967,6 +944,11 @@ object AgentModule {
         withContext(Dispatchers.IO) {
             runCatching {
                 val resolvedFile = resolveFilePath(context, path)
+                // Block reads of app/system-private data (e.g. /data/data/<pkg>/databases — the unencrypted
+                // Room DB, shared_prefs, memory store). Public media lives under /sdcard|/storage, not /data.
+                if (resolvedFile.absolutePath.startsWith("/data/")) {
+                    error("Reading app-internal data paths is not allowed.")
+                }
                 if (!resolvedFile.exists()) error("File does not exist: $path")
                 if (resolvedFile.isDirectory) error("Path is a directory: $path")
                 val isExternal = !resolvedFile.absolutePath.startsWith(context.filesDir.absolutePath) &&

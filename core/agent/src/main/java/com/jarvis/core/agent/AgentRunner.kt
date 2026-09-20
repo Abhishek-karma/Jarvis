@@ -429,7 +429,7 @@ class AgentRunner(
         Log.i(
             TAG,
             "AGENT RESPONSE: step=$steps text=${assistantText.take(MAX_DIAGNOSTIC_TEXT).replace("\n", " ")} " +
-                "toolCalls=${requestedTools.joinToString(prefix = "[", postfix = "]") { "${it.name}(${it.argsJson})" }}",
+                "toolCalls=${requestedTools.joinToString(prefix = "[", postfix = "]") { "${it.name}(${AuditRedaction.redact(it.argsJson)})" }}",
         )
     }
 

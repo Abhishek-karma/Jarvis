@@ -33,13 +33,12 @@ import com.jarvis.core.designsystem.Spacing
 @Composable
 fun ChatNavbar(
     title: String,
-    messages: List<Message>,
     onOpenDrawer: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenVoiceMode: () -> Unit = {},
+    onShareConversation: (() -> Unit)? = null,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
-    val context = LocalContext.current
 
     Box(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -84,28 +83,16 @@ fun ChatNavbar(
                         },
                         dividerBelow = true,
                     )
-                    JarvisDropdownItem(
-                        text = "Share conversation",
-                        onClick = {
-                            menuOpen = false
-                            val transcript =
-                                messages.joinToString("\n\n") { msg ->
-                                    val who = if (msg.role == MessageRole.USER) "You" else "Jarvis"
-                                    "$who: ${msg.content}"
-                                }
-                            if (transcript.isNotBlank()) {
-                                val intent =
-                                    Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(Intent.EXTRA_TEXT, transcript)
-                                    }
-                                context.startActivity(
-                                    Intent.createChooser(intent, "Share conversation"),
-                                )
-                            }
-                        },
-                        dividerBelow = true,
-                    )
+                    if (onShareConversation != null) {
+                        JarvisDropdownItem(
+                            text = "Share conversation",
+                            onClick = {
+                                menuOpen = false
+                                onShareConversation()
+                            },
+                            dividerBelow = true,
+                        )
+                    }
                     JarvisDropdownItem(
                         text = "Settings",
                         onClick = {

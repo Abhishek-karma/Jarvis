@@ -2,6 +2,7 @@ package com.jarvis.core.agent.bridge
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -61,6 +62,29 @@ class CommandPolicyEngineTest {
             val eval = engine.evaluate(cmd)
             assertEquals(PolicyClassification.ALLOWED, eval.classification, "Expected ALLOWED for: $cmd")
         }
+    }
+
+    @Test
+    fun `command chaining cannot smuggle destructive commands past the allowlist`() {
+        val chained = listOf(
+            "cat /proc/uptime; rm -rf /data",
+            "cat /proc/x; dd if=/dev/zero of=/dev/block/x",
+            "getprop ro.build.version.release && rm -rf /",
+            "ls -la /sdcard | grep secret",
+            "uptime > /tmp/out",
+        )
+
+        for (cmd in chained) {
+            val eval = engine.evaluate(cmd)
+            assertEquals(PolicyClassification.BLOCKED, eval.classification, "Expected BLOCKED for: $cmd")
+        }
+    }
+
+    @Test
+    fun `safe read allowlist requires a full command match`() {
+        // A safe-looking prefix plus a dangerous suffix must NOT be ALLOWED.
+        val partial = engine.evaluate("cat /proc/x rm -rf /data")
+        assertNotEquals(PolicyClassification.ALLOWED, partial.classification, "Prefix+payload should not auto-allow")
     }
 
     @Test

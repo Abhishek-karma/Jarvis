@@ -263,7 +263,7 @@ class ChatViewModel
         }
 
         /** Exactly one messages observer per ViewModel; cancel the previous collector first. */
-        private suspend fun observeMessages(conversationId: String) {
+        private fun observeMessages(conversationId: String) {
             messagesJob?.cancel()
             messagesJob =
                 viewModelScope.launch(dispatchers.main) {
@@ -271,7 +271,6 @@ class ChatViewModel
                         _uiState.update { state -> state.copy(messages = messages) }
                     }
                 }
-            messagesJob?.join()
         }
 
         private suspend fun ensureConversation(): String {
@@ -613,6 +612,61 @@ class ChatViewModel
             sendMessage("Please continue your response exactly where you left off.")
         }
 
+        /** Tracks the in-progress agent step list and its shared publish/milestone logic. */
+        private inner class StepTracker(private val conversationId: String) {
+            val steps = mutableListOf<AgentStep>()
+            private var runningSinceMs = System.currentTimeMillis()
+
+            fun publish() = _uiState.update { it.copy(agentSteps = steps.toList()) }
+
+            fun updateRunning(text: String) {
+                val index = steps.indexOfLast { it.state == AgentStepState.RUNNING }
+                if (index >= 0) {
+                    steps[index] = steps[index].copy(text = text)
+                    publish()
+                }
+            }
+
+            /** Finish the running row and persist the milestone. */
+            suspend fun completeRunning(
+                state: AgentStepState,
+                text: String? = null,
+                detail: String? = null,
+            ) {
+                val index = steps.indexOfLast { it.state == AgentStepState.RUNNING }
+                if (index >= 0) {
+                    val finished = steps[index]
+                    steps[index] = finished.copy(
+                        text = text ?: finished.text,
+                        state = state,
+                        detail = detail ?: finished.detail,
+                        durationLabel = formatAgentDuration(System.currentTimeMillis() - runningSinceMs),
+                    )
+                    val summary = buildString {
+                        append(steps[index].text)
+                        if (detail != null) append(" — ${detail.take(OBSERVATION_PREVIEW_CHARS)}")
+                    }
+                    persistMilestone(conversationId, summary, failed = state == AgentStepState.FAILED)
+                    publish()
+                }
+            }
+
+            fun push(text: String, toolName: String? = null) {
+                runningSinceMs = System.currentTimeMillis()
+                steps += AgentStep(text = text, toolName = toolName)
+                publish()
+            }
+        }
+
+        /** Replace (or append) an in-flight streaming message in `_uiState.messages` with a single list pass. */
+        private fun updateStreamingMessage(updated: Message) {
+            _uiState.update { state ->
+                var found = false
+                val newMessages = state.messages.map { if (it.id == updated.id) { found = true; updated } else it }
+                state.copy(messages = if (found) newMessages else state.messages + updated, isStreaming = true)
+            }
+        }
+
         private suspend fun streamGoalExecution(
             conversationId: String,
             text: String,
@@ -644,49 +698,22 @@ class ChatViewModel
                 memoryContext = memoryContext,
                 planFirst = planFirst,
                 isVoiceMode = _uiState.value.isVoiceModeActive,
+                confirmationGate = ConfirmationGate { name, argsJson -> awaitConfirmation(name, argsJson) },
+                forceConfirm = cautiousMode,
             )
 
-            val steps = mutableListOf<AgentStep>()
-            var runningSinceMs = System.currentTimeMillis()
-
-            fun publish() = _uiState.update { it.copy(agentSteps = steps.toList()) }
-
-            fun updateRunning(text: String) {
-                val index = steps.indexOfLast { it.state == AgentStepState.RUNNING }
-                if (index >= 0) {
-                    steps[index] = steps[index].copy(text = text)
-                    publish()
-                }
-            }
-
-            suspend fun completeRunning(state: AgentStepState, text: String? = null, detail: String? = null) {
-                val index = steps.indexOfLast { it.state == AgentStepState.RUNNING }
-                if (index >= 0) {
-                    val finished = steps[index]
-                    steps[index] = finished.copy(
-                        text = text ?: finished.text,
-                        state = state,
-                        detail = detail ?: finished.detail,
-                        durationLabel = formatAgentDuration(System.currentTimeMillis() - runningSinceMs),
-                    )
-                    val summary = buildString {
-                        append(steps[index].text)
-                        if (detail != null) append(" — ${detail.take(OBSERVATION_PREVIEW_CHARS)}")
-                    }
-                    persistMilestone(conversationId, summary, failed = state == AgentStepState.FAILED)
-                    publish()
-                }
-            }
-
-            fun push(text: String, toolName: String? = null) {
-                runningSinceMs = System.currentTimeMillis()
-                steps += AgentStep(text = text, toolName = toolName)
-                publish()
-            }
+            val steps = StepTracker(conversationId)
 
             var assistantText = ""
             var streamingAssistant: Message? = null
+            var streamTextBuilder: StringBuilder? = null
             var lastStreamPersistNanos = System.nanoTime()
+
+            suspend fun flushStreamingMessageStopped() {
+                streamingAssistant?.takeIf { it.content.isNotBlank() }?.let {
+                    conversationRepository.upsertMessage(it.copy(status = MessageStatus.STOPPED))
+                }
+            }
 
             try {
                 goalEngine.executeGoal(goal).collect { event ->
@@ -699,27 +726,23 @@ class ChatViewModel
                         is GoalEvent.AgentEvent -> {
                             when (val agentEvent = event.event) {
                                 is AgentEvent.TextDelta -> {
-                                    streamingAssistant =
-                                        (streamingAssistant ?: Message(
+                                    if (streamingAssistant == null) {
+                                        streamingAssistant = Message(
                                             conversationId = conversationId,
                                             role = MessageRole.ASSISTANT,
                                             content = "",
                                             status = MessageStatus.STREAMING,
                                             routeUsed = lastRouteReason,
-                                        ).also { conversationRepository.upsertMessage(it) })
-                                            .copy(content = (streamingAssistant?.content ?: "") + agentEvent.text)
-                                    _uiState.update { state ->
-                                        val current = streamingAssistant ?: return@update state
-                                        val exists = state.messages.any { it.id == current.id }
-                                        state.copy(
-                                            messages = if (exists) state.messages.map { if (it.id == current.id) current else it }
-                                            else state.messages + current,
-                                            isStreaming = true,
                                         )
+                                        conversationRepository.upsertMessage(streamingAssistant!!)
+                                        streamTextBuilder = StringBuilder()
                                     }
+                                    streamTextBuilder!!.append(agentEvent.text)
+                                    streamingAssistant = streamingAssistant!!.copy(content = streamTextBuilder.toString())
+                                    updateStreamingMessage(streamingAssistant!!)
                                     if (System.nanoTime() - lastStreamPersistNanos >= PERSIST_DEBOUNCE_NS) {
                                         lastStreamPersistNanos = System.nanoTime()
-                                        streamingAssistant?.let { conversationRepository.upsertMessage(it) }
+                                        conversationRepository.upsertMessage(streamingAssistant!!)
                                     }
                                 }
                                 is AgentEvent.RunStarted -> {
@@ -733,8 +756,8 @@ class ChatViewModel
                                 }
                                 is AgentEvent.ToolRequested -> {
                                     _uiState.update { it.copy(agentStatus = AgentStatus.SELECTING_TOOL) }
-                                    completeRunning(AgentStepState.DONE)
-                                    push("Calling ${agentEvent.name}", toolName = agentEvent.name)
+                                    steps.completeRunning(AgentStepState.DONE)
+                                    steps.push("Calling ${agentEvent.name}", toolName = agentEvent.name)
                                     voiceManager.onAgentExecuting(agentEvent.name, "")
                                 }
                                 is AgentEvent.ConfirmationRequired -> {
@@ -744,17 +767,17 @@ class ChatViewModel
                                             pendingConfirmation = AgentConfirmation(agentEvent.name, agentEvent.argsJson),
                                         )
                                     }
-                                    updateRunning("Needs your approval: ${agentEvent.name}")
+                                    steps.updateRunning("Needs your approval: ${agentEvent.name}")
                                     voiceManager.onAgentWaitingForApproval(agentEvent.name, agentEvent.argsJson)
                                 }
                                 is AgentEvent.ToolExecuting -> {
                                     _uiState.update { it.copy(agentStatus = AgentStatus.RUNNING_TOOL) }
-                                    updateRunning("Running ${agentEvent.name}…")
+                                    steps.updateRunning("Running ${agentEvent.name}…")
                                     voiceManager.onAgentExecuting(agentEvent.name, "")
                                 }
                                 is AgentEvent.ToolExecuted -> {
                                     _uiState.update { it.copy(agentStatus = AgentStatus.READING_RESULT) }
-                                    completeRunning(
+                                    steps.completeRunning(
                                         state = if (agentEvent.success) AgentStepState.DONE else AgentStepState.FAILED,
                                         text = if (agentEvent.success) "${agentEvent.name} done" else "${agentEvent.name} failed",
                                         detail = agentEvent.observationText.take(OBSERVATION_PREVIEW_CHARS).ifBlank { null },
@@ -762,25 +785,23 @@ class ChatViewModel
                                 }
                                 is AgentEvent.ToolRejected -> {
                                     _uiState.update { it.copy(agentStatus = AgentStatus.READING_RESULT) }
-                                    completeRunning(
+                                    steps.completeRunning(
                                         state = AgentStepState.FAILED,
                                         text = "Rejected ${agentEvent.name}",
                                         detail = agentEvent.reason.take(OBSERVATION_PREVIEW_CHARS).ifBlank { null },
                                     )
                                 }
                                 is AgentEvent.ToolCancelled -> {
-                                    completeRunning(AgentStepState.DONE, "Denied ${agentEvent.name}")
+                                    steps.completeRunning(AgentStepState.DONE, "Denied ${agentEvent.name}")
                                 }
                                 is AgentEvent.FinalAnswer -> {
                                     assistantText = agentEvent.text
-                                    if (agentEvent.text.isNotEmpty() && streamingAssistant?.content != agentEvent.text) {
-                                        streamingAssistant = streamingAssistant?.copy(content = agentEvent.text)
-                                        _uiState.update { state ->
-                                            val current = streamingAssistant ?: return@update state
-                                            state.copy(
-                                                messages = state.messages.map { if (it.id == current.id) current else it },
-                                            )
-                                        }
+                                    val current = streamingAssistant
+                                    // Only adopt the final answer into a live streaming row (never create one from a
+                                    // bare FinalAnswer, and only when it is a superset so multi-iteration runs are kept whole).
+                                    if (current != null && agentEvent.text.length >= current.content.length && current.content != agentEvent.text) {
+                                        streamingAssistant = current.copy(content = agentEvent.text)
+                                        updateStreamingMessage(streamingAssistant!!)
                                     }
                                 }
                                 is AgentEvent.Failed -> {
@@ -805,7 +826,7 @@ class ChatViewModel
                             }
                         }
                         is GoalEvent.Completed -> {
-                            completeRunning(AgentStepState.DONE)
+                            steps.completeRunning(AgentStepState.DONE)
                             val summaryText = if (assistantText.isNotBlank()) assistantText else event.summary
                             val streaming = streamingAssistant
                             if (streaming != null && streaming.content.isNotBlank()) {
@@ -840,7 +861,8 @@ class ChatViewModel
                             }
                         }
                         is GoalEvent.Failed -> {
-                            completeRunning(AgentStepState.FAILED)
+                            steps.completeRunning(AgentStepState.FAILED)
+                            flushStreamingMessageStopped()
                             _uiState.update {
                                 it.copy(
                                     isStreaming = false,
@@ -853,7 +875,8 @@ class ChatViewModel
                             voiceManager.onAgentError(event.reason)
                         }
                         is GoalEvent.Cancelled -> {
-                            completeRunning(AgentStepState.CANCELLED)
+                            steps.completeRunning(AgentStepState.CANCELLED)
+                            flushStreamingMessageStopped()
                             _uiState.update {
                                 it.copy(
                                     isStreaming = false,
@@ -865,9 +888,11 @@ class ChatViewModel
                     }
                 }
             } catch (e: CancellationException) {
+                flushStreamingMessageStopped()
                 throw e
             } catch (e: Exception) {
                 val errorMsg = e.message ?: "Failed executing goal"
+                flushStreamingMessageStopped()
                 _uiState.update {
                     it.copy(
                         isStreaming = false,
@@ -922,53 +947,11 @@ class ChatViewModel
                     isVoiceMode = _uiState.value.isVoiceModeActive,
                 )
 
-            val steps = mutableListOf<AgentStep>()
-            var runningSinceMs = 0L
-
-            fun publish() = _uiState.update { it.copy(agentSteps = steps.toList()) }
-
-            fun updateRunning(text: String) {
-                val index = steps.indexOfLast { it.state == AgentStepState.RUNNING }
-                if (index >= 0) {
-                    steps[index] = steps[index].copy(text = text)
-                    publish()
-                }
-            }
-
-            /** Finish the running row and persist the milestone. */
-            suspend fun completeRunning(
-                state: AgentStepState,
-                text: String? = null,
-                detail: String? = null,
-            ) {
-                val index = steps.indexOfLast { it.state == AgentStepState.RUNNING }
-                if (index >= 0) {
-                    val finished = steps[index]
-                    steps[index] =
-                        finished.copy(
-                            text = text ?: finished.text,
-                            state = state,
-                            detail = detail ?: finished.detail,
-                            durationLabel = formatAgentDuration(System.currentTimeMillis() - runningSinceMs),
-                        )
-                    val summary =
-                        buildString {
-                            append(steps[index].text)
-                            if (detail != null) append(" — ${detail.take(OBSERVATION_PREVIEW_CHARS)}")
-                        }
-                    persistMilestone(conversationId, summary, failed = state == AgentStepState.FAILED)
-                    publish()
-                }
-            }
-
-            fun push(text: String, toolName: String? = null) {
-                runningSinceMs = System.currentTimeMillis()
-                steps += AgentStep(text = text, toolName = toolName)
-                publish()
-            }
+            val steps = StepTracker(conversationId)
 
             var answerText = ""
             var streamingAssistant: Message? = null
+            var streamTextBuilder: StringBuilder? = null
             var lastStreamPersistNanos = System.nanoTime()
             val executedToolNames = mutableSetOf<String>()
             try {
@@ -982,18 +965,21 @@ class ChatViewModel
                             }
                         }
                         is AgentEvent.IterationStarted -> {
-                            if (event.step > 1) {
-                                _uiState.update { it.copy(agentStatus = AgentStatus.THINKING_AGAIN) }
-                                voiceManager.onAgentPlanning()
-                            } else {
-                                _uiState.update { it.copy(agentStatus = if (planFirst) AgentStatus.PLANNING else AgentStatus.THINKING) }
-                                voiceManager.onAgentPlanning()
-                            }
+                            val status =
+                                if (event.step > 1) {
+                                    AgentStatus.THINKING_AGAIN
+                                } else if (planFirst) {
+                                    AgentStatus.PLANNING
+                                } else {
+                                    AgentStatus.THINKING
+                                }
+                            _uiState.update { it.copy(agentStatus = status) }
+                            voiceManager.onAgentPlanning()
                         }
                         is AgentEvent.ToolRequested -> {
                             _uiState.update { it.copy(agentStatus = AgentStatus.SELECTING_TOOL) }
-                            completeRunning(AgentStepState.DONE)
-                            push("Calling ${event.name}", toolName = event.name)
+                            steps.completeRunning(AgentStepState.DONE)
+                            steps.push("Calling ${event.name}", toolName = event.name)
                             voiceManager.onAgentExecuting(event.name, "")
                         }
                         is AgentEvent.ConfirmationRequired -> {
@@ -1003,18 +989,18 @@ class ChatViewModel
                                     pendingConfirmation = AgentConfirmation(event.name, event.argsJson),
                                 )
                             }
-                            updateRunning("Needs your approval: ${event.name}")
+                            steps.updateRunning("Needs your approval: ${event.name}")
                             voiceManager.onAgentWaitingForApproval(event.name, event.argsJson)
                         }
                         is AgentEvent.ToolExecuting -> {
                             _uiState.update { it.copy(agentStatus = AgentStatus.RUNNING_TOOL) }
-                            updateRunning("Running ${event.name}…")
+                            steps.updateRunning("Running ${event.name}…")
                             voiceManager.onAgentExecuting(event.name, "")
                         }
                         is AgentEvent.ToolExecuted -> {
                             executedToolNames += event.name
                             _uiState.update { it.copy(agentStatus = AgentStatus.READING_RESULT) }
-                            completeRunning(
+                            steps.completeRunning(
                                 state = if (event.success) AgentStepState.DONE else AgentStepState.FAILED,
                                 text = if (event.success) "${event.name} done" else "${event.name} failed",
                                 detail = event.observationText.take(OBSERVATION_PREVIEW_CHARS).ifBlank { null },
@@ -1022,14 +1008,14 @@ class ChatViewModel
                         }
                         is AgentEvent.ToolRejected -> {
                             _uiState.update { it.copy(agentStatus = AgentStatus.READING_RESULT) }
-                            completeRunning(
+                            steps.completeRunning(
                                 state = AgentStepState.FAILED,
                                 text = "Rejected ${event.name}",
                                 detail = event.reason.take(OBSERVATION_PREVIEW_CHARS).ifBlank { null },
                             )
                         }
                         is AgentEvent.ToolCancelled -> {
-                            completeRunning(AgentStepState.DONE, "Denied ${event.name}")
+                            steps.completeRunning(AgentStepState.DONE, "Denied ${event.name}")
                             _uiState.update {
                                 it.copy(
                                     agentStatus = AgentStatus.CANCELLED,
@@ -1041,16 +1027,14 @@ class ChatViewModel
                         }
                         is AgentEvent.FinalAnswer -> {
                             answerText = event.text
-                            if (event.text.isNotEmpty() && streamingAssistant?.content != event.text) {
-                                streamingAssistant = streamingAssistant?.copy(content = event.text)
-                                _uiState.update { state ->
-                                    val current = streamingAssistant ?: return@update state
-                                    state.copy(
-                                        messages = state.messages.map { if (it.id == current.id) current else it },
-                                    )
-                                }
+                            val current = streamingAssistant
+                            // Only adopt into a live streaming row (never create one from a bare FinalAnswer),
+                            // and only when it is a superset so multi-iteration runs are kept whole.
+                            if (current != null && event.text.length >= current.content.length && current.content != event.text) {
+                                streamingAssistant = current.copy(content = event.text)
+                                updateStreamingMessage(streamingAssistant!!)
                             }
-                            completeRunning(AgentStepState.DONE)
+                            steps.completeRunning(AgentStepState.DONE)
                             if (_uiState.value.isVoiceModeActive) {
                                 _uiState.update { it.copy(agentStatus = AgentStatus.SPEAKING) }
                             } else {
@@ -1058,31 +1042,27 @@ class ChatViewModel
                             }
                         }
                         is AgentEvent.TextDelta -> {
-                            streamingAssistant =
-                                (streamingAssistant ?: Message(
+                            if (streamingAssistant == null) {
+                                streamingAssistant = Message(
                                     conversationId = conversationId,
                                     role = MessageRole.ASSISTANT,
                                     content = "",
                                     status = MessageStatus.STREAMING,
                                     routeUsed = lastRouteReason,
-                                ).also { conversationRepository.upsertMessage(it) })
-                                    .copy(content = (streamingAssistant?.content ?: "") + event.text)
-                            _uiState.update { state ->
-                                val current = streamingAssistant ?: return@update state
-                                val exists = state.messages.any { it.id == current.id }
-                                state.copy(
-                                    messages = if (exists) state.messages.map { if (it.id == current.id) current else it }
-                                    else state.messages + current,
-                                    isStreaming = true,
                                 )
+                                conversationRepository.upsertMessage(streamingAssistant!!)
+                                streamTextBuilder = StringBuilder()
                             }
+                            streamTextBuilder!!.append(event.text)
+                            streamingAssistant = streamingAssistant!!.copy(content = streamTextBuilder.toString())
+                            updateStreamingMessage(streamingAssistant!!)
                             if (System.nanoTime() - lastStreamPersistNanos >= PERSIST_DEBOUNCE_NS) {
                                 lastStreamPersistNanos = System.nanoTime()
-                                streamingAssistant?.let { conversationRepository.upsertMessage(it) }
+                                conversationRepository.upsertMessage(streamingAssistant!!)
                             }
                         }
                         is AgentEvent.Failed -> {
-                            completeRunning(
+                            steps.completeRunning(
                                 state = AgentStepState.FAILED,
                                 text = "Failed: ${event.code}",
                                 detail = event.message.take(OBSERVATION_PREVIEW_CHARS).ifBlank { null },
@@ -1098,7 +1078,7 @@ class ChatViewModel
                             _uiEvents.tryEmit(ChatUiEvent.ShowError("${event.message} (${event.code})"))
                         }
                         is AgentEvent.StepCapReached -> {
-                            completeRunning(AgentStepState.DONE)
+                            steps.completeRunning(AgentStepState.DONE)
                             _uiState.update { it.copy(agentStatus = AgentStatus.COMPLETED) }
                             _uiEvents.tryEmit(
                                 ChatUiEvent.ShowNotice("Agent hit its step limit after ${event.stepsUsed} steps."),
@@ -1107,7 +1087,7 @@ class ChatViewModel
                     }
                 }
             } catch (e: CancellationException) {
-                completeRunning(AgentStepState.CANCELLED, "Cancelled")
+                steps.completeRunning(AgentStepState.CANCELLED, "Cancelled")
                 _uiState.update {
                     it.copy(
                         agentStatus = AgentStatus.CANCELLED,
@@ -1118,7 +1098,7 @@ class ChatViewModel
                 voiceManager.onAgentCancelled()
                 throw e
             } catch (t: Throwable) {
-                completeRunning(AgentStepState.FAILED, "Agent failed", t.message?.take(OBSERVATION_PREVIEW_CHARS))
+                steps.completeRunning(AgentStepState.FAILED, "Agent failed", t.message?.take(OBSERVATION_PREVIEW_CHARS))
                 _uiState.update {
                     it.copy(
                         agentStatus = AgentStatus.FAILED,

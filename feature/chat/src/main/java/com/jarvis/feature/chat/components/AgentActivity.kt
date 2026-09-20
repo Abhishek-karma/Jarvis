@@ -293,35 +293,41 @@ fun CompactApprovalCard(
 /**
  * Parses tool arguments and presents masked, user-friendly labels.
  */
-private fun parseAndFormatApprovalParams(argsJson: String): List<Pair<String, String>> {
-    return runCatching {
-        val obj = JSONObject(argsJson)
-        val list = mutableListOf<Pair<String, String>>()
-        val keys = obj.keys()
-        while (keys.hasNext()) {
-            val rawKey = keys.next()
-            val rawVal = obj.opt(rawKey)?.toString().orEmpty()
-            val label = when (rawKey.lowercase()) {
-                "to", "recipient", "phone", "number" -> "To"
-                "message", "body", "content", "text" -> "Message"
-                "subject", "title" -> "Subject"
-                "command", "cmd" -> "Command"
-                "path", "file", "filepath" -> "Path"
-                "query", "q" -> "Query"
-                "url", "uri" -> "URL"
-                else -> rawKey.replace('_', ' ').replaceFirstChar { it.uppercase() }
+private val APPROVAL_CONTACT_KEYS = setOf("to", "recipient", "phone", "number")
+private val APPROVAL_MESSAGE_KEYS = setOf("message", "body", "content", "text")
+private val APPROVAL_SECRET_KEYS = setOf("password", "token", "secret", "apikey", "api_key", "key")
+private val APPROVAL_LABELS = mapOf(
+    "to" to "To", "recipient" to "To", "phone" to "To", "number" to "To",
+    "message" to "Message", "body" to "Message", "content" to "Message", "text" to "Message",
+    "subject" to "Subject", "title" to "Subject",
+    "command" to "Command", "cmd" to "Command",
+    "path" to "Path", "file" to "Path", "filepath" to "Path",
+    "query" to "Query", "q" to "Query",
+    "url" to "URL", "uri" to "URL",
+)
+
+private fun parseAndFormatApprovalParams(argsJson: String): List<Pair<String, String>> =
+    runCatching {
+        JSONObject(argsJson).let { obj ->
+            val keys = obj.keys()
+            buildList {
+                while (keys.hasNext()) {
+                    val rawKey = keys.next()
+                    val key = rawKey.lowercase()
+                    val rawVal = obj.opt(rawKey)?.toString().orEmpty()
+                    val label = APPROVAL_LABELS[key]
+                        ?: rawKey.replace('_', ' ').replaceFirstChar { it.uppercase() }
+                    val value = when {
+                        key in APPROVAL_CONTACT_KEYS -> maskPhoneNumber(rawVal)
+                        key in APPROVAL_SECRET_KEYS -> "••••••••"
+                        key in APPROVAL_MESSAGE_KEYS -> "\"$rawVal\""
+                        else -> rawVal
+                    }
+                    add(label to value)
+                }
             }
-            val formattedValue = when {
-                rawKey.lowercase() in listOf("to", "recipient", "phone", "number") -> maskPhoneNumber(rawVal)
-                rawKey.lowercase() in listOf("password", "token", "secret", "apikey", "api_key", "key") -> "••••••••"
-                rawKey.lowercase() in listOf("message", "body", "content", "text") -> "\"$rawVal\""
-                else -> rawVal
-            }
-            list.add(label to formattedValue)
         }
-        list
     }.getOrElse { emptyList() }
-}
 
 private fun maskPhoneNumber(phone: String): String {
     val clean = phone.trim()

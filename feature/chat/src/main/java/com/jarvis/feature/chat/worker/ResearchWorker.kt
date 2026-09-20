@@ -71,6 +71,7 @@ class ResearchWorker @AssistedInject constructor(
             val runner = AgentRunner(
                 registry = toolRegistry,
                 audit = auditLogger,
+                toolPolicy = com.jarvis.core.agent.BackgroundToolPolicy(),
                 confirmationGate = { _, _ -> false },
                 stepCap = 15,
             )

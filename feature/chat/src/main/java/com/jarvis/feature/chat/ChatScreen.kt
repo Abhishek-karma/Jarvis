@@ -38,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
@@ -185,12 +186,25 @@ fun ChatScreen(
                 },
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
+            val context = LocalContext.current
             ChatNavbar(
                 title = uiState.conversationTitle,
-                messages = uiState.messages,
                 onOpenDrawer = onOpenDrawer,
                 onOpenSettings = onOpenSettings,
                 onOpenVoiceMode = onOpenVoiceMode,
+                onShareConversation = {
+                    val transcript = uiState.messages.filterNot { it.role == MessageRole.TOOL }.joinToString("\n\n") { msg ->
+                        val who = if (msg.role == MessageRole.USER) "You" else "Jarvis"
+                        "$who: ${msg.content}"
+                    }
+                    if (transcript.isNotBlank()) {
+                        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(android.content.Intent.EXTRA_TEXT, transcript)
+                        }
+                        context.startActivity(android.content.Intent.createChooser(intent, "Share conversation"))
+                    }
+                },
             )
 
             if (uiState.isLoadingConversation) {
@@ -206,6 +220,9 @@ fun ChatScreen(
                         OfflineBanner()
                     }
                     Box(modifier = Modifier.weight(1f)) {
+                        val visibleMessages = remember(uiState.messages) {
+                            uiState.messages.filter { it.role != MessageRole.TOOL }
+                        }
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             state = listState,
@@ -218,7 +235,7 @@ fun ChatScreen(
                                 ),
                             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
                         ) {
-                            if (uiState.messages.isEmpty()) {
+                            if (visibleMessages.isEmpty()) {
                                 item(key = "empty-state") {
                                     EmptyChatState(
                                         enabled = uiState.isSendingEnabled,
@@ -226,7 +243,6 @@ fun ChatScreen(
                                     )
                                 }
                             }
-                            val visibleMessages = uiState.messages.filter { it.role != MessageRole.TOOL }
                             items(visibleMessages, key = { it.id }) { message ->
                                 val isLastAssistant = message.id == lastAssistantMessageId
                                 MessageBubble(
@@ -251,7 +267,14 @@ fun ChatScreen(
                                 )
                             }
 
-                            if (uiState.isAgentRunning || uiState.pendingConfirmation != null || uiState.agentStatus.isActive || uiState.agentStatus == AgentStatus.FAILED || uiState.agentStatus == AgentStatus.CANCELLED || (uiState.agentStatus == AgentStatus.COMPLETED && uiState.agentSteps.isNotEmpty())) {
+                            val showAgentBlock =
+                                uiState.isAgentRunning ||
+                                    uiState.pendingConfirmation != null ||
+                                    uiState.agentStatus.isActive ||
+                                    uiState.agentStatus == AgentStatus.FAILED ||
+                                    uiState.agentStatus == AgentStatus.CANCELLED ||
+                                    (uiState.agentStatus == AgentStatus.COMPLETED && uiState.agentSteps.isNotEmpty())
+                            if (showAgentBlock) {
                                 item(key = "agent-live") {
                                     AgentLiveBlock(
                                         steps = uiState.agentSteps,

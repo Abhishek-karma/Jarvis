@@ -173,16 +173,17 @@ fun MessageBubble(
     }
 
     if (message.role == MessageRole.TOOL) {
+        val isError = message.status == MessageStatus.ERROR
         Surface(
             shape = JarvisShapes.pill,
-            color = if (message.status == MessageStatus.ERROR) {
+            color = if (isError) {
                 MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
             } else {
                 MaterialTheme.colorScheme.surfaceContainerLow
             },
             border = BorderStroke(
                 1.dp,
-                if (message.status == MessageStatus.ERROR) {
+                if (isError) {
                     MaterialTheme.colorScheme.error.copy(alpha = 0.4f)
                 } else {
                     MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
@@ -201,14 +202,14 @@ fun MessageBubble(
             ) {
                 Icon(
                     imageVector =
-                        if (message.status == MessageStatus.ERROR) {
+                        if (isError) {
                             Icons.Default.PriorityHigh
                         } else {
                             Icons.Default.Check
                         },
                     contentDescription = null,
                     tint =
-                        if (message.status == MessageStatus.ERROR) {
+                        if (isError) {
                             MaterialTheme.colorScheme.error
                         } else {
                             MaterialTheme.colorScheme.primary
@@ -218,7 +219,7 @@ fun MessageBubble(
                 Text(
                     text = message.content,
                     style = JarvisText.Metadata.copy(fontWeight = FontWeight.Medium),
-                    color = if (message.status == MessageStatus.ERROR) {
+                    color = if (isError) {
                         MaterialTheme.colorScheme.error
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant

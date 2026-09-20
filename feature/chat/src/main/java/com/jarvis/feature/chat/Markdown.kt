@@ -52,6 +52,15 @@ private val tableRowRegex = Regex("^\\s{0,3}\\|(.+)\\|?\\s*$")
 /** The GFM delimiter row: `| --- | :---: | --- |` — only dashes, colons and pipes. */
 private val tableDelimiterRegex = Regex("^\\s{0,3}\\|?(\\s*:?-{3,}:?\\s*\\|)+\\s*:?-{3,}:?\\s*\\|?\\s*$")
 
+private val fenceRegex = Regex("^\\s*(```+|~~~+)\\s*(\\S*)\\s*$")
+private val headingRegex = Regex("^\\s{0,3}(#{1,6})\\s+(.+)$")
+private val dividerRegex = Regex("^\\s{0,3}(\\*{3,}|-{3,}|_{3,})\\s*$")
+private val bulletMarkerRegex = Regex("^\\s*([-+*])\\s+")
+private val bulletItemRegex = Regex("^\\s*[-+]\\s+|^\\s*\\*\\s+")
+private val numberedRegex = Regex("^\\s*\\d+\\.\\s+")
+private val paraHeadingRegex = Regex("^\\s{0,3}#{1,6}\\s")
+private val paraFenceRegex = Regex("^\\s*(```+|~~~+)")
+
 /** Parse one delimiter row into the column alignment specs (kept for future use). */
 private fun isTableDelimiter(line: String): Boolean = tableDelimiterRegex.matches(line)
 
@@ -74,7 +83,6 @@ fun parseMarkdown(source: String): List<MdBlock> {
 
     while (i < lines.size) {
         val line = lines[i]
-
 
         if (tableRowRegex.matches(line) &&
             i + 1 < lines.size &&
@@ -99,8 +107,7 @@ fun parseMarkdown(source: String): List<MdBlock> {
             continue
         }
 
-
-        val fence = Regex("^\\s*(```+|~~~+)\\s*(\\S*)\\s*$").find(line)
+        val fence = fenceRegex.find(line)
         if (fence != null) {
             val marker = fence.groupValues[1].first().toString()
             val lang = fence.groupValues[2].ifEmpty { null }
@@ -115,21 +122,18 @@ fun parseMarkdown(source: String): List<MdBlock> {
             continue
         }
 
-
-        val heading = Regex("^\\s{0,3}(#{1,6})\\s+(.+)$").find(line)
+        val heading = headingRegex.find(line)
         if (heading != null) {
             blocks.add(MdBlock.Heading(heading.groupValues[1].length, parseInline(heading.groupValues[2])))
             i++
             continue
         }
 
-
-        if (Regex("^\\s{0,3}(\\*{3,}|-{3,}|_{3,})\\s*$").matches(line)) {
+        if (dividerRegex.matches(line)) {
             blocks.add(MdBlock.Divider)
             i++
             continue
         }
-
 
         if (line.trimStart().startsWith(">")) {
             val quoteLines = mutableListOf<String>()
@@ -141,25 +145,21 @@ fun parseMarkdown(source: String): List<MdBlock> {
             continue
         }
 
-
-        val bulletMarker = Regex("^\\s*([-+*])\\s+").find(line)
+        val bulletMarker = bulletMarkerRegex.find(line)
         if (bulletMarker != null) {
-
-
-            val markerRegex = Regex("^\\s*[-+]\\s+|^\\s*\\*\\s+")
             val items = mutableListOf<List<MdSpan>>()
             while (i < lines.size) {
-                val m = markerRegex.find(lines[i]) ?: break
+                val m = bulletItemRegex.find(lines[i]) ?: break
                 items.add(parseInline(lines[i].removePrefix(m.value)))
                 i++
             }
             blocks.add(MdBlock.BulletList(items))
             continue
         }
-        if (Regex("^\\s*\\d+\\.\\s+").containsMatchIn(line)) {
+        if (numberedRegex.containsMatchIn(line)) {
             val items = mutableListOf<List<MdSpan>>()
             while (i < lines.size) {
-                val m = Regex("^\\s*\\d+\\.\\s+").find(lines[i]) ?: break
+                val m = numberedRegex.find(lines[i]) ?: break
                 items.add(parseInline(lines[i].removePrefix(m.value)))
                 i++
             }
@@ -167,21 +167,18 @@ fun parseMarkdown(source: String): List<MdBlock> {
             continue
         }
 
-
         if (line.isBlank()) {
             i++
             continue
         }
-
-
 
         val paraLines = mutableListOf(line)
         i++
         while (i < lines.size &&
             lines[i].isNotBlank() &&
             !lines[i].trimStart().startsWith(">") &&
-            !Regex("^\\s{0,3}#{1,6}\\s").matches(lines[i]) &&
-            !Regex("^\\s*(```+|~~~+)").matches(lines[i]) &&
+            !paraHeadingRegex.matches(lines[i]) &&
+            !paraFenceRegex.matches(lines[i]) &&
             !(tableRowRegex.matches(lines[i]) && i + 1 < lines.size && isTableDelimiter(lines[i + 1]))
         ) {
             paraLines.add(lines[i])
