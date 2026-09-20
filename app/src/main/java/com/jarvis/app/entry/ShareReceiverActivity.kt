@@ -16,13 +16,14 @@ class ShareReceiverActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
-            ?: intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)?.toString()
+        val sharedUri = intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)
 
-        if (!sharedText.isNullOrEmpty()) {
+        if (!sharedText.isNullOrEmpty() || sharedUri != null) {
             val mainIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                putExtra("goal_text", sharedText)
+                putExtra("goal_text", sharedText ?: "Help me with the shared attachment.")
                 putExtra("goal_source", "share")
+                putExtra("goal_attachment_uri", sharedUri?.toString())
             }
             startActivity(mainIntent)
         }
