@@ -50,7 +50,8 @@ class MainActivity : ComponentActivity() {
     private val updateViewModel: UpdateViewModel by viewModels()
 
     /** Text received via ACTION_SEND / ACTION_PROCESS_TEXT, surfaced to ChatRoute. */
-    private val pendingShareText = androidx.compose.runtime.mutableStateOf<String?>(null)
+    private val pendingGoalText = androidx.compose.runtime.mutableStateOf<String?>(null)
+    private val pendingGoalSource = androidx.compose.runtime.mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
 
@@ -59,7 +60,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         enableEdgeToEdge()
-        handleSharedIntent(intent)
+        handleGoalIntent(intent)
         setContent {
 
             val mainViewModel: MainViewModel = hiltViewModel()
@@ -95,7 +96,7 @@ class MainActivity : ComponentActivity() {
         handleSharedIntent(intent)
     }
 
-    private fun handleSharedIntent(intent: Intent?) {
+    private fun handleGoalIntent(intent: Intent?) {
         if (intent == null) return
         val text = when (intent.action) {
             Intent.ACTION_SEND ->
@@ -109,14 +110,18 @@ class MainActivity : ComponentActivity() {
                 intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
             else -> null
         }
-        if (!text.isNullOrBlank()) pendingShareText.value = text
+        if (!text.isNullOrBlank()) {
+            pendingGoalText.value = if (intent.action == Intent.ACTION_PROCESS_TEXT) "Explain or act on this selected text:\n$text" else text
+            pendingGoalSource.value = if (intent.action == Intent.ACTION_PROCESS_TEXT) "process_text" else "share"
+        }
     }
 }
 
 @Composable
 private fun JarvisNavHost(
     startOnboarding: Boolean,
-    pendingShareText: androidx.compose.runtime.State<String?>,
+    pendingGoalText: String?,
+    pendingGoalSource: String?,
 ) {
     val navController = rememberNavController()
     NavHost(
@@ -140,7 +145,8 @@ private fun JarvisNavHost(
             ChatRoute(
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 onOpenVoiceMode = { navController.navigate(Routes.VOICE_MODE) },
-                pendingShareText = pendingShareText.value,
+                pendingGoalText = pendingGoalText,
+                pendingGoalSource = pendingGoalSource,
             )
         }
         composable(Routes.VOICE_MODE) { backStackEntry ->
