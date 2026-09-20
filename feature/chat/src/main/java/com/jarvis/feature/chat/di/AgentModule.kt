@@ -978,29 +978,52 @@ object AgentModule {
 
     private fun resolveFilePath(context: Context, path: String): java.io.File {
         val trimmed = path.trim()
+        require(trimmed.isNotEmpty()) { "File path is empty" }
         val lower = trimmed.lowercase()
-        return when {
-            lower == "/download" || lower == "download" || lower == "/downloads" || lower == "downloads" -> {
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            }
+
+        val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            .canonicalFile
+        val documents = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+            .canonicalFile
+        val privateRoot = context.filesDir.canonicalFile
+
+        fun childOf(root: java.io.File, child: java.io.File): Boolean =
+            child.path == root.path || child.path.startsWith(root.path + java.io.File.separator)
+
+        val candidate = when {
+            lower == "/download" || lower == "download" || lower == "/downloads" || lower == "downloads" ->
+                downloads
             lower.startsWith("/download/") || lower.startsWith("download/") -> {
                 val sub = trimmed.substringAfter("download/").removePrefix("/")
-                java.io.File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), sub)
+                java.io.File(downloads, sub)
             }
             lower.startsWith("/downloads/") || lower.startsWith("downloads/") -> {
                 val sub = trimmed.substringAfter("downloads/").removePrefix("/")
-                java.io.File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), sub)
+                java.io.File(downloads, sub)
             }
-            lower == "/documents" || lower == "documents" -> {
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-            }
+            lower == "/documents" || lower == "documents" ->
+                documents
             lower.startsWith("/documents/") || lower.startsWith("documents/") -> {
                 val sub = trimmed.substringAfter("documents/").removePrefix("/")
-                java.io.File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), sub)
+                java.io.File(documents, sub)
             }
             trimmed.startsWith("/") -> java.io.File(trimmed)
-            else -> java.io.File(context.filesDir, trimmed)
+            else -> java.io.File(privateRoot, trimmed)
         }
+
+        val canonical = candidate.canonicalFile
+        if (trimmed.startsWith("/") &&
+            !childOf(downloads, canonical) &&
+            !childOf(documents, canonical)
+        ) {
+            error("Absolute paths are restricted to Downloads and Documents.")
+        }
+        if (!trimmed.startsWith("/") && !childOf(privateRoot, canonical) &&
+            !childOf(downloads, canonical) && !childOf(documents, canonical)
+        ) {
+            error("Path escapes an allowed storage root.")
+        }
+        return canonical
     }
 
     private suspend fun createNamedFile(
