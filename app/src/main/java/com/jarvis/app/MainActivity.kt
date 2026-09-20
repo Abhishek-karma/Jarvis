@@ -93,7 +93,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        handleSharedIntent(intent)
+        handleGoalIntent(intent)
     }
 
     private fun handleGoalIntent(intent: Intent?) {
