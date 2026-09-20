@@ -19,8 +19,9 @@ class ProcessTextActivity : ComponentActivity() {
         if (!text.isNull_orEmpty()) {
             val mainIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                putExtra("goal_text", text)
+                putExtra("goal_text", "Explain or act on this selected text:\n$text")
                 putExtra("goal_source", "process_text")
+                putExtra("goal_context", text)
             }
             startActivity(mainIntent)
         }
