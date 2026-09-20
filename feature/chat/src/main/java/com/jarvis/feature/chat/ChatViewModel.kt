@@ -15,8 +15,6 @@ import com.jarvis.core.agent.DefaultToolPolicy
 import com.jarvis.core.agent.GoalEngine
 import com.jarvis.core.agent.GoalEvent
 import com.jarvis.core.agent.ToolRegistry
-import com.jarvis.core.agent.execution.ExecutionStrategy
-import com.jarvis.core.capability.CapabilityResult
 import com.jarvis.core.agent.tools.WebTools
 import com.jarvis.core.common.Conversation
 import com.jarvis.core.common.DEFAULT_CONVERSATION_TITLE
