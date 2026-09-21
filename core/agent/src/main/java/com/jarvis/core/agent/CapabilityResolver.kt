@@ -4,6 +4,7 @@ import com.jarvis.core.agent.tools.DeviceTools
 import com.jarvis.core.agent.tools.MediaTools
 import com.jarvis.core.agent.tools.SystemInfoTools
 import java.util.Locale
+import javax.inject.Inject
 
 /** Small deterministic optimization for unambiguous single-step requests. */
 sealed interface DirectCapability {
@@ -14,7 +15,7 @@ sealed interface DirectCapability {
     data class Action(override val toolName: String, override val argsJson: String, override val userFacingAction: String) : DirectCapability
 }
 
-class CapabilityResolver {
+class CapabilityResolver @Inject constructor() {
     fun resolve(text: String): DirectCapability? {
         val value = text.trim().lowercase(Locale.US)
         if (value.isBlank()) return null
