@@ -126,7 +126,7 @@ class ChatViewModelTest {
         coEvery { goalEngine.executeGoal(any()) } answers {
             val goal = firstArg<AssistantGoal>()
             flow {
-                if (AgentTrigger.shouldUseAgent(goal.goalDescription)) {
+                run {
                     val agentRequest = AgentRunRequest(
                         provider = goal.provider,
                         modelId = goal.modelId,
@@ -158,7 +158,6 @@ class ChatViewModelTest {
                     }
                 }
             }
-        }
         return goalEngine
     }
 
