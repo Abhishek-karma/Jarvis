@@ -158,6 +158,7 @@ class ChatViewModelTest {
                     }
                 }
             }
+        }
         return goalEngine
     }
 
@@ -604,7 +605,8 @@ class ChatViewModelTest {
             val state = viewModel.uiState.value
             assertTrue(state.isStreaming)
             assertEquals(null, state.pendingConfirmation)
-            assertFalse(state.isAgentRunning)
+            // A new goal-engine run is now in flight for the superseding message.
+            assertTrue(state.isAgentRunning)
             coVerify(atLeast = 1) {
                 conversationRepository.upsertMessage(
                     match {
