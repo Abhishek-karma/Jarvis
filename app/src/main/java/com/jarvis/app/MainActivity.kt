@@ -84,7 +84,11 @@ class MainActivity : ComponentActivity() {
                     when (val firstRun = showOnboarding) {
 
                         null -> Unit
-                        else -> JarvisNavHost(startOnboarding = firstRun, pendingShareText)
+                        else -> JarvisNavHost(
+                            startOnboarding = firstRun,
+                            pendingGoalText = pendingGoalText.value,
+                            pendingGoalSource = pendingGoalSource.value,
+                        )
                     }
                 }
             }
