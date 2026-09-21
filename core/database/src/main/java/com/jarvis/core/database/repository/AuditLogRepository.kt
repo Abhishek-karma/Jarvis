@@ -255,3 +255,10 @@ val MIGRATION_7_8 = object : Migration(7, 8) {
     }
 }
 
+/** v8 → v9: add composite (conversationId, createdAt) index to `messages` to accelerate ranged history reads. */
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_messages_conversationId_createdAt` ON `messages` (`conversationId`, `createdAt`)")
+    }
+}
+
