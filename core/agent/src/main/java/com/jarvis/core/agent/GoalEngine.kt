@@ -3,8 +3,6 @@ package com.jarvis.core.agent
 import com.jarvis.core.agent.execution.ErrorCode
 import com.jarvis.core.agent.execution.ExecutionResult
 import com.jarvis.core.agent.needle.EscalationReason
-import com.jarvis.core.agent.needle.NeedleConfig
-import com.jarvis.core.agent.needle.NeedleEngine
 import com.jarvis.core.agent.needle.NeedleRouter
 import com.jarvis.core.agent.needle.RoutingDecision
 import com.jarvis.core.common.Message
@@ -74,22 +72,16 @@ sealed class GoalEvent {
  * Assistant Goal Router coordinating LLM-centric reasoning, step dictation,
  * tool invocation, and verification.
  *
- * The LLM is the central brain:
- * 1. Analyzes goal and context
- * 2. Formulates and dictates multi-step actions
- * 3. Decides when to invoke native tools or Needle router
- * 4. Receives tool observations and verifies the results before concluding
+ * The LLM is reserved for complex reasoning and multi-step planning.
+ * Simple, high-confidence native actions are handled by the local Needle layer and
+ * always pass through ToolExecutor.
  */
 @Singleton
 class GoalEngine @Inject constructor(
     private val agentRunner: AgentRunner,
     private val taskRepository: TaskRepository,
     private val toolExecutor: ToolExecutor,
-    private val needleRouter: NeedleRouter = NeedleRouter(
-        engine = NeedleEngine(),
-        config = NeedleConfig(),
-        defaultDispatcher = kotlinx.coroutines.Dispatchers.Default,
-    ),
+    private val needleRouter: NeedleRouter,
 ) {
     /**
      * Executes a user goal end-to-end with the LLM as the central cognitive engine.

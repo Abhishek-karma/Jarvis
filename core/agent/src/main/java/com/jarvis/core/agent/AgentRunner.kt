@@ -64,6 +64,14 @@ class LlmProviderElement(
     override val key: kotlin.coroutines.CoroutineContext.Key<*> = Key
 }
 
+/** Set by ToolExecutor after approval of the outer phone_agent capability. */
+class PhoneAutomationApprovalElement(
+    val approved: Boolean,
+) : kotlin.coroutines.CoroutineContext.Element {
+    companion object Key : kotlin.coroutines.CoroutineContext.Key<PhoneAutomationApprovalElement>
+    override val key: kotlin.coroutines.CoroutineContext.Key<*> = Key
+}
+
 /** Streamed progress of an agent run. */
 sealed class AgentEvent {
     data object RunStarted : AgentEvent()
@@ -382,7 +390,7 @@ class AgentRunner(
                     emit(AgentEvent.ToolRequested(call.name, call.argsJson, tier))
 
                     val idempotencyKey = request.agentRunId?.let { runId ->
-                        "$runId:step-$steps:${call.name}:${call.argsJson.hashCode()}"
+                        "$runId:${call.name}:$normalizedArgs"
                     }
 
                     val outcome = if (effectiveTimeout != null) {

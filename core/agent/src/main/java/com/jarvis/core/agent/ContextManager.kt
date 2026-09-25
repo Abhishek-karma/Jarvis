@@ -17,70 +17,65 @@ data class ContextBudget(
     val outputReserveTokens: Int,
 ) {
     companion object {
-        fun create(maxTotalTokens: Int = 4096): ContextBudget {
-            val safeTotal = maxOf(maxTotalTokens, 1024)
-            val output = (safeTotal * 0.15).toInt().coerceIn(256, 1024)
-            val system = (safeTotal * 0.15).toInt().coerceIn(200, 1000)
-            val tools = (safeTotal * 0.15).toInt().coerceIn(200, 1000)
-            val memory = (safeTotal * 0.10).toInt().coerceIn(100, 600)
-            val attachments = (safeTotal * 0.10).toInt().coerceIn(150, 800)
-            val history = (safeTotal - system - tools - memory - attachments - output)
-                .coerceAtLeast(1)
+        private fun fitBudget(
+            total: Int,
+            output: Int,
+            system: Int,
+            tools: Int,
+            memory: Int,
+            attachments: Int,
+        ): ContextBudget {
+            val safeTotal = maxOf(total, 1024)
+            val safeOutput = output.coerceIn(0, safeTotal)
+            val available = (safeTotal - safeOutput).coerceAtLeast(0)
+            val requested = intArrayOf(system, tools, memory, attachments)
+            val caps = intArrayOf(1000, 1000, 600, 800)
+            var remaining = available
+            val parts = IntArray(4)
+            for (i in requested.indices) {
+                val share = if (i == requested.lastIndex) remaining
+                else (available.toDouble() * requested[i] / requested.sum().coerceAtLeast(1)).toInt()
+                parts[i] = share.coerceIn(0, minOf(caps[i], remaining))
+                remaining -= parts[i]
+            }
             return ContextBudget(
                 maxTotalTokens = safeTotal,
-                systemPromptBudget = system,
-                toolsBudget = tools,
-                memoryBudget = memory,
-                attachmentsBudget = attachments,
-                historyBudget = history,
-                maxObservationTokens = (safeTotal * 0.25).toInt().coerceIn(300, 1500),
-                outputReserveTokens = output,
+                systemPromptBudget = parts[0],
+                toolsBudget = parts[1],
+                memoryBudget = parts[2],
+                attachmentsBudget = parts[3],
+                historyBudget = remaining,
+                maxObservationTokens = (safeTotal * 0.25).toInt().coerceIn(1, 1500),
+                outputReserveTokens = safeOutput,
             )
         }
 
-        fun forLocal(maxTotalTokens: Int = 2048): ContextBudget {
-            val total = maxOf(maxTotalTokens, 1024)
-            val output = 256
-            val system = 200
-            val tools = 250
-            val memory = 100
-            val attachments = 150
-            val maxObs = 150
-            val history = (total - system - tools - memory - attachments - output)
-                .coerceAtLeast(1)
-            return ContextBudget(
-                maxTotalTokens = total,
-                systemPromptBudget = system,
-                toolsBudget = tools,
-                memoryBudget = memory,
-                attachmentsBudget = attachments,
-                historyBudget = history,
-                maxObservationTokens = maxObs,
-                outputReserveTokens = output,
-            )
-        }
+        fun create(maxTotalTokens: Int = 4096): ContextBudget = fitBudget(
+            total = maxOf(maxTotalTokens, 1024),
+            output = (maxTotalTokens.coerceAtLeast(1024) * 0.15).toInt().coerceIn(256, 1024),
+            system = (maxTotalTokens.coerceAtLeast(1024) * 0.15).toInt().coerceIn(200, 1000),
+            tools = (maxTotalTokens.coerceAtLeast(1024) * 0.15).toInt().coerceIn(200, 1000),
+            memory = (maxTotalTokens.coerceAtLeast(1024) * 0.10).toInt().coerceIn(100, 600),
+            attachments = (maxTotalTokens.coerceAtLeast(1024) * 0.10).toInt().coerceIn(150, 800),
+        )
 
-        fun forCloud(maxTotalTokens: Int = 8192): ContextBudget {
-            val total = maxOf(maxTotalTokens, 2048)
-            val output = 1024
-            val system = (total * 0.15).toInt().coerceIn(600, 1500)
-            val tools = (total * 0.15).toInt().coerceIn(600, 1500)
-            val memory = (total * 0.08).toInt().coerceIn(300, 800)
-            val attachments = (total * 0.12).toInt().coerceIn(400, 1500)
-            val maxObs = 1200
-            val history = (total - system - tools - memory - attachments - output)
-                .coerceAtLeast(1)
-            return ContextBudget(
-                maxTotalTokens = total,
-                systemPromptBudget = system,
-                toolsBudget = tools,
-                memoryBudget = memory,
-                attachmentsBudget = attachments,
-                historyBudget = history,
-                maxObservationTokens = maxObs,
-                outputReserveTokens = output,
-            )
-        }
+        fun forLocal(maxTotalTokens: Int = 2048): ContextBudget = fitBudget(
+            total = maxOf(maxTotalTokens, 1024),
+            output = 256,
+            system = 200,
+            tools = 250,
+            memory = 100,
+            attachments = 150,
+        )
+
+        fun forCloud(maxTotalTokens: Int = 8192): ContextBudget = fitBudget(
+            total = maxOf(maxTotalTokens, 2048),
+            output = 1024,
+            system = (maxTotalTokens.coerceAtLeast(2048) * 0.15).toInt().coerceIn(600, 1500),
+            tools = (maxTotalTokens.coerceAtLeast(2048) * 0.15).toInt().coerceIn(600, 1500),
+            memory = (maxTotalTokens.coerceAtLeast(2048) * 0.08).toInt().coerceIn(300, 800),
+            attachments = (maxTotalTokens.coerceAtLeast(2048) * 0.12).toInt().coerceIn(400, 1500),
+        )
     }
 }
 
@@ -255,22 +250,47 @@ class ContextManager {
 
         val firstTurnCost = estimateMessagesTokens(firstTurn.messages)
         val lastTurnCost = if (atomicTurns.size > 1) estimateMessagesTokens(lastTurn.messages) else 0
-
         val checkpointOverhead = 25 // tokens for system checkpoint marker
         var remainingBudget = historyTokenBudget - firstTurnCost - lastTurnCost - checkpointOverhead
 
         val selectedMiddleTurns = mutableListOf<AtomicTurn>()
         var droppedCount = 0
 
-        // If we only have 1 or 2 turns, keep what we have
+        // If there are only one or two turns, still compact oversized history.
+        // Tool groups remain atomic; the active/latest turn is preferred.
         if (atomicTurns.size <= 2) {
-            val allMsgs = atomicTurns.flatMap { it.messages }
-            return CompactedContext(
-                messages = allMsgs,
-                estimatedTotalTokens = estimateMessagesTokens(allMsgs),
-                wasCompacted = false,
-                droppedMessagesCount = 0,
-            )
+            val selected = if (atomicTurns.size == 1 && lastTurn.messages.size == 1 && lastTurnCost > historyTokenBudget) {
+                val message = lastTurn.messages.single()
+                listOf(AtomicTurn.Single(message.copy(content = clampTextToBudget(message.content, (historyTokenBudget - checkpointOverhead).coerceAtLeast(0)))))
+            } else {
+                val chosen = mutableListOf<AtomicTurn>()
+                val firstCost = firstTurnCost
+                val lastCost = if (atomicTurns.size > 1) lastTurnCost else 0
+                if (firstCost + lastCost + checkpointOverhead <= historyTokenBudget) {
+                    chosen += firstTurn
+                    if (atomicTurns.size > 1) chosen += lastTurn
+                } else if (lastCost + checkpointOverhead <= historyTokenBudget && atomicTurns.size > 1) {
+                    chosen += lastTurn
+                } else if (firstCost <= historyTokenBudget) {
+                    chosen += firstTurn
+                }
+                chosen
+            }
+            val result = selected.flatMap { it.messages }.toMutableList()
+            if (selected.size < atomicTurns.size) {
+                result.add(
+                    0,
+                    Message(
+                        id = "checkpoint-${System.currentTimeMillis()}",
+                        conversationId = messages.first().conversationId,
+                        role = MessageRole.SYSTEM,
+                        content = "[Context budget enforced: earlier messages compacted for memory limit]",
+                        createdAt = System.currentTimeMillis(),
+                    ),
+                )
+            }
+            val dropped = messages.size - result.count { it.role != MessageRole.SYSTEM }
+            return CompactedContext(result, estimateMessagesTokens(result), dropped > 0, dropped.coerceAtLeast(0))
         }
 
         // Collect middle turns working backwards from (size - 2) down to 1
@@ -287,7 +307,10 @@ class ContextManager {
         }
 
         val resultMessages = mutableListOf<Message>()
-        resultMessages.addAll(firstTurn.messages)
+        val keepFirst = firstTurnCost + lastTurnCost + checkpointOverhead <= historyTokenBudget
+        if (keepFirst) {
+            resultMessages.addAll(firstTurn.messages)
+        }
 
         if (droppedCount > 0) {
             val checkpoint = Message(
@@ -309,10 +332,18 @@ class ContextManager {
         }
 
         val finalTokens = estimateMessagesTokens(resultMessages)
+        val boundedResult = if (finalTokens > historyTokenBudget && resultMessages.lastOrNull()?.let { it.role == MessageRole.USER || it.role == MessageRole.ASSISTANT } == true) {
+            val last = resultMessages.last()
+            val contentBudget = (historyTokenBudget - estimateMessagesTokens(resultMessages.dropLast(1))).coerceAtLeast(0)
+            resultMessages.dropLast(1) + last.copy(content = clampTextToBudget(last.content, contentBudget))
+        } else {
+            resultMessages
+        }
+        val finalBoundedTokens = estimateMessagesTokens(boundedResult)
         return CompactedContext(
-            messages = resultMessages,
-            estimatedTotalTokens = finalTokens,
-            wasCompacted = droppedCount > 0,
+            messages = boundedResult,
+            estimatedTotalTokens = finalBoundedTokens,
+            wasCompacted = droppedCount > 0 || finalBoundedTokens < finalTokens,
             droppedMessagesCount = droppedCount,
         )
     }
@@ -349,7 +380,7 @@ class ContextManager {
 
         // Step 2: Calculate effective history budget
         val usedTokens = systemPromptTokens + toolsTokens + estimateTokens(memoryContext.orEmpty())
-        val availableForHistory = maxOf(budget.maxTotalTokens - usedTokens - budget.outputReserveTokens, budget.historyBudget)
+        val availableForHistory = (budget.maxTotalTokens - usedTokens - budget.outputReserveTokens).coerceAtLeast(0)
 
         // Step 3: Compact history preserving atomic turns
         var compacted = compactHistory(clampedHistory, availableForHistory)
@@ -358,7 +389,7 @@ class ContextManager {
         val totalEstimate = systemPromptTokens + toolsTokens + estimateTokens(memoryContext.orEmpty()) + compacted.estimatedTotalTokens
         if (totalEstimate > budget.maxTotalTokens) {
             // Aggressive fallback: preserve first and last turns only
-            val emergencyBudget = maxOf(budget.maxTotalTokens - systemPromptTokens - toolsTokens - budget.outputReserveTokens, 200)
+            val emergencyBudget = (budget.maxTotalTokens - systemPromptTokens - toolsTokens - budget.outputReserveTokens).coerceAtLeast(0)
             compacted = compactHistory(clampedHistory, emergencyBudget)
         }
 

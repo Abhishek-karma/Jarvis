@@ -16,14 +16,20 @@ typealias RoomOperationRepository = OperationRepository
 open class OperationRepository @Inject constructor(
     private val operationDao: OperationDao? = null,
 ) {
-    open suspend fun getByKey(key: String): Operation? = operationDao?.getByKey(key)?.toDomain()
+    open suspend fun getByKey(key: String): Operation? = requireNotNull(operationDao) {
+        "OperationRepository requires a persistent OperationDao"
+    }.getByKey(key)?.toDomain()
 
     open suspend fun insert(operation: Operation) {
-        operationDao?.insert(operation.toEntity())
+        requireNotNull(operationDao) {
+            "OperationRepository requires a persistent OperationDao"
+        }.insert(operation.toEntity())
     }
 
     open suspend fun updateStatus(operation: Operation) {
-        operationDao?.updateStatus(
+        requireNotNull(operationDao) {
+            "OperationRepository requires a persistent OperationDao"
+        }.updateStatus(
             id = operation.id,
             status = operation.status.name,
             resultJson = operation.resultJson,
@@ -33,10 +39,14 @@ open class OperationRepository @Inject constructor(
     }
 
     open suspend fun listForTask(taskId: String): List<Operation> =
-        operationDao?.listForTask(taskId)?.map { it.toDomain() } ?: emptyList()
+        requireNotNull(operationDao) {
+            "OperationRepository requires a persistent OperationDao"
+        }.listForTask(taskId).map { it.toDomain() }
 
     open suspend fun listExecuting(): List<Operation> =
-        operationDao?.listExecuting()?.map { it.toDomain() } ?: emptyList()
+        requireNotNull(operationDao) {
+            "OperationRepository requires a persistent OperationDao"
+        }.listExecuting().map { it.toDomain() }
 }
 
 private fun OperationEntity.toDomain(): Operation = Operation(

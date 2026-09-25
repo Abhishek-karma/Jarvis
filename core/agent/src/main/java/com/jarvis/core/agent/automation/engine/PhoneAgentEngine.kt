@@ -2,6 +2,7 @@ package com.jarvis.core.agent.automation.engine
 
 import com.jarvis.core.agent.ConfirmationGate
 import com.jarvis.core.agent.DefaultToolPolicy
+import com.jarvis.core.agent.PhoneAutomationApprovalElement
 import com.jarvis.core.agent.ToolPolicy
 import com.jarvis.core.agent.automation.AutomationActionResult
 import com.jarvis.core.agent.automation.PhoneAgentResult
@@ -36,6 +37,8 @@ import java.util.Locale
  */
 class PhoneAgentEngine(
     private val driver: PhoneAutomationDriver,
+    private val phoneActionModel: PhoneActionModel = UnavailablePhoneActionModel(),
+    private val requirePhoneActionModel: Boolean = false,
     private val llmProvider: (suspend () -> LlmProvider?)? = null,
     private val modelIdProvider: (suspend () -> String)? = null,
     private val toolPolicy: ToolPolicy = DefaultToolPolicy(),
@@ -72,7 +75,9 @@ class PhoneAgentEngine(
     ): PhoneAgentResult {
         currentCoroutineContext().ensureActive()
         val contextGate = currentCoroutineContext()[com.jarvis.core.agent.ConfirmationGateElement]?.gate
-        val effectiveGate = confirmationGate ?: contextGate ?: this.confirmationGate
+        val phoneAutomationApproved =
+            currentCoroutineContext()[PhoneAutomationApprovalElement]?.approved == true
+        val effectiveGate = if (phoneAutomationApproved) null else confirmationGate ?: contextGate ?: this.confirmationGate
 
         val trimmedGoal = goal.trim()
         if (trimmedGoal.isBlank()) {
@@ -206,7 +211,7 @@ class PhoneAgentEngine(
             // 4. GOAL VERIFICATION CHECK (Only if actions have already occurred)
             if (completedSteps.isNotEmpty() && verifyGoalReached(trimmedGoal, activeSnapshot, completedSteps)) {
                 return PhoneAgentResult.success(
-                    message = "Goal achieved: $trimmedGoal.",
+                    message = verifiedAutomationSummary(completedSteps),
                     completedSteps = completedSteps,
                 )
             }
@@ -248,7 +253,9 @@ class PhoneAgentEngine(
                 is EngineAction.Done -> {
                     // Mandatory Verification before accepting DONE:
                     return if (verifyGoalReached(trimmedGoal, activeSnapshot, completedSteps, action.postcondition)) {
-                        PhoneAgentResult.success(action.summary, completedSteps)
+                        val summary = action.summary.takeIf { it.isNotBlank() }
+                            ?: verifiedAutomationSummary(completedSteps)
+                        PhoneAgentResult.success(summary, completedSteps)
                     } else {
                         PhoneAgentResult.failure(
                             message = "Action sequence completed but concrete postconditions could not be verified on screen.",
@@ -393,7 +400,7 @@ class PhoneAgentEngine(
         val finalSnapshot = driver.observe().getOrNull()
         return if (finalSnapshot != null && verifyGoalReached(trimmedGoal, finalSnapshot, completedSteps)) {
             PhoneAgentResult.success(
-                message = "Goal achieved: $trimmedGoal.",
+                message = verifiedAutomationSummary(completedSteps),
                 completedSteps = completedSteps,
             )
         } else {
@@ -404,6 +411,13 @@ class PhoneAgentEngine(
             )
         }
     }
+
+    private fun verifiedAutomationSummary(completedSteps: List<String>): String =
+        if (completedSteps.isEmpty()) {
+            "The requested screen state was verified, but no individual action was recorded."
+        } else {
+            "The requested screen state was verified after: ${completedSteps.joinToString(", ")}."
+        }
 
     private fun isSensitiveAction(actionName: String, target: String?, element: UiElementSnapshot?): Boolean {
         val candidates = listOfNotNull(
@@ -495,6 +509,15 @@ class PhoneAgentEngine(
         snapshot: UiWindowSnapshot,
         completedSteps: List<String>,
     ): EngineAction {
+        when (val decision = phoneActionModel.decide(goal, snapshot, completedSteps)) {
+            is PhoneActionDecision.Action -> return decision.action.toEngineAction()
+            is PhoneActionDecision.Unavailable -> if (requirePhoneActionModel) {
+                return EngineAction.Fail(decision.reason, ErrorCode.ACTION_FAILED)
+            } else {
+                Unit
+            }
+        }
+
         val contextProvider = currentCoroutineContext()[com.jarvis.core.agent.LlmProviderElement]?.provider
         val contextModelId = currentCoroutineContext()[com.jarvis.core.agent.LlmProviderElement]?.modelId
 
@@ -586,7 +609,8 @@ class PhoneAgentEngine(
                 "back" -> EngineAction.Back
                 "done" -> {
                     val postcondition = json.optString("postcondition").takeIf { it.isNotBlank() }
-                    EngineAction.Done(json.optString("reason", "Goal completed."), postcondition)
+                    val summary = json.optString("reason").trim()
+                    EngineAction.Done(summary, postcondition)
                 }
                 "fail" -> EngineAction.Fail(json.optString("reason", "Could not complete action."), ErrorCode.ACTION_FAILED)
                 else -> null
@@ -596,6 +620,17 @@ class PhoneAgentEngine(
         } catch (e: Exception) {
             null
         }
+    }
+
+    private fun PhoneAction.toEngineAction(): EngineAction = when (this) {
+        is PhoneAction.Click -> EngineAction.Click(target, x, y)
+        is PhoneAction.Type -> EngineAction.Type(text, target, submit)
+        is PhoneAction.Submit -> EngineAction.Submit(target)
+        is PhoneAction.Scroll -> EngineAction.Scroll(direction)
+        is PhoneAction.Swipe -> EngineAction.Swipe(startX, startY, endX, endY)
+        PhoneAction.Back -> EngineAction.Back
+        is PhoneAction.Done -> EngineAction.Done("", postcondition)
+        is PhoneAction.Fail -> EngineAction.Fail(reason, ErrorCode.ACTION_FAILED)
     }
 
     /**
@@ -610,6 +645,7 @@ class PhoneAgentEngine(
         val lowerGoal = goal.lowercase(Locale.US)
 
         // 1. Search Affordance: Locate search button or input field
+
         if (lowerGoal.contains("search") || lowerGoal.contains("find")) {
             val query = extractQueryTerms(goal)
 

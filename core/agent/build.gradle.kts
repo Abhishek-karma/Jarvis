@@ -36,6 +36,7 @@ dependencies {
     implementation(project(":core:network"))
     implementation(project(":core:database"))
 
+    implementation(libs.litertlm.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.shizuku.api)

@@ -126,7 +126,6 @@ class RealUserFlowsTest {
             dispatchers = dispatchers,
             voiceManager = voiceManager,
             toolRegistry = toolRegistry,
-            auditLogger = auditLogger,
             userPreferences = userPreferences,
             conversationContextManager = conversationContextManager,
             goalEngine = goalEngine,

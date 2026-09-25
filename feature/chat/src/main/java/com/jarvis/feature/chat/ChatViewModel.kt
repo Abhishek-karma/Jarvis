@@ -5,16 +5,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jarvis.core.agent.AgentEvent
 import com.jarvis.core.agent.AgentRunRequest
-import com.jarvis.core.agent.AgentRunner
 import com.jarvis.core.agent.AssistantGoal
-import com.jarvis.core.agent.AuditLogger
 import com.jarvis.core.agent.ConfirmationGate
-import com.jarvis.core.agent.ContextManager
-import com.jarvis.core.agent.DefaultToolPolicy
 import com.jarvis.core.agent.GoalEngine
 import com.jarvis.core.agent.GoalEvent
 import com.jarvis.core.agent.ToolRegistry
-import com.jarvis.core.agent.tools.WebTools
 import com.jarvis.core.common.Conversation
 import com.jarvis.core.common.DEFAULT_CONVERSATION_TITLE
 import com.jarvis.core.common.DispatcherProvider
@@ -32,7 +27,6 @@ import com.jarvis.core.preferences.UserPreferencesRepository
 import com.jarvis.core.voice.VoiceSessionState
 import com.jarvis.feature.chat.components.AssistantActionFormatter
 import com.jarvis.core.network.CategorizedProviderError
-import com.jarvis.core.network.ChatRequest
 import com.jarvis.core.network.ChatStreamEvent
 import com.jarvis.core.network.LlmProvider
 import com.jarvis.core.network.ProviderManager
@@ -64,7 +58,6 @@ class ChatViewModel
         private val dispatchers: DispatcherProvider,
         private val voiceManager: ChatVoiceManager,
         private val toolRegistry: ToolRegistry,
-        private val auditLogger: AuditLogger,
         private val userPreferences: UserPreferencesRepository,
         private val conversationContextManager: ConversationContextManager,
         private val goalEngine: GoalEngine,
@@ -106,23 +99,8 @@ class ChatViewModel
             awaitConfirmation(toolName, argsJson)
         }
 
-        private val contextManager = ContextManager()
-
         private suspend fun buildMemoryContext(userQuery: String? = null): String? =
             conversationContextManager.buildMemoryContext(_uiState.value.activeRoute, userQuery)
-
-        private fun buildAssistantSystemPrompt(
-            memoryContext: String?,
-            isVoiceMode: Boolean = false,
-            planFirst: Boolean = false,
-            webToolsAvailable: Boolean = true,
-        ): String =
-            conversationContextManager.buildAssistantSystemPrompt(
-                memoryContext = memoryContext,
-                isVoiceMode = isVoiceMode,
-                planFirst = planFirst,
-                webToolsAvailable = webToolsAvailable,
-            )
 
         private suspend fun extractAndSaveLearnedContext(userText: String) {
             conversationContextManager.extractAndSaveLearnedContext(userText)

@@ -14,6 +14,7 @@ import com.jarvis.core.agent.PermissionTier
 import com.jarvis.core.agent.Tool
 import com.jarvis.core.agent.ToolRegistry
 import com.jarvis.core.agent.ToolResult
+import com.jarvis.core.agent.ToolExecutor
 import kotlinx.coroutines.flow.flow
 import com.jarvis.core.common.Conversation
 import com.jarvis.core.common.DEFAULT_CONVERSATION_TITLE
@@ -23,6 +24,9 @@ import com.jarvis.core.common.MessageStatus
 import com.jarvis.core.common.ProviderConfig
 import com.jarvis.core.common.RoutingOverride
 import com.jarvis.core.database.repository.ConversationRepository
+import com.jarvis.core.database.repository.OperationRepository
+import com.jarvis.core.common.Operation
+import com.jarvis.core.common.OperationStatus
 import com.jarvis.core.network.ChatStreamEvent
 import com.jarvis.core.network.ProviderCapabilities
 import com.jarvis.core.network.ProviderManager
@@ -113,7 +117,6 @@ class ChatViewModelTest {
                         .DispatcherProvider(),
                 voiceManager = voiceManager,
                 toolRegistry = toolRegistry,
-                auditLogger = AuditLogger { },
                 userPreferences = userPreferences,
                 conversationContextManager = contextManager,
                 goalEngine = createTestGoalEngine(toolRegistry, contextManager),
@@ -137,11 +140,26 @@ class ChatViewModelTest {
                         memoryContext = goal.memoryContext,
                         planFirst = goal.planFirst,
                         isVoiceMode = goal.isVoiceMode,
+                        confirmationGate = goal.confirmationGate,
+                        forceConfirm = goal.forceConfirm,
                     )
+                    val operations = object : OperationRepository() {
+                        private val records = mutableMapOf<String, Operation>()
+                        override suspend fun getByKey(key: String): Operation? = records[key]
+                        override suspend fun insert(operation: Operation) { records[operation.idempotencyKey] = operation }
+                        override suspend fun updateStatus(operation: Operation) { records[operation.idempotencyKey] = operation }
+                        override suspend fun listForTask(taskId: String): List<Operation> = records.values.filter { it.taskId == taskId }
+                        override suspend fun listExecuting(): List<Operation> = records.values.filter { it.status == OperationStatus.EXECUTING }
+                    }
                     val runner = AgentRunner(
                         registry = toolRegistry,
                         audit = AuditLogger {},
                         confirmationGate = viewModel.createConfirmationGate(),
+                        toolExecutor = ToolExecutor(
+                            registry = toolRegistry,
+                            audit = AuditLogger {},
+                            operationRepository = operations,
+                        ),
                     )
                     var completed = false
                     runner.run(agentRequest).collect { agentEvent ->
@@ -943,7 +961,6 @@ class ChatViewModelTest {
                         .DispatcherProvider(),
                 voiceManager = voiceManager,
                 toolRegistry = registry,
-                auditLogger = AuditLogger { },
                 userPreferences = userPreferences,
                 conversationContextManager = contextManager,
                 goalEngine = createTestGoalEngine(registry, contextManager),

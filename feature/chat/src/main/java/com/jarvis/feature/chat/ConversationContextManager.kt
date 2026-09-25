@@ -74,16 +74,6 @@ class ConversationContextManager @Inject constructor(
         )
     }
 
-    /** Overload for backward compatibility */
-    fun buildAssistantSystemPrompt(memoryContext: String?): String {
-        return buildAssistantSystemPrompt(
-            memoryContext = memoryContext,
-            isVoiceMode = false,
-            planFirst = false,
-            webToolsAvailable = true,
-        )
-    }
-
     suspend fun extractAndSaveLearnedContext(userText: String) {
         val memoryEnabled = userPreferences.memoryEnabled.first()
         if (!memoryEnabled) return

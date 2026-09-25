@@ -19,10 +19,6 @@ class AutomationController @Inject constructor(
     private val _currentState = AtomicReference(AutomationState.IDLE)
     val currentState: AutomationState get() = _currentState.get()
 
-    fun resetLoop() {
-        _currentState.set(AutomationState.IDLE)
-    }
-
     /**
      * Observes the active screen and retrieves a clean semantic representation.
      */

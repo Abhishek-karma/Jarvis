@@ -13,6 +13,10 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -115,7 +119,7 @@ class ToolExecutor @Inject constructor(
         // 2. Stable operation identity & Idempotency check for side effects
         val isSideEffecting = tool.tier != PermissionTier.READ_ONLY
         val effectiveKey = idempotencyKey ?: if (isSideEffecting && agentRunId != null) {
-            "$agentRunId:${tool.name}:${argsJson.hashCode()}"
+            "$agentRunId:${tool.name}:${stableOperationArguments(argsJson)}"
         } else {
             null
         }
@@ -435,7 +439,8 @@ class ToolExecutor @Inject constructor(
         val execResult = try {
             val gateElement = ConfirmationGateElement(confirmationGate)
             val llmElement = LlmProviderElement(llmProvider, modelId)
-            withContext(gateElement + llmElement) {
+            val phoneApprovalElement = PhoneAutomationApprovalElement(approved = userConfirmed)
+            withContext(gateElement + llmElement + phoneApprovalElement) {
                 tool.execute(argsJson)
             }
         } catch (e: CancellationException) {
@@ -501,6 +506,17 @@ class ToolExecutor @Inject constructor(
             errorCode = if (execResult.success) null else resolvedCode,
             userFacingState = ufState,
         )
+    }
+
+    private fun stableOperationArguments(rawJson: String): String {
+        val parsed = runCatching { Json.parseToJsonElement(rawJson) }.getOrNull() ?: return rawJson.trim()
+        return canonicalJson(parsed).toString()
+    }
+
+    private fun canonicalJson(element: JsonElement): JsonElement = when (element) {
+        is JsonObject -> JsonObject(element.entries.sortedBy { it.key }.associate { it.key to canonicalJson(it.value) })
+        is JsonArray -> JsonArray(element.map(::canonicalJson))
+        else -> element
     }
 }
 

@@ -69,7 +69,7 @@ data class ExecutionResult(
 
     companion object {
         fun success(
-            message: String = "Operation completed successfully.",
+            message: String,
             userMessage: String = "",
             details: Map<String, Any?> = emptyMap(),
             completedSteps: List<String> = emptyList(),

@@ -148,4 +148,35 @@ class ContextManagerTest {
         assertEquals(messages.last().content, prepared.messages.last().content, "The active user request must never be dropped!")
         assertTrue(prepared.wasCompacted)
     }
+
+    @Test
+    fun `budget allocations never exceed configured total`() {
+        listOf(1024, 1536, 2048, 4096, 8192).forEach { total ->
+            listOf(
+                ContextBudget.create(total),
+                ContextBudget.forLocal(total),
+                ContextBudget.forCloud(total),
+            ).forEach { budget ->
+                val allocated = budget.systemPromptBudget + budget.toolsBudget +
+                    budget.memoryBudget + budget.attachmentsBudget + budget.historyBudget + budget.outputReserveTokens
+                assertTrue(allocated <= budget.maxTotalTokens, "allocated=$allocated total=${budget.maxTotalTokens}")
+            }
+        }
+    }
+
+    @Test
+    fun `compactHistory compacts two oversized turns instead of returning over budget`() {
+        val messages = listOf(
+            Message(conversationId = "c1", role = MessageRole.USER, content = "old ".repeat(200)),
+            Message(conversationId = "c1", role = MessageRole.ASSISTANT, content = "answer ".repeat(200)),
+            Message(conversationId = "c1", role = MessageRole.USER, content = "current request"),
+            Message(conversationId = "c1", role = MessageRole.ASSISTANT, content = "reply"),
+        )
+
+        val compacted = contextManager.compactHistory(messages, historyTokenBudget = 80)
+        assertTrue(compacted.estimatedTotalTokens <= 80)
+        assertTrue(compacted.wasCompacted)
+        assertEquals(messages.last().content, compacted.messages.last().content)
+    }
+
 }

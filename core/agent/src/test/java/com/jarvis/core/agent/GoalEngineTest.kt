@@ -2,6 +2,7 @@ package com.jarvis.core.agent
 
 import com.jarvis.core.common.Task
 import com.jarvis.core.common.TaskState
+import com.jarvis.core.agent.needle.NeedleRouter
 import com.jarvis.core.database.repository.OperationRepository
 import com.jarvis.core.database.repository.TaskRepository
 import com.jarvis.core.network.ChatStreamEvent
@@ -28,12 +29,22 @@ class GoalEngineTest {
         override suspend fun delete(id: String) { tasks.remove(id) }
     }
 
+    private class FakeOperationRepository : OperationRepository() {
+        private val operations = mutableMapOf<String, com.jarvis.core.common.Operation>()
+
+        override suspend fun getByKey(key: String) = operations[key]
+        override suspend fun insert(operation: com.jarvis.core.common.Operation) { operations[operation.idempotencyKey] = operation }
+        override suspend fun updateStatus(operation: com.jarvis.core.common.Operation) { operations[operation.idempotencyKey] = operation }
+        override suspend fun listForTask(taskId: String) = operations.values.filter { it.taskId == taskId }
+        override suspend fun listExecuting() = operations.values.filter { it.status == com.jarvis.core.common.OperationStatus.EXECUTING }
+    }
+
     @Test
     fun `executeGoal collects AgentEvents and completes successfully`() = runTest {
         val provider = FakeLlmProvider(script = { listOf(ChatStreamEvent.TokenDelta("The capital is Paris."), ChatStreamEvent.Done) })
         val registry = ToolRegistry()
         val audit = AuditLogger { }
-        val toolExecutor = ToolExecutor(registry, audit, operationRepository = OperationRepository())
+        val toolExecutor = ToolExecutor(registry, audit, operationRepository = FakeOperationRepository())
         val runner = AgentRunner(
             registry = registry,
             audit = audit,
@@ -45,6 +56,7 @@ class GoalEngineTest {
             agentRunner = runner,
             taskRepository = taskRepository,
             toolExecutor = toolExecutor,
+            needleRouter = NeedleRouter(),
         )
 
         val goal = AssistantGoal(
@@ -78,7 +90,7 @@ class GoalEngineTest {
                 },
             )
         val audit = AuditLogger { }
-        val toolExecutor = ToolExecutor(registry, audit, operationRepository = OperationRepository())
+        val toolExecutor = ToolExecutor(registry, audit, operationRepository = FakeOperationRepository())
         val runner = AgentRunner(
             registry = registry,
             audit = audit,
@@ -89,6 +101,7 @@ class GoalEngineTest {
             agentRunner = runner,
             taskRepository = FakeTaskRepository(),
             toolExecutor = toolExecutor,
+            needleRouter = NeedleRouter(),
         )
 
         val goal = AssistantGoal(
@@ -116,7 +129,7 @@ class GoalEngineTest {
         }
         val provider = FakeLlmProvider(script = { listOf(ChatStreamEvent.Done) })
         val audit = AuditLogger { }
-        val toolExecutor = ToolExecutor(registry, audit, operationRepository = OperationRepository())
+        val toolExecutor = ToolExecutor(registry, audit, operationRepository = FakeOperationRepository())
         val runner = AgentRunner(
             registry = registry,
             audit = audit,
@@ -127,6 +140,7 @@ class GoalEngineTest {
             agentRunner = runner,
             taskRepository = FakeTaskRepository(),
             toolExecutor = toolExecutor,
+            needleRouter = NeedleRouter(),
         )
 
         val goal = AssistantGoal(
@@ -154,7 +168,7 @@ class GoalEngineTest {
             },
         )
         val audit = AuditLogger { }
-        val toolExecutor = ToolExecutor(registry, audit, operationRepository = OperationRepository())
+        val toolExecutor = ToolExecutor(registry, audit, operationRepository = FakeOperationRepository())
         val runner = AgentRunner(
             registry = registry,
             audit = audit,
@@ -165,6 +179,7 @@ class GoalEngineTest {
             agentRunner = runner,
             taskRepository = FakeTaskRepository(),
             toolExecutor = toolExecutor,
+            needleRouter = NeedleRouter(),
         )
 
         val goal = AssistantGoal(

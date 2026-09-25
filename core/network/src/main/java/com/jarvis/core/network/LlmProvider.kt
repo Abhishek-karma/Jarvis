@@ -11,7 +11,6 @@ data class ProviderCapabilities(
     val maxContext: Int = 128_000,
     val supportsTools: Boolean = false,
     val supportsReasoning: Boolean = false,
-    val supportsSessions: Boolean = false,
 )
 
 

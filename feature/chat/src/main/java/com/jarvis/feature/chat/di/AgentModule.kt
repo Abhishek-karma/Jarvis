@@ -11,6 +11,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import java.io.File
 import java.util.Locale
 import android.media.AudioManager
 import android.net.ConnectivityManager
@@ -38,6 +39,7 @@ import com.jarvis.core.agent.AgentRunner
 import com.jarvis.core.agent.AssistantNotificationManager
 import com.jarvis.core.agent.AttachmentProcessor
 import com.jarvis.core.agent.AuditLogger
+import com.jarvis.core.agent.ConfirmationGate
 import com.jarvis.core.agent.DefaultToolPolicy
 import com.jarvis.core.agent.ReversibleActionExecutor
 import com.jarvis.core.agent.RoutineExecutionRunner
@@ -213,7 +215,6 @@ object AgentModule {
         val phoneAgent = DefaultPhoneAgent(
             serviceProvider = { JarvisAccessibilityService.instance },
             launchApp = { target -> launchApp(context, target) },
-            openSettings = { settingType -> openSettings(context, settingType) },
             llmProvider = {
                 val providers = providerRepository.observeProviders().first()
                 val activeId = providerManager.active.value
@@ -230,6 +231,10 @@ object AgentModule {
                     ?: providers.firstOrNull()
                 config?.model?.takeIf { it.isNotBlank() } ?: "default"
             },
+            phoneActionModel = com.jarvis.core.agent.automation.engine.LiteRtPhoneActionModel(
+                File(context.filesDir, "models/functiongemma-mobile-actions_q8_ekv1024.litertlm"),
+            ),
+            requirePhoneActionModel = true,
         )
         tools.addAll(
             AutomationTools.all(
@@ -297,6 +302,7 @@ object AgentModule {
         toolRegistry: ToolRegistry,
         auditLogger: AuditLogger,
         memoryRepository: MemoryRepository,
+        confirmationGate: ConfirmationGate,
         toolExecutor: ToolExecutor,
     ): RoutineExecutionRunner = RoutineExecutionRunner { task, routine ->
         runCatching {
@@ -307,9 +313,9 @@ object AgentModule {
             val runner = AgentRunner(
                 registry = toolRegistry,
                 audit = auditLogger,
-                confirmationGate = { _, _ -> false },
+                confirmationGate = confirmationGate,
                 toolPolicy = com.jarvis.core.agent.BackgroundToolPolicy(),
-                stepCap = 20,
+                stepCap = com.jarvis.core.agent.AgentRunner.DEFAULT_STEP_CAP,
                 toolExecutor = toolExecutor,
             )
             val memories = memoryRepository.getActiveNonPrivate()
@@ -329,7 +335,7 @@ object AgentModule {
                 ),
                 agentRunId = task.id,
                 memoryContext = memoryContext,
-                timeoutMillis = 300_000L, // 5 minutes for background routines
+                timeoutMillis = 300_000L,
             )
 
             var finalAnswer: String? = null
@@ -352,9 +358,9 @@ object AgentModule {
 
             finalAnswer?.takeIf { !com.jarvis.core.agent.execution.ToolResultResponseDeriver.isGenericFallback(it) }
                 ?: if (executedTools.isNotEmpty()) {
-                    "Routine executed actions: ${executedTools.joinToString()}."
+                    "Background routine executed tools: ${executedTools.joinToString()}."
                 } else {
-                    "Routine completed: no actions executed. In background mode, only READ_ONLY tools are permitted."
+                    "The background routine produced no tool result; no actions were verified."
                 }
         }
     }

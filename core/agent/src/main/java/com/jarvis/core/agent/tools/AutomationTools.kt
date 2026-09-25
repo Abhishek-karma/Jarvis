@@ -41,7 +41,6 @@ object AutomationTools {
     fun all(
         phoneAgent: PhoneAgent? = null,
         launchApp: (suspend (String) -> Result<Unit>)? = null,
-        openSettings: (suspend (String) -> Result<Unit>)? = null,
         serviceProvider: () -> JarvisAccessibilityService? = { JarvisAccessibilityService.instance },
         llmProvider: (suspend () -> com.jarvis.core.network.LlmProvider?)? = null,
         modelIdProvider: (suspend () -> String)? = null,
@@ -52,7 +51,6 @@ object AutomationTools {
             DefaultPhoneAgent(
                 serviceProvider = serviceProvider,
                 launchApp = launchApp,
-                openSettings = openSettings,
                 llmProvider = llmProvider,
                 modelIdProvider = modelIdProvider,
                 driver = controller,

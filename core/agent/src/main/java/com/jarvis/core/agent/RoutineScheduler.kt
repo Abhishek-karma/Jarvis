@@ -81,7 +81,8 @@ class RoutineScheduler(
             }
 
             if (executionResult.isSuccess) {
-                val summary = executionResult.getOrNull() ?: "Routine execution completed."
+                val summary = executionResult.getOrNull()?.trim().takeUnless { it.isNullOrEmpty() }
+                    ?: error("Routine runner returned no result.")
                 taskEngine.recordCompletion(task.id, summary)
                 notifications?.notifySucceeded(task.id, routine.name, summary)
 
@@ -95,7 +96,7 @@ class RoutineScheduler(
                     )
                 )
 
-                "Routine '${routine.name}' executed successfully: $summary"
+                "Routine '${routine.name}' finished: $summary"
             } else {
                 val error = executionResult.exceptionOrNull() ?: Exception("Unknown routine error")
                 taskEngine.recordFailure(task.id, error.message ?: "Execution failed")
