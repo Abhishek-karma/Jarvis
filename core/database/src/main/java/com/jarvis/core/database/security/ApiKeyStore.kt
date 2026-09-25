@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
-import com.jarvis.core.common.DEFAULT_NARA_API_KEY
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -24,7 +23,7 @@ class ApiKeyStore @Inject constructor(@ApplicationContext context: Context) {
     )
 
     fun getKey(providerId: String): String? =
-        prefs.getString("key_$providerId", null) ?: if (providerId == "nara") DEFAULT_NARA_API_KEY else null
+        prefs.getString("key_$providerId", null)
 
     fun putKey(providerId: String, apiKey: String) {
         prefs.edit().putString("key_$providerId", apiKey).apply()

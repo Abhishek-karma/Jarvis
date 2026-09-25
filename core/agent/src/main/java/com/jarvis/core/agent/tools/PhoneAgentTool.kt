@@ -16,7 +16,6 @@ import javax.inject.Singleton
 class PhoneAgentTool @Inject constructor(
     private val phoneAgent: PhoneAgent,
     private val confirmationGate: ConfirmationGate? = null,
-    private val confirmationGateProvider: (() -> ConfirmationGate?)? = null,
 ) : Tool {
 
     companion object {
@@ -59,7 +58,6 @@ class PhoneAgentTool @Inject constructor(
 
         val effectiveGate = confirmationGate
             ?: kotlinx.coroutines.currentCoroutineContext()[com.jarvis.core.agent.ConfirmationGateElement]?.gate
-            ?: confirmationGateProvider?.invoke()
 
         val result = phoneAgent.execute(
             goal = goal,

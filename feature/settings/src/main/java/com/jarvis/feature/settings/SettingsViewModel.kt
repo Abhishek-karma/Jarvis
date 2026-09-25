@@ -40,6 +40,7 @@ class SettingsViewModel
         private val apiKeyStore: ApiKeyStore,
         private val userPreferences: UserPreferencesRepository,
         private val updateChecker: UpdateChecker,
+        private val mobileActionsModelStore: MobileActionsModelStore,
         @ApplicationContext private val context: Context,
         private val dispatchers: DispatcherProvider,
     ) : ViewModel() {
@@ -55,6 +56,35 @@ class SettingsViewModel
 
         private val _editState = MutableStateFlow(ProviderEditState())
         val editState: StateFlow<ProviderEditState> = _editState.asStateFlow()
+
+        private val _modelState = MutableStateFlow<MobileActionsModelState>(
+            if (mobileActionsModelStore.isInstalled()) MobileActionsModelState.Installed else MobileActionsModelState.NotInstalled,
+        )
+        val modelState: StateFlow<MobileActionsModelState> = _modelState.asStateFlow()
+
+        fun downloadMobileActionsModel() {
+            if (_modelState.value == MobileActionsModelState.Downloading) return
+            viewModelScope.launch(dispatchers.io) {
+                _modelState.value = MobileActionsModelState.Downloading
+                try {
+                    mobileActionsModelStore.download()
+                    _modelState.value = MobileActionsModelState.Installed
+                } catch (e: CancellationException) {
+                    _modelState.value = MobileActionsModelState.NotInstalled
+                    throw e
+                } catch (error: Exception) {
+                    _modelState.value = MobileActionsModelState.Failed(error.message ?: "Model download failed")
+                }
+            }
+        }
+
+        fun refreshMobileActionsModel() {
+            _modelState.value = if (mobileActionsModelStore.isInstalled()) {
+                MobileActionsModelState.Installed
+            } else {
+                MobileActionsModelState.NotInstalled
+            }
+        }
 
         init {
             val version =

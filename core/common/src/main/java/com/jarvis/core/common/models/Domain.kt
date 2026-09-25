@@ -85,8 +85,6 @@ val DEFAULT_NARA_PROVIDER = ProviderConfig(
     isDefault = true,
 )
 
-const val DEFAULT_NARA_API_KEY = "sk-nry-9n9ode5y72y__1k_yJ_b80QbpASRc5mD7r20y7FGIxI"
-
 data class ModelInfo(
     val id: String,
     val displayName: String,

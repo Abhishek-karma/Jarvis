@@ -32,6 +32,13 @@ sealed interface ProvidersListEvent {
     ) : ProvidersListEvent
 }
 
+sealed interface MobileActionsModelState {
+    data object NotInstalled : MobileActionsModelState
+    data object Downloading : MobileActionsModelState
+    data object Installed : MobileActionsModelState
+    data class Failed(val message: String) : MobileActionsModelState
+}
+
 data class ProviderEditState(
     val providerId: String? = null,
     val name: String = "",

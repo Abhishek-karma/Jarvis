@@ -9,8 +9,6 @@ object AlarmTools {
     const val SET_ALARM = "set_alarm"
     const val SET_TIMER = "set_timer"
 
-    val manifestNames: List<String> = listOf(SET_ALARM, SET_TIMER)
-
     fun all(
         setAlarm: suspend (triggerAtUtcMillis: Long, label: String) -> Result<Unit>,
         setTimer: (suspend (durationSeconds: Int, label: String) -> Result<Unit>)? = null,

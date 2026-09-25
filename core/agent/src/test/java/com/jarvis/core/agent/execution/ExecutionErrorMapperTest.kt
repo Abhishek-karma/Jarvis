@@ -89,10 +89,6 @@ class ExecutionErrorMapperTest {
         assertEquals(ExecutionStatus.NOT_FOUND, failRes.status)
         assertTrue(failRes.retryable)
         assertNotNull(failRes.suggestedAction)
-
-        val cancelRes = ExecutionResult.cancelled()
-        assertTrue(cancelRes.isCancelled)
-        assertEquals(ExecutionStatus.CANCELLED, cancelRes.status)
     }
 
     @Test

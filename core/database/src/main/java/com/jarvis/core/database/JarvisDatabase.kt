@@ -308,7 +308,6 @@ object DatabaseModule {
     fun provideDatabase(@ApplicationContext context: Context): JarvisDatabase =
         Room.databaseBuilder(context, JarvisDatabase::class.java, "jarvis.db")
             .addMigrations(*JarvisDatabase.ALL_MIGRATIONS)
-            .fallbackToDestructiveMigration()
             .build()
 
     @Provides

@@ -35,18 +35,9 @@ data class AssistantGoal(
     val forceConfirm: Boolean = false,
 )
 
-/**
- * Plan formulated for achieving the user's goal.
- */
-data class AssistantPlan(
-    val goalId: String,
-    val explanation: String,
-    val targetToolCategories: List<String> = emptyList(),
-)
-
+/** Events emitted while a goal is executed. */
 sealed class GoalEvent {
     data class StatusChanged(val message: String) : GoalEvent()
-    data class PlanGenerated(val plan: AssistantPlan) : GoalEvent()
     data class MilestoneReached(val description: String, val stepIndex: Int? = null) : GoalEvent()
     data class ConfirmationRequired(val toolName: String, val argsJson: String) : GoalEvent()
     data class AgentEvent(val event: com.jarvis.core.agent.AgentEvent) : GoalEvent()

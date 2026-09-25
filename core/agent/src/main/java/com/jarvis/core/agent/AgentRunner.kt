@@ -20,9 +20,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
 
 /** Input to one agent run: the provider/model and the message history ending with the user's request. */
 data class AgentRunRequest(
@@ -232,30 +229,22 @@ class AgentRunner(
                     historyTokenBudget = 3200,
                 ).messages
 
+                val chatRequest = ChatRequest(
+                    conversationHistory = effectiveHistory,
+                    systemPrompt = effectiveSystemPrompt,
+                    model = request.modelId,
+                    reasoningRequested = request.reasoningRequested,
+                    toolsAvailable = if (supportsTools) definitions else null,
+                )
+
                 val streamOk = if (effectiveTimeout != null) {
                     val remainingMs = (remainingTimeMillis() ?: 1L).coerceAtLeast(1L)
                     withTimeoutOrNull(remainingMs) {
-                        request.provider.streamChat(
-                            ChatRequest(
-                                conversationHistory = effectiveHistory,
-                                systemPrompt = effectiveSystemPrompt,
-                                model = request.modelId,
-                                reasoningRequested = request.reasoningRequested,
-                                toolsAvailable = if (supportsTools) definitions else null,
-                            ),
-                        ).collect { handleStreamEvent(it) }
+                        request.provider.streamChat(chatRequest).collect { handleStreamEvent(it) }
                         true
                     }
                 } else {
-                    request.provider.streamChat(
-                        ChatRequest(
-                            conversationHistory = effectiveHistory,
-                            systemPrompt = effectiveSystemPrompt,
-                            model = request.modelId,
-                            reasoningRequested = request.reasoningRequested,
-                            toolsAvailable = if (supportsTools) definitions else null,
-                        ),
-                    ).collect { handleStreamEvent(it) }
+                    request.provider.streamChat(chatRequest).collect { handleStreamEvent(it) }
                     true
                 }
 
@@ -594,25 +583,9 @@ class AgentRunner(
         if (rawJson.isNullOrBlank()) return "{}"
         val trimmed = rawJson.trim()
         return runCatching {
-            val element = Json.parseToJsonElement(trimmed)
-            canonicalizeJsonElement(element).toString()
+            canonicalizeJsonElement(Json.parseToJsonElement(trimmed)).toString()
         }.getOrElse {
             trimmed.replace(Regex("\\s+"), " ")
-        }
-    }
-
-    private fun canonicalizeJsonElement(element: JsonElement): JsonElement {
-        return when (element) {
-            is JsonObject -> {
-                val sortedMap = element.entries
-                    .sortedBy { it.key }
-                    .associate { (k, v) -> k to canonicalizeJsonElement(v) }
-                JsonObject(sortedMap)
-            }
-            is JsonArray -> {
-                JsonArray(element.map { canonicalizeJsonElement(it) })
-            }
-            else -> element
         }
     }
 
@@ -660,7 +633,6 @@ class AgentRunner(
         const val MAX_STEP_CAP = 40
         const val DEFAULT_MAX_SIDE_EFFECT_REPETITIONS = 2
         const val DEFAULT_MAX_READ_ONLY_REPETITIONS = 3
-        const val DEFAULT_EXECUTION_TIMEOUT_MILLIS = 60_000L
         private const val TAG = "AgentRunner"
         private const val MAX_DIAGNOSTIC_TEXT = 120
 

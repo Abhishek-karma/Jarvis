@@ -232,7 +232,7 @@ object AgentModule {
                 config?.model?.takeIf { it.isNotBlank() } ?: "default"
             },
             phoneActionModel = com.jarvis.core.agent.automation.engine.LiteRtPhoneActionModel(
-                File(context.filesDir, "models/functiongemma-mobile-actions_q8_ekv1024.litertlm"),
+                File(context.filesDir, "models/mobile-actions_q8_ekv1024.litertlm"),
             ),
             requirePhoneActionModel = true,
         )

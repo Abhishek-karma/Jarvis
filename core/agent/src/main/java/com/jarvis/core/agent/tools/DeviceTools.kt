@@ -15,18 +15,6 @@ object DeviceTools {
     const val LIST_INSTALLED_APPS = "list_installed_apps"
     const val INSTALL_APP = "install_app"
 
-    val manifestNames: List<String> = listOf(
-        LAUNCH_APP,
-        COPY_TO_CLIPBOARD,
-        READ_CLIPBOARD,
-        SHOW_NOTIFICATION,
-        SET_FLASHLIGHT,
-        TOGGLE_BLUETOOTH,
-        OPEN_SETTINGS,
-        LIST_INSTALLED_APPS,
-        INSTALL_APP,
-    )
-
     fun all(
         launchApp: (suspend (packageNameOrName: String) -> Result<Unit>)? = null,
         copyClipboard: (suspend (text: String, label: String?) -> Result<Unit>)? = null,

@@ -16,8 +16,6 @@ object SystemInfoTools {
     const val CURRENT_TIME = "current_time"
     const val GET_CURRENT_DATETIME = "get_current_datetime"
 
-    val manifestNames: List<String> = listOf(BATTERY_LEVEL, STORAGE_FREE, NETWORK_STATUS, CURRENT_TIME, GET_CURRENT_DATETIME)
-
     /** All system-info tools, wired to the platform readers the host app provides. */
     fun all(
         batteryPercent: () -> Int?,

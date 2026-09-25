@@ -6,13 +6,11 @@ package com.jarvis.core.agent.automation
 enum class AutomationState {
     IDLE,
     OBSERVING,
-    DECIDING,
     ACTING,
     WAITING,
     VERIFYING,
     SUCCEEDED,
     FAILED,
-    CANCELLED,
     BLOCKED,
     AMBIGUOUS,
 }
@@ -22,19 +20,12 @@ enum class AutomationState {
  */
 object AutomationErrorCodes {
     const val SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
-    const val NO_ACTIVE_WINDOW = "NO_ACTIVE_WINDOW"
     const val TARGET_NOT_FOUND = "TARGET_NOT_FOUND"
     const val AMBIGUOUS_TARGET = "AMBIGUOUS_TARGET"
     const val TARGET_DISABLED = "TARGET_DISABLED"
-    const val NOT_EDITABLE = "NOT_EDITABLE"
     const val NOT_SCROLLABLE = "NOT_SCROLLABLE"
     const val ACTION_FAILED = "ACTION_FAILED"
     const val VERIFICATION_FAILED = "VERIFICATION_FAILED"
-    const val TIMEOUT = "TIMEOUT"
-    const val SYSTEM_BLOCKED = "SYSTEM_BLOCKED"
-    const val STEP_LIMIT_REACHED = "STEP_LIMIT_REACHED"
-    const val LOOP_DETECTED = "LOOP_DETECTED"
-    const val CANCELLED = "CANCELLED"
 }
 
 /**

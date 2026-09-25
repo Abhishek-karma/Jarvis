@@ -13,8 +13,6 @@ object CalendarTools {
     const val UPDATE_EVENT = "update_event"
     const val DELETE_EVENT = "delete_event"
 
-    val manifestNames: List<String> = listOf(CREATE_EVENT, LIST_EVENTS, SET_REMINDER, UPDATE_EVENT, DELETE_EVENT)
-
     /** All calendar tools, wired to the platform gateways the host app provides. */
     fun all(
         insertEvent: suspend (CalendarEventDraft) -> Result<Long>,

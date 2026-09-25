@@ -9,8 +9,6 @@ object WebTools {
     const val SEARCH_WEB = "search_web"
     const val WEB_SEARCH = "web_search"
 
-    val manifestNames: List<String> = listOf(FETCH_URL, SEARCH_WEB, WEB_SEARCH)
-
     /** Fetched page content, already reduced to readable plain text. */
     data class FetchedPage(
         val title: String?,

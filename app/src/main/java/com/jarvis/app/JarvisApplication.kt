@@ -12,9 +12,7 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import com.jarvis.core.common.DEFAULT_NARA_API_KEY
 import com.jarvis.core.database.repository.ProviderRepository
-import com.jarvis.core.database.security.ApiKeyStore
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -27,8 +25,6 @@ interface AppStartup {
     fun taskEngine(): TaskEngine
 
     fun providerRepository(): ProviderRepository
-
-    fun apiKeyStore(): ApiKeyStore
 }
 
 @HiltAndroidApp
@@ -54,9 +50,6 @@ class JarvisApplication : Application(), Configuration.Provider {
                 startup.routineScheduler().syncAll()
                 startup.taskEngine().recoverOrphanedTasks()
                 startup.providerRepository().ensureDefaultProvider()
-                if (startup.apiKeyStore().getKey("nara").isNullOrBlank()) {
-                    startup.apiKeyStore().putKey("nara", DEFAULT_NARA_API_KEY)
-                }
             }.onFailure { error ->
                 android.util.Log.e("JarvisApplication", "Startup repair synchronization failed", error)
             }

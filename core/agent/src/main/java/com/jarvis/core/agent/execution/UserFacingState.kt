@@ -18,12 +18,4 @@ data class UserFacingState(
     val actionIntent: String? = null,
     val errorCode: ErrorCode? = null,
     val requiresUserAction: Boolean = false,
-) {
-    fun toDisplayString(): String {
-        return if (suggestedAction != null) {
-            "$message · $suggestedAction"
-        } else {
-            message
-        }
-    }
-}
+)

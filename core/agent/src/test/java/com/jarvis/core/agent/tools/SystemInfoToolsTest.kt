@@ -97,7 +97,6 @@ class SystemInfoToolsTest {
         val registry = ToolRegistry()
         tools.forEach { registry.register(it) }
 
-        assertEquals(SystemInfoTools.manifestNames.sorted(), registry.all().map { it.name }.sorted())
         assertTrue(registry.all().all { it.tier == PermissionTier.READ_ONLY })
         assertEquals(tools.size, registry.definitions().size)
     }

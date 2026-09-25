@@ -14,9 +14,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -510,13 +507,7 @@ class ToolExecutor @Inject constructor(
 
     private fun stableOperationArguments(rawJson: String): String {
         val parsed = runCatching { Json.parseToJsonElement(rawJson) }.getOrNull() ?: return rawJson.trim()
-        return canonicalJson(parsed).toString()
-    }
-
-    private fun canonicalJson(element: JsonElement): JsonElement = when (element) {
-        is JsonObject -> JsonObject(element.entries.sortedBy { it.key }.associate { it.key to canonicalJson(it.value) })
-        is JsonArray -> JsonArray(element.map(::canonicalJson))
-        else -> element
+        return canonicalizeJsonElement(parsed).toString()
     }
 }
 

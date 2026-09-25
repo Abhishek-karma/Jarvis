@@ -16,7 +16,7 @@ class ProcessTextActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val text = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
-        if (!text.isNull_orEmpty()) {
+        if (!text.isNullOrEmpty()) {
             val mainIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 putExtra("goal_text", "Explain or act on this selected text:\n$text")
@@ -28,4 +28,3 @@ class ProcessTextActivity : ComponentActivity() {
         finish()
     }
 }
-private fun String?.isNull_orEmpty(): Boolean = this == null || this.isEmpty()

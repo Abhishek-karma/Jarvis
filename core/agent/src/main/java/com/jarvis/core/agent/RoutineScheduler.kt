@@ -100,16 +100,6 @@ class RoutineScheduler(
             } else {
                 val error = executionResult.exceptionOrNull() ?: Exception("Unknown routine error")
                 taskEngine.recordFailure(task.id, error.message ?: "Execution failed")
-                routineRepository.upsert(
-                    routine.copy(
-                        lastRunAt = System.currentTimeMillis(),
-                        lastRunStatus = "failed",
-                        failureReason = error.message,
-                        nextRunAt = nextRun,
-                        updatedAt = System.currentTimeMillis(),
-                    )
-                )
-                notifications?.notifyFailed(routineId, routine.name, error.message ?: "Unknown execution error")
                 throw error
             }
         }.onFailure { err ->

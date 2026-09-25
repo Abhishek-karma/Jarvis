@@ -14,8 +14,6 @@ object MediaTools {
     const val ACTION_MUTE = "mute"
     const val ACTION_UNMUTE = "unmute"
 
-    val manifestNames: List<String> = listOf(ADJUST_VOLUME, PLAY_MEDIA, MEDIA_CONTROL)
-
     fun all(
         adjust: suspend (action: String, stream: String) -> Result<String>,
         play: suspend (query: String, appName: String?) -> Result<String> = { q, app ->

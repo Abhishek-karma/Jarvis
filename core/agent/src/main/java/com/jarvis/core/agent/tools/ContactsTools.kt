@@ -8,8 +8,6 @@ import com.jarvis.core.common.PermissionTier
 object ContactsTools {
     const val LOOKUP_CONTACT = "lookup_contact"
 
-    val manifestNames: List<String> = listOf(LOOKUP_CONTACT)
-
     fun all(
         lookup: suspend (name: String) -> Result<List<ContactMatch>>,
     ): List<Tool> = listOf(lookupContact(lookup))

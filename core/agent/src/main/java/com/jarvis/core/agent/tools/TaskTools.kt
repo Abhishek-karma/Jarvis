@@ -15,8 +15,6 @@ object TaskTools {
     const val LIST_TASKS = "list_tasks"
     const val CANCEL_TASK = "cancel_task"
 
-    val manifestNames: List<String> = listOf(CREATE_TASK, GET_TASK_STATUS, LIST_TASKS, CANCEL_TASK)
-
     private const val CREATE_SCHEMA = """{
   "type": "object",
   "properties": {

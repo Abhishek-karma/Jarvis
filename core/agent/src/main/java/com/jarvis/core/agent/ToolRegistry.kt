@@ -38,10 +38,6 @@ class ToolRegistry {
 
     fun all(): List<Tool> = tools.values.toList()
 
-    fun names(): Set<String> = tools.keys.toSet()
-
-    fun size(): Int = tools.size
-
     /** Wire definitions sent to the LLM as available functions (cached until registry changes). */
     fun definitions(): List<ToolDefinition> {
         val cached = cachedDefinitions

@@ -157,7 +157,6 @@ class AutomationToolsTest {
 
     @Test
     fun `automation tools manifest exposes only phone_agent to agent runner`() {
-        assertEquals(listOf(AutomationTools.PHONE_AGENT), AutomationTools.manifestNames)
         val tools = AutomationTools.all(launchApp = { Result.success(Unit) }, serviceProvider = { null })
         assertEquals(1, tools.size)
         assertEquals(AutomationTools.PHONE_AGENT, tools[0].name)

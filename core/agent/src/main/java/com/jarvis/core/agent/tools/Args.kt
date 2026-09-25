@@ -28,9 +28,6 @@ internal class Args
 
         fun int(key: String): Int? = long(key)?.toInt()
 
-        fun float(key: String): Float? =
-            (json[key] as? JsonPrimitive)?.content?.trim()?.toFloatOrNull()
-
         fun double(key: String): Double? =
             (json[key] as? JsonPrimitive)?.content?.trim()?.toDoubleOrNull()
 

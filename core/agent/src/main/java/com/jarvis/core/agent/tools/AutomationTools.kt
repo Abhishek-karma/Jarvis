@@ -31,11 +31,6 @@ object AutomationTools {
     const val UI_VERIFY = "ui_verify"
 
     /**
-     * The single public capability manifest exposed to the AgentRunner / LLM.
-     */
-    val manifestNames: List<String> = listOf(PHONE_AGENT)
-
-    /**
      * Registers tools for AgentRunner. Only exposes phone_agent to the LLM.
      */
     fun all(

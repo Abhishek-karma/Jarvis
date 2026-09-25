@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Layers
@@ -87,6 +88,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val prefs by viewModel.prefsState.collectAsStateWithLifecycle()
+    val modelState by viewModel.modelState.collectAsStateWithLifecycle()
     var query by rememberSaveable { mutableStateOf("") }
 
     val focusManager = LocalFocusManager.current
@@ -274,6 +276,24 @@ fun SettingsScreen(
                 val isAutomationActive = JarvisAccessibilityService.isActive() ||
                     JarvisAccessibilityService.isServiceConfigured(context)
                 JarvisListSection(title = "Assistant & Automation") {
+                    val modelSubtitle = when (modelState) {
+                        MobileActionsModelState.NotInstalled -> "Download the 284 MB local model for offline UI actions"
+                        MobileActionsModelState.Downloading -> "Downloading MobileActions model…"
+                        MobileActionsModelState.Installed -> "Installed and ready for offline UI actions"
+                        is MobileActionsModelState.Failed -> "Download failed — tap to retry"
+                    }
+                    NavRow(
+                        icon = Icons.Outlined.CloudDownload,
+                        title = "MobileActions model",
+                        subtitle = modelSubtitle,
+                        tinted = modelState !is MobileActionsModelState.Installed,
+                        onClick = {
+                            when (modelState) {
+                                MobileActionsModelState.Installed -> viewModel.refreshMobileActionsModel()
+                                else -> viewModel.downloadMobileActionsModel()
+                            }
+                        },
+                    )
                     NavRow(
                         icon = Icons.Outlined.TouchApp,
                         title = "Phone Automation",

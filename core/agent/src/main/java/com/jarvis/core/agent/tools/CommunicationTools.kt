@@ -9,8 +9,6 @@ object CommunicationTools {
     const val SEND_SMS = "send_sms"
     const val PLACE_CALL = "place_call"
 
-    val manifestNames: List<String> = listOf(SEND_SMS, PLACE_CALL)
-
     fun all(
         sendSms: suspend (to: String, body: String) -> Result<Unit>,
         placeCall: suspend (number: String) -> Result<Unit>,

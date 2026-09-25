@@ -780,7 +780,6 @@ class ChatViewModel
                                 )
                             }
                         }
-                        is GoalEvent.PlanGenerated -> Unit
                         is GoalEvent.MilestoneReached -> {
                             val time = System.currentTimeMillis()
                             latestMilestoneTimestamp = maxOf(latestMilestoneTimestamp, time)

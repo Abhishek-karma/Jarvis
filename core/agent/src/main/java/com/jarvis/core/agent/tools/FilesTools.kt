@@ -10,8 +10,6 @@ object FilesTools {
     const val READ_FILE = "read_file"
     const val CREATE_FILE = "create_file"
 
-    val manifestNames: List<String> = listOf(SEARCH_FILES, READ_FILE, CREATE_FILE)
-
     /** One file hit from the device's media index. */
     data class FileHit(
         val displayName: String,

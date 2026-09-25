@@ -13,8 +13,6 @@ object MemoryTools {
     const val RECALL_MEMORIES = "recall_memories"
     const val FORGET_FACT = "forget_fact"
 
-    val manifestNames: List<String> = listOf(REMEMBER_FACT, RECALL_MEMORIES, FORGET_FACT)
-
     private const val REMEMBER_SCHEMA = """{
   "type": "object",
   "properties": {

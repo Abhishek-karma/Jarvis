@@ -142,23 +142,6 @@ data class ExecutionResult(
             )
         }
 
-        fun cancelled(
-            reason: String = "Cancelled by user",
-            userMessage: String = "Stopped.",
-            details: Map<String, Any?> = emptyMap(),
-        ): ExecutionResult = ExecutionResult(
-            status = ExecutionStatus.CANCELLED,
-            code = ErrorCode.USER_CANCELLED,
-            message = reason,
-            userMessage = userMessage,
-            retryable = false,
-            recoverable = false,
-            requiresUserAction = false,
-            suggestedAction = null,
-            details = details,
-            severity = ErrorSeverity.INFO,
-        )
-
         private fun mapCodeToStatus(code: ErrorCode): ExecutionStatus = when (code) {
             ErrorCode.USER_CANCELLED -> ExecutionStatus.CANCELLED
             ErrorCode.CONFIRMATION_REQUIRED -> ExecutionStatus.NEEDS_CONFIRMATION
