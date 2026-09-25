@@ -1,0 +1,1214 @@
+package com.jarvis.feature.chat
+
+import app.cash.turbine.test
+import com.jarvis.core.agent.AgentEvent
+import com.jarvis.core.agent.AgentRunRequest
+import com.jarvis.core.agent.AgentRunner
+import com.jarvis.core.agent.AssistantGoal
+import com.jarvis.core.agent.AuditLogger
+import com.jarvis.core.agent.ConfirmationGate
+import com.jarvis.core.agent.DefaultToolPolicy
+import com.jarvis.core.agent.GoalEngine
+import com.jarvis.core.agent.GoalEvent
+import com.jarvis.core.agent.PermissionTier
+import com.jarvis.core.agent.Tool
+import com.jarvis.core.agent.ToolRegistry
+import com.jarvis.core.agent.ToolResult
+import kotlinx.coroutines.flow.flow
+import com.jarvis.core.common.Conversation
+import com.jarvis.core.common.DEFAULT_CONVERSATION_TITLE
+import com.jarvis.core.common.Message
+import com.jarvis.core.common.MessageRole
+import com.jarvis.core.common.MessageStatus
+import com.jarvis.core.common.ProviderConfig
+import com.jarvis.core.common.RoutingOverride
+import com.jarvis.core.database.repository.ConversationRepository
+import com.jarvis.core.network.ChatStreamEvent
+import com.jarvis.core.network.ProviderCapabilities
+import com.jarvis.core.network.ProviderManager
+import com.jarvis.core.network.sse.OpenAiCompatibleProvider
+import com.jarvis.core.voice.AudioPlayer
+import com.jarvis.core.voice.AudioRecorder
+import com.jarvis.core.voice.SttProvider
+import com.jarvis.core.voice.TtsProvider
+import io.mockk.Runs
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.every
+import io.mockk.just
+import io.mockk.mockk
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.TestInstance
+import java.io.File
+
+@OptIn(ExperimentalCoroutinesApi::class)
+@TestInstance(TestInstance.Lifecycle.PER_METHOD)
+class ChatViewModelTest {
+    private val testDispatcher = StandardTestDispatcher()
+    private lateinit var viewModel: ChatViewModel
+    private lateinit var conversationRepository: ConversationRepository
+    private lateinit var providerManager: ProviderManager
+    private lateinit var providersFlow: MutableStateFlow<List<ProviderConfig>>
+    private lateinit var messagesFlow: MutableStateFlow<List<Message>>
+    private lateinit var audioRecorder: AudioRecorder
+    private lateinit var audioPlayer: AudioPlayer
+    private lateinit var sttProvider: SttProvider
+    private lateinit var ttsProvider: TtsProvider
+    private lateinit var userPreferences: com.jarvis.core.preferences.UserPreferencesRepository
+    private lateinit var thinkModeFlow: MutableStateFlow<com.jarvis.core.common.ThinkMode>
+    private lateinit var goalEngine: GoalEngine
+
+    @BeforeEach
+    fun setUp() {
+        Dispatchers.setMain(testDispatcher)
+
+        conversationRepository = mockk(relaxed = true)
+        providerManager = mockk(relaxed = true)
+        providersFlow = MutableStateFlow(emptyList())
+        messagesFlow = MutableStateFlow(emptyList())
+
+        every { providerManager.providers } returns providersFlow
+
+        audioRecorder = mockk(relaxed = true)
+        audioPlayer = mockk(relaxed = true)
+        sttProvider = mockk(relaxed = true)
+        ttsProvider = mockk(relaxed = true)
+        userPreferences = mockk(relaxed = true)
+        every { userPreferences.agentStepCap } returns MutableStateFlow(15)
+        thinkModeFlow = MutableStateFlow(com.jarvis.core.common.ThinkMode.AUTO)
+        every { userPreferences.thinkMode } returns thinkModeFlow
+        every { userPreferences.chatMode } returns MutableStateFlow(com.jarvis.core.preferences.ChatMode.CLOUD)
+        every { userPreferences.memoryEnabled } returns MutableStateFlow(true)
+        every { userPreferences.planFirstMode } returns MutableStateFlow(false)
+
+        val savedStateHandle = androidx.lifecycle.SavedStateHandle()
+        val voiceManager = ChatVoiceManager(audioRecorder, audioPlayer, sttProvider, ttsProvider, com.jarvis.core.voice.VoiceStateMachine())
+        val contextManager = ConversationContextManager(io.mockk.mockk(relaxed = true), userPreferences)
+        val toolRegistry = ToolRegistry()
+
+        viewModel =
+            ChatViewModel(
+                conversationRepository = conversationRepository,
+                providerManager = providerManager,
+                dispatchers =
+                    com.jarvis.core.common
+                        .DispatcherProvider(),
+                voiceManager = voiceManager,
+                toolRegistry = toolRegistry,
+                auditLogger = AuditLogger { },
+                userPreferences = userPreferences,
+                conversationContextManager = contextManager,
+                goalEngine = createTestGoalEngine(toolRegistry, contextManager),
+                savedStateHandle = savedStateHandle,
+            )
+    }
+
+    private fun createTestGoalEngine(toolRegistry: ToolRegistry, contextManager: ConversationContextManager): GoalEngine {
+        val goalEngine = mockk<GoalEngine>(relaxed = true)
+        this.goalEngine = goalEngine
+        coEvery { goalEngine.executeGoal(any()) } answers {
+            val goal = firstArg<AssistantGoal>()
+            flow {
+                run {
+                    val agentRequest = AgentRunRequest(
+                        provider = goal.provider,
+                        modelId = goal.modelId,
+                        messages = goal.messages,
+                        agentRunId = goal.id,
+                        reasoningRequested = goal.reasoningRequested,
+                        memoryContext = goal.memoryContext,
+                        planFirst = goal.planFirst,
+                        isVoiceMode = goal.isVoiceMode,
+                    )
+                    val runner = AgentRunner(
+                        registry = toolRegistry,
+                        audit = AuditLogger {},
+                        confirmationGate = viewModel.createConfirmationGate(),
+                    )
+                    var completed = false
+                    runner.run(agentRequest).collect { agentEvent ->
+                        emit(GoalEvent.AgentEvent(agentEvent))
+                        if (agentEvent is AgentEvent.FinalAnswer) {
+                            completed = true
+                            emit(GoalEvent.Completed(goal.id, agentEvent.text))
+                        } else if (agentEvent is AgentEvent.Failed) {
+                            completed = true
+                            emit(GoalEvent.Failed(goal.id, "AGENT_ERROR", agentEvent.message))
+                        }
+                    }
+                    if (!completed) {
+                        emit(GoalEvent.Cancelled(goal.id, "Tool denied"))
+                    }
+                }
+            }
+        }
+        return goalEngine
+    }
+
+    @AfterEach
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+
+    @Test
+    fun `initial state has empty messages and composer`() {
+        val state = viewModel.uiState.value
+        assertTrue(state.messages.isEmpty())
+        assertEquals("", state.composerText)
+        assertFalse(state.isStreaming)
+    }
+
+    @Test
+    fun `startVoiceMode opens a new conversation and activates voice mode`() = runTest {
+        viewModel.startVoiceMode()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.isVoiceModeActive)
+        assertEquals(null, viewModel.uiState.value.conversationId)
+        assertTrue(viewModel.uiState.value.messages.isEmpty())
+    }
+
+    @Test
+    fun `setThinkMode persists and echoes into UI state`() =
+        runTest {
+            viewModel.setThinkMode(com.jarvis.core.common.ThinkMode.ON)
+            advanceUntilIdle()
+
+            coVerify { userPreferences.setThinkMode(com.jarvis.core.common.ThinkMode.ON) }
+
+
+            thinkModeFlow.value = com.jarvis.core.common.ThinkMode.ON
+            advanceUntilIdle()
+            assertEquals(com.jarvis.core.common.ThinkMode.ON, viewModel.uiState.value.thinkMode)
+        }
+
+    @Test
+    fun `sendMessage does nothing when composer is empty`() =
+        runTest {
+            viewModel.onTextChange("")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            coVerify(exactly = 0) { conversationRepository.upsertMessage(any()) }
+        }
+
+    @Test
+    fun `onTextChange updates composer text`() {
+        viewModel.onTextChange("Hello")
+        assertEquals("Hello", viewModel.uiState.value.composerText)
+    }
+
+    @Test
+    fun `isSendingEnabled becomes false when no providers configured`() =
+        runTest {
+            providersFlow.value = emptyList()
+            advanceUntilIdle()
+            assertFalse(viewModel.uiState.value.isSendingEnabled)
+        }
+
+    @Test
+    fun `isSendingEnabled becomes true when providers are configured`() =
+        runTest {
+            val provider = ProviderConfig(id = "p1", name = "OpenAI", baseUrl = "https://api.openai.com/v1")
+            providersFlow.value = listOf(provider)
+            advanceUntilIdle()
+            assertTrue(viewModel.uiState.value.isSendingEnabled)
+        }
+
+    @Test
+    fun `openConversationById loads the specified conversation`() =
+        runTest {
+            val conversation = Conversation(id = "conv-1", title = "Test Chat")
+            coEvery { conversationRepository.getConversation("conv-1") } returns conversation
+            coEvery { conversationRepository.observeMessages("conv-1") } returns emptyFlow()
+
+            viewModel.openConversationById("conv-1")
+            advanceUntilIdle()
+
+            assertEquals("conv-1", viewModel.uiState.value.conversationId)
+            assertEquals("Test Chat", viewModel.uiState.value.conversationTitle)
+        }
+
+    @Test
+    fun `cold launch does not persist an empty New chat row`() =
+        runTest {
+
+
+            advanceUntilIdle()
+
+            coVerify(exactly = 0) { conversationRepository.upsertConversation(any()) }
+            assertEquals(null, viewModel.uiState.value.conversationId)
+        }
+
+    @Test
+    fun `createNewConversation defers the Room row until the first send`() =
+        runTest {
+            coEvery { conversationRepository.upsertConversation(any()) } just Runs
+            coEvery { conversationRepository.observeMessages(any()) } returns emptyFlow()
+
+            viewModel.createNewConversation()
+            advanceUntilIdle()
+
+
+            coVerify(exactly = 0) { conversationRepository.upsertConversation(any()) }
+            assertEquals(null, viewModel.uiState.value.conversationId)
+
+
+            val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            every { provider.capabilities } returns ProviderCapabilities(supportsTools = false)
+            coEvery { provider.listModels() } returns Result.success(emptyList())
+            coEvery { provider.streamChat(any()) } returns flowOf(ChatStreamEvent.Done)
+            coEvery { providerManager.adapterFor(any()) } returns provider
+            coEvery { conversationRepository.upsertMessage(any()) } just Runs
+            coEvery { conversationRepository.getMessages(any()) } returns emptyList()
+            providersFlow.value =
+                listOf(
+                    ProviderConfig(
+                        id = "p1",
+                        name = "OpenAI",
+                        baseUrl = "https://api.openai.com",
+                        model = "gpt-4o-mini",
+                        isDefault = true,
+                    ),
+                )
+
+            viewModel.onTextChange("hello")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) {
+                conversationRepository.upsertConversation(match { it.title == DEFAULT_CONVERSATION_TITLE })
+            }
+            assertTrue(viewModel.uiState.value.conversationId != null)
+        }
+
+    @Test
+    fun `first send retitles an untitled conversation from its message`() =
+        runTest {
+            val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            every { provider.capabilities } returns ProviderCapabilities(supportsTools = false)
+            coEvery { provider.listModels() } returns Result.success(emptyList())
+            coEvery { provider.streamChat(any()) } returns flowOf(ChatStreamEvent.Done)
+            coEvery { providerManager.adapterFor(any()) } returns provider
+
+
+            val conversation = Conversation(id = "conv-title")
+            coEvery { conversationRepository.getConversation("conv-title") } returns conversation
+            coEvery { conversationRepository.observeMessages("conv-title") } returns emptyFlow()
+            coEvery { conversationRepository.upsertConversation(any()) } just Runs
+            coEvery { conversationRepository.getMessages("conv-title") } returns emptyList()
+            coEvery { conversationRepository.upsertMessage(any()) } just Runs
+            coEvery { conversationRepository.renameConversation(any(), any()) } just Runs
+            providersFlow.value =
+                listOf(
+                    ProviderConfig(
+                        id = "p1",
+                        name = "OpenAI",
+                        baseUrl = "https://api.openai.com",
+                        model = "gpt-4o-mini",
+                        isDefault = true,
+                    ),
+                )
+
+            viewModel.openConversationById("conv-title")
+            advanceUntilIdle()
+            viewModel.onTextChange("hello world")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            coVerify { conversationRepository.renameConversation("conv-title", "hello world") }
+            assertEquals("hello world", viewModel.uiState.value.conversationTitle)
+        }
+
+    @Test
+    fun `send does not retitle a conversation that already has a custom title`() =
+        runTest {
+            val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            every { provider.capabilities } returns ProviderCapabilities(supportsTools = false)
+            coEvery { provider.listModels() } returns Result.success(emptyList())
+            coEvery { provider.streamChat(any()) } returns flowOf(ChatStreamEvent.Done)
+            coEvery { providerManager.adapterFor(any()) } returns provider
+
+            val conversation = Conversation(id = "conv-named", title = "Custom name")
+            coEvery { conversationRepository.getConversation("conv-named") } returns conversation
+            coEvery { conversationRepository.observeMessages("conv-named") } returns emptyFlow()
+            coEvery { conversationRepository.getMessages("conv-named") } returns emptyList()
+            coEvery { conversationRepository.upsertMessage(any()) } just Runs
+            providersFlow.value =
+                listOf(
+                    ProviderConfig(
+                        id = "p1",
+                        name = "OpenAI",
+                        baseUrl = "https://api.openai.com",
+                        model = "gpt-4o-mini",
+                        isDefault = true,
+                    ),
+                )
+
+            viewModel.openConversationById("conv-named")
+            advanceUntilIdle()
+            viewModel.onTextChange("hello world")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            coVerify(exactly = 0) { conversationRepository.renameConversation(any(), any()) }
+            assertEquals("Custom name", viewModel.uiState.value.conversationTitle)
+        }
+
+    @Test
+    fun `auto-title collapses whitespace and caps the length`() =
+        runTest {
+            val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            every { provider.capabilities } returns ProviderCapabilities(supportsTools = false)
+            coEvery { provider.listModels() } returns Result.success(emptyList())
+            coEvery { provider.streamChat(any()) } returns flowOf(ChatStreamEvent.Done)
+            coEvery { providerManager.adapterFor(any()) } returns provider
+
+            val conversation = Conversation(id = "conv-long")
+            coEvery { conversationRepository.getConversation("conv-long") } returns conversation
+            coEvery { conversationRepository.observeMessages("conv-long") } returns emptyFlow()
+            coEvery { conversationRepository.getMessages("conv-long") } returns emptyList()
+            coEvery { conversationRepository.upsertMessage(any()) } just Runs
+            providersFlow.value =
+                listOf(
+                    ProviderConfig(
+                        id = "p1",
+                        name = "OpenAI",
+                        baseUrl = "https://api.openai.com",
+                        model = "gpt-4o-mini",
+                        isDefault = true,
+                    ),
+                )
+
+            viewModel.openConversationById("conv-long")
+            advanceUntilIdle()
+            viewModel.onTextChange("  line one\n\nline two\n\n" + "z".repeat(80))
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+
+            coVerify {
+                conversationRepository.renameConversation("conv-long", "line one line two " + "z".repeat(32))
+            }
+        }
+
+    @Test
+    fun `setRoutingOverride persists override to conversation`() =
+        runTest {
+
+            val conversation =
+                Conversation(id = "conv-r", title = "Routing Chat", routingOverride = RoutingOverride.AUTO)
+            coEvery { conversationRepository.getConversation("conv-r") } returns conversation
+            coEvery { conversationRepository.observeMessages("conv-r") } returns emptyFlow()
+            coEvery { conversationRepository.upsertConversation(any()) } just Runs
+
+            viewModel.openConversationById("conv-r")
+            advanceUntilIdle()
+
+
+            viewModel.setRoutingOverride(RoutingOverride.CLOUD)
+            advanceUntilIdle()
+
+            coVerify {
+                conversationRepository.upsertConversation(
+                    match { it.id == "conv-r" && it.routingOverride == RoutingOverride.CLOUD },
+                )
+            }
+        }
+
+    @Test
+    fun `setRoutingOverride updates activeRoute via resolveRoute`() =
+        runTest {
+            val conversation = Conversation(id = "conv-r2", title = "Chat", routingOverride = RoutingOverride.AUTO)
+            coEvery { conversationRepository.getConversation("conv-r2") } returns conversation
+            coEvery { conversationRepository.observeMessages("conv-r2") } returns emptyFlow()
+            coEvery { conversationRepository.upsertConversation(any()) } just Runs
+
+            viewModel.openConversationById("conv-r2")
+            advanceUntilIdle()
+
+            viewModel.setRoutingOverride(RoutingOverride.AUTO)
+            advanceUntilIdle()
+
+            assertEquals(RoutingOverride.CLOUD, viewModel.uiState.value.activeRoute)
+
+            viewModel.setRoutingOverride(RoutingOverride.CLOUD)
+            advanceUntilIdle()
+            assertEquals(RoutingOverride.CLOUD, viewModel.uiState.value.activeRoute)
+
+            viewModel.setRoutingOverride(RoutingOverride.LOCAL)
+            advanceUntilIdle()
+
+            assertEquals(RoutingOverride.CLOUD, viewModel.uiState.value.activeRoute)
+        }
+
+    @Test
+    fun `setRoutingOverride to CLOUD does not emit notice`() =
+        runTest {
+            val conversation = Conversation(id = "conv-r4", title = "Chat")
+            coEvery { conversationRepository.getConversation("conv-r4") } returns conversation
+            coEvery { conversationRepository.observeMessages("conv-r4") } returns emptyFlow()
+            coEvery { conversationRepository.upsertConversation(any()) } just Runs
+
+            viewModel.openConversationById("conv-r4")
+            advanceUntilIdle()
+
+            viewModel.uiEvents.test {
+                viewModel.setRoutingOverride(RoutingOverride.CLOUD)
+                expectNoEvents()
+            }
+        }
+
+    @Test
+    fun `openConversation restores routing override from conversation`() =
+        runTest {
+            val conversation = Conversation(id = "conv-r5", title = "Chat", routingOverride = RoutingOverride.LOCAL)
+            coEvery { conversationRepository.getConversation("conv-r5") } returns conversation
+            coEvery { conversationRepository.observeMessages("conv-r5") } returns emptyFlow()
+
+            viewModel.openConversationById("conv-r5")
+            advanceUntilIdle()
+
+            assertEquals(RoutingOverride.LOCAL, viewModel.uiState.value.routingOverride)
+            assertEquals(RoutingOverride.CLOUD, viewModel.uiState.value.activeRoute)
+        }
+
+    @Test
+    fun `default routing override is AUTO`() {
+        assertEquals(RoutingOverride.AUTO, viewModel.uiState.value.routingOverride)
+    }
+
+    @Test
+    fun `cancelStreaming marks STREAMING assistant message as STOPPED`() =
+        runTest {
+            val streamingMessage =
+                Message(
+                    id = "msg-stream",
+                    conversationId = "conv-c",
+                    role = MessageRole.ASSISTANT,
+                    content = "Hello partial",
+                    status = MessageStatus.STREAMING,
+                )
+            messagesFlow.value = listOf(streamingMessage)
+
+            val conversation = Conversation(id = "conv-c")
+            coEvery { conversationRepository.getConversation("conv-c") } returns conversation
+            coEvery { conversationRepository.observeMessages("conv-c") } answers { messagesFlow }
+            coEvery { conversationRepository.upsertConversation(any()) } just Runs
+            coEvery { conversationRepository.upsertMessage(any()) } just Runs
+
+            viewModel.openConversationById("conv-c")
+            advanceUntilIdle()
+
+
+            assertEquals(1, viewModel.uiState.value.messages.size)
+            assertEquals(
+                MessageStatus.STREAMING,
+                viewModel.uiState.value.messages[0]
+                    .status,
+            )
+
+            viewModel.cancelStreaming()
+            advanceUntilIdle()
+
+            assertFalse(viewModel.uiState.value.isStreaming)
+            coVerify {
+                conversationRepository.upsertMessage(
+                    match { it.id == "msg-stream" && it.status == MessageStatus.STOPPED },
+                )
+            }
+        }
+
+    @Test
+    fun `cancelStreaming with no active stream is a no-op`() =
+        runTest {
+            viewModel.cancelStreaming()
+            advanceUntilIdle()
+            assertFalse(viewModel.uiState.value.isStreaming)
+        }
+
+    @Test
+    fun `sending while streaming interrupts the run and preserves the partial reply`() =
+        runTest {
+            // A message feed the test controls, standing in for Room: upserts
+            // replace by id, exactly like the real table.
+            val messages = MutableStateFlow<List<Message>>(emptyList())
+            val hangingStream = MutableSharedFlow<ChatStreamEvent>(replay = 1)
+            hangingStream.tryEmit(ChatStreamEvent.TokenDelta("Partial answ"))
+
+            val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            every { provider.capabilities } returns ProviderCapabilities(supportsTools = false)
+            coEvery { provider.listModels() } returns Result.success(emptyList())
+            coEvery { provider.streamChat(any()) } returns hangingStream
+            coEvery { providerManager.adapterFor(any()) } returns provider
+
+            coEvery { conversationRepository.getConversation("conv-int") } returns Conversation(id = "conv-int")
+            coEvery { conversationRepository.observeMessages("conv-int") } returns messages
+            coEvery { conversationRepository.upsertConversation(any()) } just Runs
+            coEvery { conversationRepository.renameConversation(any(), any()) } just Runs
+            coEvery { conversationRepository.getMessages("conv-int") } returns emptyList()
+            coEvery { conversationRepository.upsertMessage(any()) } answers {
+                val msg = firstArg<Message>()
+                messages.value = messages.value.filterNot { it.id == msg.id } + msg
+            }
+            providersFlow.value =
+                listOf(
+                    ProviderConfig(
+                        id = "p1",
+                        name = "OpenAI",
+                        baseUrl = "https://api.openai.com",
+                        model = "gpt-4o-mini",
+                        isDefault = true,
+                    ),
+                )
+
+            viewModel.openConversationById("conv-int")
+            advanceUntilIdle()
+
+            // First send — the stream parks after one token, the run stays live.
+            viewModel.onTextChange("tell me a story")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            // Simulate the debounced persist landing the partial token text.
+            val placeholder = viewModel.uiState.value.messages.last { it.role == MessageRole.ASSISTANT }
+            messages.value = messages.value.map { if (it.id == placeholder.id) it.copy(content = "Partial answ") else it }
+            advanceUntilIdle()
+
+            assertTrue(viewModel.uiState.value.isStreaming)
+            val streamingRow = viewModel.uiState.value.messages.last { it.role == MessageRole.ASSISTANT }
+            assertEquals(MessageStatus.STREAMING, streamingRow.status)
+            assertEquals("Partial answ", streamingRow.content)
+
+            // Second send mid-generation — interrupts the run, keeps the partial.
+            viewModel.onTextChange("actually, quick question")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertTrue(state.isStreaming)
+            assertEquals(null, state.pendingConfirmation)
+            // A new goal-engine run is now in flight for the superseding message.
+            assertTrue(state.isAgentRunning)
+            coVerify(atLeast = 1) {
+                conversationRepository.upsertMessage(
+                    match {
+                        it.id == streamingRow.id &&
+                            it.content == "Partial answ" &&
+                            it.status == MessageStatus.STOPPED
+                    },
+                )
+            }
+            coVerify(atLeast = 1) {
+                conversationRepository.upsertMessage(
+                    match { it.role == MessageRole.USER && it.content == "actually, quick question" },
+                )
+            }
+        }
+
+    @Test
+    fun `Jarvis prefix routes to agent mode and persists the final answer`() =
+        runTest {
+            val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            every { provider.capabilities } returns ProviderCapabilities(supportsTools = true)
+            coEvery { provider.listModels() } returns Result.success(emptyList())
+            coEvery { provider.streamChat(any()) } returns
+                flowOf(
+                    ChatStreamEvent.TokenDelta("Battery is at 80%."),
+                    ChatStreamEvent.Done,
+                )
+            coEvery { providerManager.adapterFor(any()) } returns provider
+
+            val conversation = Conversation(id = "conv-agent", title = "Chat")
+            coEvery { conversationRepository.getConversation("conv-agent") } returns conversation
+            coEvery { conversationRepository.observeMessages("conv-agent") } returns emptyFlow()
+            coEvery { conversationRepository.upsertConversation(any()) } just Runs
+            coEvery { conversationRepository.getMessages("conv-agent") } returns emptyList()
+            coEvery { conversationRepository.upsertMessage(any()) } just Runs
+            providersFlow.value =
+                listOf(
+                    ProviderConfig(
+                        id = "p1",
+                        name = "OpenAI",
+                        baseUrl = "https://api.openai.com",
+                        model = "gpt-4o-mini",
+                        isDefault = true,
+                    ),
+                )
+
+            viewModel.openConversationById("conv-agent")
+            advanceUntilIdle()
+            viewModel.onTextChange("Jarvis, check the battery")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            assertFalse(viewModel.uiState.value.isStreaming)
+            assertFalse(viewModel.uiState.value.isAgentRunning)
+            assertFalse(viewModel.uiState.value.pendingConfirmation != null)
+            coVerify {
+                conversationRepository.upsertMessage(
+                    match {
+                        it.role == MessageRole.ASSISTANT &&
+                            it.status == MessageStatus.COMPLETE &&
+                            it.content == "Battery is at 80%."
+                    },
+                )
+            }
+        }
+
+    @Test
+    fun `sendMessage aborts with an error when no model resolves`() =
+        runTest {
+            val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            every { provider.capabilities } returns ProviderCapabilities(supportsTools = false)
+            coEvery { provider.listModels() } returns Result.success(emptyList())
+            coEvery { provider.streamChat(any()) } returns flowOf(ChatStreamEvent.Done)
+            coEvery { providerManager.adapterFor(any()) } returns provider
+
+            val conversation = Conversation(id = "conv-nomodel", title = "Chat")
+            coEvery { conversationRepository.getConversation("conv-nomodel") } returns conversation
+            coEvery { conversationRepository.observeMessages("conv-nomodel") } returns emptyFlow()
+            coEvery { conversationRepository.upsertConversation(any()) } just Runs
+            coEvery { conversationRepository.upsertMessage(any()) } just Runs
+            providersFlow.value =
+                listOf(
+                    ProviderConfig(
+                        id = "p1",
+                        name = "Local",
+                        baseUrl = "https://api.example.test",
+                        isDefault = true,
+                    ),
+                )
+
+            viewModel.openConversationById("conv-nomodel")
+            advanceUntilIdle()
+
+            viewModel.uiEvents.test {
+                viewModel.onTextChange("hello")
+                viewModel.sendMessage()
+                val event = awaitItem()
+                assertTrue(event is ChatUiEvent.ShowError)
+                assertTrue((event as ChatUiEvent.ShowError).message.contains("No model"))
+            }
+
+
+            assertEquals("hello", viewModel.uiState.value.composerText)
+            assertFalse(viewModel.uiState.value.isStreaming)
+            coVerify(exactly = 0) { conversationRepository.upsertMessage(any()) }
+        }
+
+    @Test
+    fun `agent milestones persist for meaningful actions only`() =
+        runTest {
+            val provider =
+                agentProvider(
+                    listOf(
+                        flowOf(
+                            ChatStreamEvent.ToolCallRequested(name = "create_task", argsJson = "{\"title\":\"Buy milk\"}"),
+                            ChatStreamEvent.Done,
+                        ),
+                        flowOf(ChatStreamEvent.TokenDelta("Done."), ChatStreamEvent.Done),
+                    ),
+                )
+            viewModelWith(tool("create_task"))
+            openAgentConversation()
+
+            viewModel.onTextChange("Jarvis, remind me to buy milk")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            coVerify {
+                conversationRepository.upsertMessage(
+                    match { it.role == MessageRole.TOOL && it.content.contains("Reminder created") },
+                )
+            }
+        }
+
+    @Test
+    fun `agent internal queries persist no milestone rows`() =
+        runTest {
+            val provider =
+                agentProvider(
+                    listOf(
+                        flowOf(
+                            ChatStreamEvent.ToolCallRequested(name = "current_time", argsJson = "{}"),
+                            ChatStreamEvent.Done,
+                        ),
+                        flowOf(ChatStreamEvent.TokenDelta("It is 12:00 UTC."), ChatStreamEvent.Done),
+                    ),
+                )
+            viewModelWith(tool("current_time"))
+            openAgentConversation()
+
+            viewModel.onTextChange("Jarvis, what time is it?")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            coVerify(exactly = 0) {
+                conversationRepository.upsertMessage(match { it.role == MessageRole.TOOL })
+            }
+        }
+
+    @Test
+    fun `agent answer without tools persists no milestone rows`() =
+        runTest {
+
+
+            val provider =
+                agentProvider(
+                    listOf(
+                        flowOf(ChatStreamEvent.TokenDelta("Hi."), ChatStreamEvent.Done),
+                    ),
+                )
+            viewModelWith()
+            openAgentConversation()
+
+            viewModel.onTextChange("Jarvis, just say hi")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            coVerify(exactly = 0) { conversationRepository.upsertMessage(match { it.role == MessageRole.TOOL }) }
+            coVerify {
+                conversationRepository.upsertMessage(
+                    match { it.role == MessageRole.ASSISTANT && it.content == "Hi." },
+                )
+            }
+        }
+
+    @Test
+    fun `agent run renders each canvas milestone with completed checkmarks`() =
+        runTest {
+            val provider =
+                agentProvider(
+                    listOf(
+                        flowOf(
+                            ChatStreamEvent.ToolCallRequested(name = "current_time", argsJson = "{}"),
+                            ChatStreamEvent.Done,
+                        ),
+                        flowOf(ChatStreamEvent.TokenDelta("It is 12:00 UTC."), ChatStreamEvent.Done),
+                    ),
+                )
+            viewModelWith(tool("current_time"))
+            openAgentConversation()
+
+            viewModel.onTextChange("Jarvis, what time is it?")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertFalse(state.isAgentRunning)
+            assertEquals(listOf("current_time done"), state.agentSteps.map { it.text })
+            assertTrue(state.agentSteps.isNotEmpty())
+            assertTrue(state.agentSteps.none { it.state == AgentStepState.RUNNING })
+            coVerify {
+                conversationRepository.upsertMessage(
+                    match { it.role == MessageRole.ASSISTANT && it.content == "It is 12:00 UTC." },
+                )
+            }
+        }
+
+    @Test
+    fun `sensitive tool parks the run at the confirmation until allowed`() =
+        runTest {
+            val provider =
+                agentProvider(
+                    listOf(
+                        flowOf(
+                            ChatStreamEvent.ToolCallRequested(name = "send_it", argsJson = "{\"text\":\"hi\"}"),
+                            ChatStreamEvent.Done,
+                        ),
+                        flowOf(ChatStreamEvent.TokenDelta("Sent."), ChatStreamEvent.Done),
+                    ),
+                )
+            viewModelWith(tool("send_it", tier = PermissionTier.SENSITIVE))
+            openAgentConversation()
+
+            viewModel.onTextChange("Jarvis, send it")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+
+            var state = viewModel.uiState.value
+            assertTrue(state.isAgentRunning)
+            assertEquals("send_it", state.pendingConfirmation?.toolName)
+            assertEquals("Needs your approval: send_it", state.agentSteps.last().text)
+            assertEquals(AgentStepState.RUNNING, state.agentSteps.last().state)
+
+            viewModel.respondToConfirmation(allow = true)
+            advanceUntilIdle()
+
+            state = viewModel.uiState.value
+            assertFalse(state.isAgentRunning)
+            assertEquals(null, state.pendingConfirmation)
+            assertEquals("send_it done", state.agentSteps.last().text)
+            assertEquals(AgentStepState.DONE, state.agentSteps.last().state)
+            coVerify {
+                conversationRepository.upsertMessage(
+                    match { it.role == MessageRole.ASSISTANT && it.content == "Sent." },
+                )
+            }
+        }
+
+    @Test
+    fun `denying a sensitive tool halts the run and persists no assistant answer`() =
+        runTest {
+            val provider =
+                agentProvider(
+                    listOf(
+                        flowOf(
+                            ChatStreamEvent.ToolCallRequested(name = "send_it", argsJson = "{\"text\":\"hi\"}"),
+                            ChatStreamEvent.Done,
+                        ),
+                    ),
+                )
+            viewModelWith(tool("send_it", tier = PermissionTier.SENSITIVE))
+            openAgentConversation()
+
+            viewModel.onTextChange("Jarvis, send it")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            viewModel.respondToConfirmation(allow = false)
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertFalse(state.isAgentRunning)
+            assertEquals(null, state.pendingConfirmation)
+            assertEquals("Denied send_it", state.agentSteps.last().text)
+            assertEquals(AgentStepState.CANCELLED, state.agentSteps.last().state)
+            coVerify(exactly = 0) {
+                conversationRepository.upsertMessage(match { it.role == MessageRole.ASSISTANT })
+            }
+        }
+
+    @Test
+    fun `agent run survives a throwing provider stream without crashing`() =
+        runTest {
+
+
+
+            val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            every { provider.capabilities } returns ProviderCapabilities(supportsTools = true)
+            coEvery { provider.listModels() } returns Result.success(emptyList())
+            coEvery { provider.streamChat(any()) } throws IllegalStateException("boom: malformed url")
+            coEvery { providerManager.adapterFor(any()) } returns provider
+            viewModelWith()
+            openAgentConversation()
+
+            viewModel.uiEvents.test {
+                viewModel.onTextChange("Jarvis, check the battery")
+                viewModel.sendMessage()
+                advanceUntilIdle()
+                val event = awaitItem()
+                assertTrue(event is ChatUiEvent.ShowError)
+                assertTrue((event as ChatUiEvent.ShowError).message.contains("boom"))
+            }
+
+
+            assertFalse(viewModel.uiState.value.isStreaming)
+            assertFalse(viewModel.uiState.value.isAgentRunning)
+            assertEquals(null, viewModel.uiState.value.pendingConfirmation)
+        }
+
+    /** A ChatViewModel whose ToolRegistry carries the given tools. */
+    private fun viewModelWith(vararg tools: Tool) {
+        val registry = ToolRegistry()
+        tools.forEach { registry.register(it) }
+        val voiceManager = ChatVoiceManager(audioRecorder, audioPlayer, sttProvider, ttsProvider, com.jarvis.core.voice.VoiceStateMachine())
+        val contextManager = ConversationContextManager(io.mockk.mockk(relaxed = true), userPreferences)
+        viewModel =
+            ChatViewModel(
+                conversationRepository = conversationRepository,
+                providerManager = providerManager,
+                dispatchers =
+                    com.jarvis.core.common
+                        .DispatcherProvider(),
+                voiceManager = voiceManager,
+                toolRegistry = registry,
+                auditLogger = AuditLogger { },
+                userPreferences = userPreferences,
+                conversationContextManager = contextManager,
+                goalEngine = createTestGoalEngine(registry, contextManager),
+                savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            )
+    }
+
+    /** Provider that emits the given stream per engine iteration, one per ReAct loop call. */
+    private fun agentProvider(streams: List<Flow<ChatStreamEvent>>): OpenAiCompatibleProvider {
+        val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+        every { provider.capabilities } returns ProviderCapabilities(supportsTools = true)
+        coEvery { provider.listModels() } returns Result.success(emptyList())
+        coEvery { provider.streamChat(any()) } returnsMany streams
+        coEvery { providerManager.adapterFor(any()) } returns provider
+        return provider
+    }
+
+    /** Open the agent conversation with a default cloud provider configured. */
+    private fun TestScope.openAgentConversation() {
+        val conversation = Conversation(id = "conv-agent", title = "Chat")
+        coEvery { conversationRepository.getConversation("conv-agent") } returns conversation
+        coEvery { conversationRepository.observeMessages("conv-agent") } returns emptyFlow()
+        coEvery { conversationRepository.upsertConversation(any()) } just Runs
+        coEvery { conversationRepository.getMessages("conv-agent") } returns emptyList()
+        coEvery { conversationRepository.upsertMessage(any()) } just Runs
+        providersFlow.value =
+            listOf(
+                ProviderConfig(
+                    id = "p1",
+                    name = "OpenAI",
+                    baseUrl = "https://api.openai.com",
+                    model = "gpt-4o-mini",
+                    isDefault = true,
+                ),
+            )
+        viewModel.openConversationById("conv-agent")
+        advanceUntilIdle()
+    }
+    private fun TestScope.loadConversationForRegenerate(): MutableStateFlow<List<Message>> {
+        coEvery { conversationRepository.upsertConversation(any()) } just Runs
+        coEvery { conversationRepository.upsertMessage(any()) } just Runs
+        coEvery { conversationRepository.deleteMessage(any()) } just Runs
+        coEvery { conversationRepository.getMessages(any()) } returns emptyList()
+        coEvery { conversationRepository.renameConversation(any(), any()) } just Runs
+
+        val conversation = Conversation(id = "conv-regen")
+        coEvery { conversationRepository.getConversation("conv-regen") } returns conversation
+
+        val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+        every { provider.capabilities } returns ProviderCapabilities(supportsTools = false)
+        coEvery { provider.listModels() } returns Result.success(emptyList())
+        coEvery { provider.streamChat(any()) } returns flowOf(ChatStreamEvent.Done)
+        coEvery { providerManager.adapterFor(any()) } returns provider
+        providersFlow.value =
+            listOf(
+                ProviderConfig(
+                    id = "p1",
+                    name = "OpenAI",
+                    baseUrl = "https://api.openai.com",
+                    model = "gpt-4o-mini",
+                    isDefault = true,
+                ),
+            )
+
+        val messages = MutableStateFlow<List<Message>>(emptyList())
+        coEvery { conversationRepository.observeMessages("conv-regen") } returns messages
+
+        viewModel.openConversationById("conv-regen")
+        advanceUntilIdle()
+        return messages
+    }
+
+    @Test
+    fun `regenerate deletes turns after the last user message and streams a fresh reply`() =
+        runTest {
+            val messages = loadConversationForRegenerate()
+            val staleReply = Message(conversationId = "conv-regen", role = MessageRole.ASSISTANT, content = "stale answer")
+            messages.value =
+                listOf(
+                    Message(conversationId = "conv-regen", role = MessageRole.USER, content = "what is 2+2"),
+                    staleReply,
+                )
+            advanceUntilIdle()
+
+            viewModel.regenerate()
+            advanceUntilIdle()
+
+
+            coVerify(exactly = 1) { conversationRepository.deleteMessage(staleReply.id) }
+
+            coVerify(atLeast = 1) {
+                conversationRepository.upsertMessage(match { it.role == MessageRole.ASSISTANT })
+            }
+
+            assertFalse(viewModel.uiState.value.isStreaming)
+        }
+
+    @Test
+    fun `regenerate is a no-op with no saved conversation`() =
+        runTest {
+            advanceUntilIdle()
+
+            viewModel.regenerate()
+            advanceUntilIdle()
+
+            coVerify(exactly = 0) { conversationRepository.deleteMessage(any()) }
+            coVerify(exactly = 0) { conversationRepository.upsertMessage(any()) }
+            assertFalse(viewModel.uiState.value.isStreaming)
+        }
+
+    @Test
+    fun `regenerate is a no-op with no user message to rebuild from`() =
+        runTest {
+            val messages = loadConversationForRegenerate()
+
+            messages.value =
+                listOf(Message(conversationId = "conv-regen", role = MessageRole.ASSISTANT, content = "orphan reply"))
+            advanceUntilIdle()
+
+            viewModel.regenerate()
+            advanceUntilIdle()
+
+            coVerify(exactly = 0) { conversationRepository.deleteMessage(any()) }
+            coVerify(exactly = 0) { conversationRepository.upsertMessage(match { it.role == MessageRole.ASSISTANT }) }
+            assertFalse(viewModel.uiState.value.isStreaming)
+    }
+
+    @Test
+    fun `streaming receives first TextDelta and multiple TextDelta events in order`() =
+        runTest {
+            val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            every { provider.capabilities } returns ProviderCapabilities(supportsTools = true)
+            coEvery { provider.listModels() } returns Result.success(emptyList())
+            coEvery { provider.streamChat(any()) } returns
+                flowOf(
+                    ChatStreamEvent.TokenDelta("Hello "),
+                    ChatStreamEvent.TokenDelta("world"),
+                    ChatStreamEvent.TokenDelta("!"),
+                    ChatStreamEvent.Done,
+                )
+            coEvery { providerManager.adapterFor(any()) } returns provider
+
+            openAgentConversation()
+
+            viewModel.onTextChange("Jarvis, hello")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            assertFalse(viewModel.uiState.value.isStreaming)
+            coVerify {
+                conversationRepository.upsertMessage(
+                    match {
+                        it.role == MessageRole.ASSISTANT &&
+                            it.status == MessageStatus.COMPLETE &&
+                            it.content == "Hello world!"
+                    },
+                )
+            }
+        }
+
+    @Test
+    fun `streaming handles empty deltas and non-content stream events without failure`() =
+        runTest {
+            val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            every { provider.capabilities } returns ProviderCapabilities(supportsTools = true)
+            coEvery { provider.listModels() } returns Result.success(emptyList())
+            coEvery { provider.streamChat(any()) } returns
+                flowOf(
+                    ChatStreamEvent.TokenDelta(""),
+                    ChatStreamEvent.ReasoningDelta("thinking"),
+                    ChatStreamEvent.TokenDelta("Valid response"),
+                    ChatStreamEvent.Usage(10, 20),
+                    ChatStreamEvent.Done,
+                )
+            coEvery { providerManager.adapterFor(any()) } returns provider
+
+            openAgentConversation()
+
+            viewModel.onTextChange("Jarvis, test")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            assertFalse(viewModel.uiState.value.isStreaming)
+            assertFalse(viewModel.uiState.value.isAgentRunning)
+            coVerify {
+                conversationRepository.upsertMessage(
+                    match {
+                        it.role == MessageRole.ASSISTANT &&
+                            it.status == MessageStatus.COMPLETE &&
+                            it.content == "Valid response"
+                    },
+                )
+            }
+        }
+
+    @Test
+    fun `streaming handles GoalEvent Failed correctly and reports error`() =
+        runTest {
+            val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            every { provider.capabilities } returns ProviderCapabilities(supportsTools = true)
+            coEvery { provider.listModels() } returns Result.success(emptyList())
+            coEvery { provider.streamChat(any()) } returns
+                flowOf(
+                    ChatStreamEvent.TokenDelta("Starting..."),
+                    ChatStreamEvent.Error("API_ERROR", "Server unavailable", retryable = false),
+                )
+            coEvery { providerManager.adapterFor(any()) } returns provider
+
+            openAgentConversation()
+
+            viewModel.uiEvents.test {
+                viewModel.onTextChange("Jarvis, fail test")
+                viewModel.sendMessage()
+                advanceUntilIdle()
+
+                val event = awaitItem()
+                assertTrue(event is ChatUiEvent.ShowError)
+                assertEquals("Server unavailable", (event as ChatUiEvent.ShowError).message)
+            }
+
+            val state = viewModel.uiState.value
+            assertFalse(state.isStreaming)
+            assertFalse(state.isAgentRunning)
+            assertEquals(AgentStatus.FAILED, state.agentStatus)
+            assertEquals("Server unavailable", state.agentFailureReason)
+        }
+
+    @Test
+    fun `cancelStreaming before first token cleans up safely`() =
+        runTest {
+            openAgentConversation()
+
+            val hangingStream = MutableSharedFlow<ChatStreamEvent>(replay = 0)
+            val provider = mockk<OpenAiCompatibleProvider>(relaxed = true)
+            every { provider.capabilities } returns ProviderCapabilities(supportsTools = true)
+            coEvery { provider.listModels() } returns Result.success(emptyList())
+            coEvery { provider.streamChat(any()) } returns hangingStream
+            coEvery { providerManager.adapterFor(any()) } returns provider
+
+            viewModel.onTextChange("Jarvis, wait")
+            viewModel.sendMessage()
+            advanceUntilIdle()
+
+            assertTrue(viewModel.uiState.value.isAgentRunning)
+
+            viewModel.cancelStreaming()
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertFalse(state.isStreaming)
+            assertFalse(state.isAgentRunning)
+            assertEquals(AgentStatus.CANCELLED, state.agentStatus)
+        }
+
+    /** Minimal test tool returning [result]. */
+    private fun tool(
+        name: String,
+        tier: PermissionTier = PermissionTier.READ_ONLY,
+        result: ToolResult = ToolResult(success = true, observationText = "ok"),
+    ) = object : Tool {
+        override val name = name
+        override val description = "test tool $name"
+        override val parametersSchemaJson = """{"type":"object","properties":{}}"""
+        override val tier = tier
+
+        override suspend fun execute(argsJson: String): ToolResult = result
+    }
+}

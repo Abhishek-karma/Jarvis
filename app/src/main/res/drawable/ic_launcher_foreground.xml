@@ -1,0 +1,43 @@
+<!--
+  Jarvis launcher foreground — adaptive icon (API 26+).
+
+  Mirrors the in-app JarvisMark (core/designsystem Components.kt) exactly:
+  two concentric arcs tracing the TOP hemisphere (an arch) plus a solid dot
+  at the arc circle's center — all in full accent color, no alpha steps,
+  matching the Compose canvas.
+
+  Proportions (from Components.kt, r = 50):
+    outer arc radius 0.44r = 22, stroke 0.07r = 3.5
+    inner arc radius 0.28r = 14, stroke 0.09r = 4.5
+    dot radius       0.13r = 6.5
+
+  The arc center sits at (54, 62) so the visible art (arch top y≈36.5 to
+  dot bottom y≈68.5) is vertically centered on the 54,54 icon origin.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Outer arch. -->
+    <path
+        android:strokeColor="#3D63F6"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M32,62 A22,22 0 0 1 76,62" />
+
+    <!-- Inner arch. -->
+    <path
+        android:strokeColor="#3D63F6"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M40,62 A14,14 0 0 1 68,62" />
+
+    <!-- Center dot at the arc circle's origin. -->
+    <path
+        android:fillColor="#3D63F6"
+        android:pathData="M54,62 m-6.5,0 a6.5,6.5 0 1,0 13,0 a6.5,6.5 0 1,0 -13,0" />
+</vector>

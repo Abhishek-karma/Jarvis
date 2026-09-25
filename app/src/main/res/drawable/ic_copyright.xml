@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Jarvis Copyright Icon - Theme-aligned vector asset
+  Features a refined circular perimeter with a balanced geometric "C" letterform
+  and subtle accent styling matching the Jarvis design system (#3D63F6).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Outer precision ring -->
+    <path
+        android:strokeColor="#3D63F6"
+        android:strokeWidth="1.75"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M12,2 A10,10 0 1 0 12,22 A10,10 0 1 0 12,2 Z" />
+
+    <!-- Inner Copyright 'C' letterform -->
+    <path
+        android:strokeColor="#3D63F6"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M14.5,9.2 C13.8,7.8 12.2,7.2 10.8,7.8 C9.2,8.5 8.4,10.2 8.4,12 C8.4,13.8 9.2,15.5 10.8,16.2 C12.2,16.8 13.8,16.2 14.5,14.8" />
+</vector>

@@ -1,0 +1,6 @@
+{
+  "name": "Jarvis",
+  "description": "Personal Android assistant executing user goals across system intents, background routines, voice, and device capabilities.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

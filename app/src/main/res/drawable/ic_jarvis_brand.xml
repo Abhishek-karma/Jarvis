@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Jarvis Brand Logo & Copyright Emblem
+  Combines the dual-arc AI core with a refined outer orbital ring
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+
+    <!-- Outer subtle bounding ring -->
+    <path
+        android:strokeColor="#253D63F6"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M24,4 A20,20 0 1 0 24,44 A20,20 0 1 0 24,4 Z" />
+
+    <!-- Outer primary arch -->
+    <path
+        android:strokeColor="#3D63F6"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M14,27.5 A10,10 0 0 1 34,27.5" />
+
+    <!-- Inner primary arch -->
+    <path
+        android:strokeColor="#3D63F6"
+        android:strokeWidth="3.0"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M18,27.5 A6,6 0 0 1 30,27.5" />
+
+    <!-- Center energy node -->
+    <path
+        android:fillColor="#3D63F6"
+        android:pathData="M24,27.5 m-2.8,0 a2.8,2.8 0 1,0 5.6,0 a2.8,2.8 0 1,0 -5.6,0" />
+</vector>

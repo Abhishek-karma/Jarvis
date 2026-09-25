@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Night-mode launcher background. Stays white so the icon reads as a
+      single, calm mark on the home screen regardless of system theme —
+      matching the existing jarvis-chat-v3 reference. Swap here if you want
+      a deep-ink launcher background at night.
+    -->
+    <color name="ic_launcher_background">#FFFFFFFF</color>
+    <color name="splash_background">#FFFFFFFF</color>
+</resources>
