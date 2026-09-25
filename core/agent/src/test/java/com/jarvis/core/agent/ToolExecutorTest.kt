@@ -194,7 +194,7 @@ class ToolExecutorTest {
     }
 
     @Test
-    fun `cancellation during execution marks ledger FAILED and rethrows`() = runTest {
+    fun `cancellation during execution marks ledger UNKNOWN and rethrows`() = runTest {
         val registry = ToolRegistry()
         val opRepo = FakeOperationRepository()
 
@@ -222,7 +222,21 @@ class ToolExecutorTest {
 
         val record = opRepo.getByKey("job-cancel-key")
         assertNotNull(record)
-        assertEquals(OperationStatus.FAILED, record?.status)
-        assertEquals("Operation cancelled", record?.errorMessage)
+        assertEquals(
+            OperationStatus.UNKNOWN,
+            record?.status,
+            "Interrupted uncertain side effect must be UNKNOWN, never FAILED",
+        )
+        assertTrue(record?.errorMessage?.contains("uncertain") == true)
+
+        // A subsequent automatic call must NOT re-execute the uncertain operation.
+        val retry = executor.execute(
+            toolName = "long_job",
+            argsJson = "{}",
+            idempotencyKey = "job-cancel-key",
+        )
+        assertFalse(retry.success)
+        assertEquals(ErrorCode.OPERATION_UNCERTAIN, retry.errorCode)
+        assertEquals(OperationStatus.UNKNOWN, opRepo.getByKey("job-cancel-key")?.status)
     }
 }

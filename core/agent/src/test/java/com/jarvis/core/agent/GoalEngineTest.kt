@@ -2,6 +2,7 @@ package com.jarvis.core.agent
 
 import com.jarvis.core.common.Task
 import com.jarvis.core.common.TaskState
+import com.jarvis.core.database.repository.OperationRepository
 import com.jarvis.core.database.repository.TaskRepository
 import com.jarvis.core.network.ChatStreamEvent
 import kotlinx.coroutines.flow.Flow
@@ -31,14 +32,15 @@ class GoalEngineTest {
     fun `executeGoal collects AgentEvents and completes successfully`() = runTest {
         val provider = FakeLlmProvider(script = { listOf(ChatStreamEvent.TokenDelta("The capital is Paris."), ChatStreamEvent.Done) })
         val registry = ToolRegistry()
+        val audit = AuditLogger { }
+        val toolExecutor = ToolExecutor(registry, audit, operationRepository = OperationRepository())
         val runner = AgentRunner(
             registry = registry,
-            audit = AuditLogger { },
+            audit = audit,
             confirmationGate = { _, _ -> true },
+            toolExecutor = toolExecutor,
         )
         val taskRepository = FakeTaskRepository()
-        val audit = AuditLogger { }
-        val toolExecutor = ToolExecutor(registry, audit)
         val goalEngine = GoalEngine(
             agentRunner = runner,
             taskRepository = taskRepository,
@@ -76,12 +78,13 @@ class GoalEngineTest {
                 },
             )
         val audit = AuditLogger { }
+        val toolExecutor = ToolExecutor(registry, audit, operationRepository = OperationRepository())
         val runner = AgentRunner(
             registry = registry,
             audit = audit,
             confirmationGate = { _, _ -> true },
+            toolExecutor = toolExecutor,
         )
-        val toolExecutor = ToolExecutor(registry, audit)
         val goalEngine = GoalEngine(
             agentRunner = runner,
             taskRepository = FakeTaskRepository(),
@@ -113,12 +116,13 @@ class GoalEngineTest {
         }
         val provider = FakeLlmProvider(script = { listOf(ChatStreamEvent.Done) })
         val audit = AuditLogger { }
+        val toolExecutor = ToolExecutor(registry, audit, operationRepository = OperationRepository())
         val runner = AgentRunner(
             registry = registry,
             audit = audit,
             confirmationGate = { _, _ -> true },
+            toolExecutor = toolExecutor,
         )
-        val toolExecutor = ToolExecutor(registry, audit)
         val goalEngine = GoalEngine(
             agentRunner = runner,
             taskRepository = FakeTaskRepository(),
@@ -150,12 +154,13 @@ class GoalEngineTest {
             },
         )
         val audit = AuditLogger { }
+        val toolExecutor = ToolExecutor(registry, audit, operationRepository = OperationRepository())
         val runner = AgentRunner(
             registry = registry,
             audit = audit,
             confirmationGate = { _, _ -> true },
+            toolExecutor = toolExecutor,
         )
-        val toolExecutor = ToolExecutor(registry, audit)
         val goalEngine = GoalEngine(
             agentRunner = runner,
             taskRepository = FakeTaskRepository(),

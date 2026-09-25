@@ -43,7 +43,7 @@ class ToolExecutor @Inject constructor(
     private val audit: AuditLogger,
     private val toolPolicy: ToolPolicy = DefaultToolPolicy(),
     private val contextManager: ContextManager = ContextManager(),
-    private val operationRepository: OperationRepository? = null,
+    private val operationRepository: OperationRepository = OperationRepository(),
 ) {
     private val validator = ToolArgsValidator()
     private val operationLocks = ConcurrentHashMap<String, Mutex>()
@@ -120,7 +120,7 @@ class ToolExecutor @Inject constructor(
             null
         }
 
-        if (effectiveKey != null && operationRepository != null) {
+        if (effectiveKey != null) {
             val opLock = operationLocks.computeIfAbsent(effectiveKey) { Mutex() }
             return opLock.withLock {
                 executeWithOperationTracking(
@@ -162,16 +162,7 @@ class ToolExecutor @Inject constructor(
         modelId: String? = null,
         onConfirmationRequired: (suspend (toolName: String, argsJson: String) -> Unit)?,
     ): ToolExecutionOutcome {
-        val opRepo = operationRepository ?: return executeDirect(
-            tool = tool,
-            argsJson = argsJson,
-            agentRunId = agentRunId,
-            confirmationGate = confirmationGate,
-            forceConfirm = forceConfirm,
-            llmProvider = llmProvider,
-            modelId = modelId,
-            onConfirmationRequired = onConfirmationRequired,
-        )
+        val opRepo = operationRepository
 
         val existing = opRepo.getByKey(effectiveKey)
         if (existing != null) {
@@ -301,8 +292,8 @@ class ToolExecutor @Inject constructor(
                         taskId = agentRunId ?: "interactive",
                         toolName = tool.name,
                         idempotencyKey = effectiveKey,
-                        status = OperationStatus.FAILED,
-                        errorMessage = "Operation cancelled",
+                        status = OperationStatus.UNKNOWN,
+                        errorMessage = "Operation interrupted mid-execution; external outcome is uncertain.",
                         createdAt = existing?.createdAt ?: now,
                         updatedAt = System.currentTimeMillis(),
                     ),

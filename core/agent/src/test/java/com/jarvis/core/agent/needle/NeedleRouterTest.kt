@@ -211,47 +211,4 @@ class NeedleRouterTest {
         assertTrue(r is RoutingDecision.Escalate)
         assertEquals(EscalationReason.EMPTY_PROMPT, (r as RoutingDecision.Escalate).reason)
     }
-
-    @Test
-    fun `needleAction delegates directly to ToolExecutor`() = runTest {
-        val registry = com.jarvis.core.agent.ToolRegistry()
-        registry.register(com.jarvis.core.agent.tools.DeviceTools.setFlashlight { enabled ->
-            Result.success(Unit)
-        })
-        val toolExecutor = com.jarvis.core.agent.ToolExecutor(
-            registry = registry,
-            audit = com.jarvis.core.agent.AuditLogger { },
-        )
-        val needleActionTool = NeedleTools.needleAction(router, toolExecutor)
-
-        val result = needleActionTool.execute("""{"action":"turn on flashlight"}""")
-        assertTrue(result.success)
-        assertTrue(result.observationText.isNotBlank())
-    }
-
-    @Test
-    fun `needleAction blocks recursive needle_action execution`() = runTest {
-        val registry = com.jarvis.core.agent.ToolRegistry()
-        val toolExecutor = com.jarvis.core.agent.ToolExecutor(
-            registry = registry,
-            audit = com.jarvis.core.agent.AuditLogger { },
-        )
-        val needleActionTool = NeedleTools.needleAction(
-            needleRouter = object : NeedleRouter() {
-                override suspend fun route(prompt: String): RoutingDecision {
-                    return RoutingDecision.Direct(
-                        toolName = NeedleTools.NEEDLE_ACTION,
-                        argsJson = """{"action":"turn on flashlight"}""",
-                        confidence = 1.0f,
-                        userFacingAction = "recursive test",
-                    )
-                }
-            },
-            toolExecutor = toolExecutor,
-        )
-
-        val result = needleActionTool.execute("""{"action":"turn on flashlight"}""")
-        assertEquals(false, result.success)
-        assertEquals("recursive_needle_call", result.error)
-    }
 }

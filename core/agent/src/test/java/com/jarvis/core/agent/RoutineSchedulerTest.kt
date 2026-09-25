@@ -67,7 +67,7 @@ class RoutineSchedulerTest {
         taskRepo: TaskRepository,
         opRepo: OperationRepository = NoopOperationRepository(),
     ): TaskEngine {
-        val toolExecutor = ToolExecutor(ToolRegistry(), AuditLogger { })
+        val toolExecutor = ToolExecutor(ToolRegistry(), AuditLogger { }, operationRepository = opRepo)
         return TaskEngine(taskRepo, opRepo, toolExecutor)
     }
 

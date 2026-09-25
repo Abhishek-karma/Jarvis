@@ -10,6 +10,7 @@ import com.jarvis.core.agent.ToolRegistry
 import com.jarvis.core.agent.needle.NeedleConfig
 import com.jarvis.core.agent.needle.NeedleEngine
 import com.jarvis.core.agent.needle.NeedleRouter
+import com.jarvis.core.database.repository.OperationRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -49,10 +50,12 @@ object AgentModule {
         registry: ToolRegistry,
         audit: AuditLogger,
         toolPolicy: ToolPolicy,
+        operationRepository: OperationRepository,
     ): ToolExecutor = ToolExecutor(
         registry = registry,
         audit = audit,
         toolPolicy = toolPolicy,
+        operationRepository = operationRepository,
     )
 
     @Provides

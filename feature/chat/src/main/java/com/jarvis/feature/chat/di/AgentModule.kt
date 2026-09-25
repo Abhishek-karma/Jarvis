@@ -48,8 +48,6 @@ import com.jarvis.core.agent.Tool
 import com.jarvis.core.agent.ToolExecutor
 import com.jarvis.core.agent.ToolLoader
 import android.view.KeyEvent
-import com.jarvis.core.agent.needle.NeedleRouter
-import com.jarvis.core.agent.needle.NeedleTools
 import com.jarvis.core.agent.ToolRegistry
 import com.jarvis.core.agent.bridge.BridgeCoordinator
 import com.jarvis.core.agent.bridge.CommandPolicyEngine
@@ -257,25 +255,9 @@ object AgentModule {
     @Singleton
     fun provideToolRegistry(
         builtInTools: @JvmSuppressWildcards List<Tool>,
-        needleRouter: NeedleRouter,
-        toolExecutorLazy: dagger.Lazy<ToolExecutor>,
     ): ToolRegistry {
         val registry = ToolRegistry()
         builtInTools.forEach { registry.register(it) }
-        registry.register(
-            NeedleTools.needleAction(
-                needleRouter = needleRouter,
-                executeTool = { name, args ->
-                    val outcome = toolExecutorLazy.get().execute(name, args)
-                    com.jarvis.core.agent.ToolResult(
-                        success = outcome.success,
-                        observationText = outcome.observationText,
-                        error = outcome.errorCode?.name ?: if (!outcome.success) (outcome.rejectionReason ?: outcome.observationText) else null,
-                        errorCode = outcome.errorCode,
-                    )
-                },
-            ),
-        )
         return registry
     }
 
@@ -315,6 +297,7 @@ object AgentModule {
         toolRegistry: ToolRegistry,
         auditLogger: AuditLogger,
         memoryRepository: MemoryRepository,
+        toolExecutor: ToolExecutor,
     ): RoutineExecutionRunner = RoutineExecutionRunner { task, routine ->
         runCatching {
             val providers = providerRepository.observeProviders().first()
@@ -326,7 +309,8 @@ object AgentModule {
                 audit = auditLogger,
                 confirmationGate = { _, _ -> false },
                 toolPolicy = com.jarvis.core.agent.BackgroundToolPolicy(),
-                stepCap = 10,
+                stepCap = 20,
+                toolExecutor = toolExecutor,
             )
             val memories = memoryRepository.getActiveNonPrivate()
             val memoryContext = if (memories.isNotEmpty()) {
@@ -345,6 +329,7 @@ object AgentModule {
                 ),
                 agentRunId = task.id,
                 memoryContext = memoryContext,
+                timeoutMillis = 300_000L, // 5 minutes for background routines
             )
 
             var finalAnswer: String? = null
@@ -369,7 +354,7 @@ object AgentModule {
                 ?: if (executedTools.isNotEmpty()) {
                     "Routine executed actions: ${executedTools.joinToString()}."
                 } else {
-                    "Routine completed without executing actions or generating output."
+                    "Routine completed: no actions executed. In background mode, only READ_ONLY tools are permitted."
                 }
         }
     }

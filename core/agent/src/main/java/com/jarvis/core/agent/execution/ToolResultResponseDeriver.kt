@@ -167,7 +167,6 @@ object ToolResultResponseDeriver {
             "launch_app" -> "open the app"
             "open_settings" -> "open settings"
             "phone_agent" -> "complete the task on screen"
-            "needle_action" -> "execute the action"
             "transfer_funds" -> "transfer funds"
             else -> lower.replace('_', ' ')
         }

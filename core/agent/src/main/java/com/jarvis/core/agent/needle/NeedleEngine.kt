@@ -1,20 +1,19 @@
 package com.jarvis.core.agent.needle
 
-import android.util.Log
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * On-device runtime engine for Needle 3 function calling and capability prediction.
+ * Fast capability router for Jarvis.
  *
- * Implements local model lifecycle (lazy initialization, single instance reuse, thread-safety,
- * background execution) with calibrated confidence scoring.
+ * IMPORTANT: This is NOT a neural model. No on-device Needle model or native engine is bundled in
+ * the repository, so this engine performs small, deterministic keyword-based capability routing and
+ * escalates anything complex or unsupported to [NeedleRouter]/AgentRunner. It exists purely as a
+ * lightweight, predictable fallback router — not as autonomous planning or general LLM reasoning.
  */
 @Singleton
 class NeedleEngine @Inject constructor(
@@ -22,54 +21,17 @@ class NeedleEngine @Inject constructor(
     private val defaultDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
 
-    private val mutex = Mutex()
-    private val nativeBridge = NeedleNativeBridge()
-    private var nativeHandle: Long = 0L
-    private var isInitialized = false
-
-    companion object {
-        private const val TAG = "NeedleEngine"
-    }
-
     /**
-     * Initializes the Needle 3 local model instance lazily.
-     */
-    suspend fun ensureInitialized() = withContext(defaultDispatcher) {
-        if (isInitialized) return@withContext
-        mutex.withLock {
-            if (isInitialized) return@withLock
-            if (nativeBridge.isAvailable) {
-                nativeHandle = nativeBridge.initNative(
-                    modelPath = config.modelPath,
-                    depth = config.depth,
-                    confidenceFloor = config.confidenceFloor,
-                )
-            }
-            isInitialized = true
-        }
-    }
-
-    /**
-     * Predicts tool call and arguments for the prompt with calibrated confidence.
+     * Routes a prompt to a single predicted capability, or null when the request is complex,
+     * multi-step, unsupported, or not confidently mappable to a reliable native tool.
      */
     suspend fun route(prompt: String, tools: List<NeedleToolDef>): NeedleToolCall? = withContext(defaultDispatcher) {
-        ensureInitialized()
-
         val clean = prompt.trim().trimEnd('.', '!', '?', ';', ',')
         val lower = clean.lowercase(Locale.US)
         if (lower.isBlank()) return@withContext null
 
-        // If native JNI engine is active, query native C/C++ engine
-        if (nativeHandle != 0L) {
-            val toolsJson = serializeTools(tools)
-            val rawResult = nativeBridge.routeNative(nativeHandle, clean, toolsJson)
-            if (!rawResult.isNullOrBlank()) {
-                val parsed = parseNativeResult(rawResult)
-                if (parsed != null) return@withContext parsed
-            }
-        }
-
-        // Embedded Needle 3 router inference
+        // small curated capability catalogue; complex or multi-step requests are deliberately not
+        // mapped here and must escalate to the AgentRunner.
         predictEmbedded(clean, lower, tools)
     }
 
@@ -127,15 +89,6 @@ class NeedleEngine @Inject constructor(
         }
 
         return false
-    }
-
-    private fun countActionVerbs(lower: String): Int {
-        var count = 0
-        val verbs = listOf("open", "launch", "search", "find", "type", "send", "message", "click", "play", "download", "install", "turn")
-        for (v in verbs) {
-            if (lower.contains(v)) count++
-        }
-        return count
     }
 
     private fun predictSettings(lower: String): NeedleToolCall? {
@@ -490,33 +443,4 @@ class NeedleEngine @Inject constructor(
     }
 
     private fun escapeJson(value: String): String = value.replace("\\", "\\\\").replace("\"", "\\\"")
-
-    private fun serializeTools(tools: List<NeedleToolDef>): String = buildString {
-        append("[")
-        tools.forEachIndexed { index, tool ->
-            if (index > 0) append(",")
-            append("""{"name":"${tool.name}","description":"${escapeJson(tool.description)}"}""")
-        }
-        append("]")
-    }
-
-    private fun parseNativeResult(json: String): NeedleToolCall? {
-        val namePattern = Regex("""\"name\"\s*:\s*\"([^\"]+)\"""")
-        val confPattern = Regex("""\"confidence\"\s*:\s*([0-9.]+)""")
-        val argsPattern = Regex("""\"arguments\"\s*:\s*(\{.*\})""")
-
-        val name = namePattern.find(json)?.groupValues?.get(1) ?: return null
-        val conf = confPattern.find(json)?.groupValues?.get(1)?.toFloatOrNull() ?: 0.5f
-        val args = argsPattern.find(json)?.groupValues?.get(1) ?: "{}"
-
-        return NeedleToolCall(name = name, argumentsJson = args, confidence = conf)
-    }
-
-    fun close() {
-        if (nativeHandle != 0L) {
-            nativeBridge.destroyNative(nativeHandle)
-            nativeHandle = 0L
-        }
-        isInitialized = false
-    }
 }

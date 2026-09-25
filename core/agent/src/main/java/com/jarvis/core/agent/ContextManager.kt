@@ -24,14 +24,15 @@ data class ContextBudget(
             val tools = (safeTotal * 0.15).toInt().coerceIn(200, 1000)
             val memory = (safeTotal * 0.10).toInt().coerceIn(100, 600)
             val attachments = (safeTotal * 0.10).toInt().coerceIn(150, 800)
-            val history = safeTotal - system - tools - memory - attachments - output
+            val history = (safeTotal - system - tools - memory - attachments - output)
+                .coerceAtLeast(1)
             return ContextBudget(
                 maxTotalTokens = safeTotal,
                 systemPromptBudget = system,
                 toolsBudget = tools,
                 memoryBudget = memory,
                 attachmentsBudget = attachments,
-                historyBudget = maxOf(history, 300),
+                historyBudget = history,
                 maxObservationTokens = (safeTotal * 0.25).toInt().coerceIn(300, 1500),
                 outputReserveTokens = output,
             )
@@ -45,14 +46,15 @@ data class ContextBudget(
             val memory = 100
             val attachments = 150
             val maxObs = 150
-            val history = total - system - tools - memory - attachments - output
+            val history = (total - system - tools - memory - attachments - output)
+                .coerceAtLeast(1)
             return ContextBudget(
                 maxTotalTokens = total,
                 systemPromptBudget = system,
                 toolsBudget = tools,
                 memoryBudget = memory,
                 attachmentsBudget = attachments,
-                historyBudget = maxOf(history, 400),
+                historyBudget = history,
                 maxObservationTokens = maxObs,
                 outputReserveTokens = output,
             )
@@ -66,14 +68,15 @@ data class ContextBudget(
             val memory = (total * 0.08).toInt().coerceIn(300, 800)
             val attachments = (total * 0.12).toInt().coerceIn(400, 1500)
             val maxObs = 1200
-            val history = total - system - tools - memory - attachments - output
+            val history = (total - system - tools - memory - attachments - output)
+                .coerceAtLeast(1)
             return ContextBudget(
                 maxTotalTokens = total,
                 systemPromptBudget = system,
                 toolsBudget = tools,
                 memoryBudget = memory,
                 attachmentsBudget = attachments,
-                historyBudget = maxOf(history, 1500),
+                historyBudget = history,
                 maxObservationTokens = maxObs,
                 outputReserveTokens = output,
             )

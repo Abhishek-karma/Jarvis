@@ -377,7 +377,7 @@ class TaskEngineTest {
     }
 
     @Test
-    fun `cancellation exception rethrow leaves operation FAILED and propagates`() = runTest {
+    fun `cancellation exception rethrow leaves operation UNKNOWN and propagates`() = runTest {
         val taskRepo = FakeTaskRepository()
         val opRepo = FakeOperationRepository()
         val registry = ToolRegistry()
@@ -395,9 +395,9 @@ class TaskEngineTest {
         }
 
         assertEquals(
-            OperationStatus.FAILED,
+            OperationStatus.UNKNOWN,
             opRepo.getByKey("cancel-key")?.status,
-            "CancellationException must mark the ledger FAILED before rethrowing",
+            "CancellationException must mark the ledger UNKNOWN before rethrowing",
         )
     }
 

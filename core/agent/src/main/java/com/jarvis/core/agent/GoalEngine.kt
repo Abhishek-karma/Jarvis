@@ -3,6 +3,8 @@ package com.jarvis.core.agent
 import com.jarvis.core.agent.execution.ErrorCode
 import com.jarvis.core.agent.execution.ExecutionResult
 import com.jarvis.core.agent.needle.EscalationReason
+import com.jarvis.core.agent.needle.NeedleConfig
+import com.jarvis.core.agent.needle.NeedleEngine
 import com.jarvis.core.agent.needle.NeedleRouter
 import com.jarvis.core.agent.needle.RoutingDecision
 import com.jarvis.core.common.Message
@@ -83,7 +85,11 @@ class GoalEngine @Inject constructor(
     private val agentRunner: AgentRunner,
     private val taskRepository: TaskRepository,
     private val toolExecutor: ToolExecutor,
-    private val needleRouter: NeedleRouter = NeedleRouter(),
+    private val needleRouter: NeedleRouter = NeedleRouter(
+        engine = NeedleEngine(),
+        config = NeedleConfig(),
+        defaultDispatcher = kotlinx.coroutines.Dispatchers.Default,
+    ),
 ) {
     /**
      * Executes a user goal end-to-end with the LLM as the central cognitive engine.
@@ -195,9 +201,25 @@ class GoalEngine @Inject constructor(
                         emit(GoalEvent.ConfirmationRequired(agentEvent.name, agentEvent.argsJson))
                     }
                     is com.jarvis.core.agent.AgentEvent.FinalAnswer -> {
-                        emittedTerminalEvent = true
-                        updateTaskState(goal.id, TaskState.COMPLETED)
-                        emit(GoalEvent.Completed(goal.id, agentEvent.text, agentEvent.executionResult))
+                        if (!emittedTerminalEvent) {
+                            emittedTerminalEvent = true
+                            val res = agentEvent.executionResult
+                            when {
+                                res != null && res.isCancelled -> {
+                                    updateTaskState(goal.id, TaskState.CANCELLED, res.message)
+                                    emit(GoalEvent.Cancelled(goal.id, res.message, res))
+                                }
+                                res != null && !res.isSuccess -> {
+                                    val code = res.code ?: ErrorCode.UNKNOWN_ERROR
+                                    updateTaskState(goal.id, TaskState.FAILED, res.message)
+                                    emit(GoalEvent.Failed(goal.id, code.name, res.message, res))
+                                }
+                                else -> {
+                                    updateTaskState(goal.id, TaskState.COMPLETED)
+                                    emit(GoalEvent.Completed(goal.id, agentEvent.text, res))
+                                }
+                            }
+                        }
                     }
                     is com.jarvis.core.agent.AgentEvent.Failed -> {
                         emittedTerminalEvent = true
